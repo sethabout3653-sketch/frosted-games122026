@@ -41,6 +41,7 @@ export class WebSocketClient {
   private changeListeners = new Map<string, Set<ChangeCallback>>();
   private allChangeListeners = new Set<ChangeCallback>();
   private signalListeners = new Set<SignalCallback>();
+  private aiChatListeners = new Set<(response: { text: string; model: string; provider: string; requestId: string }) => void>();
   private myUid: string | null = null;
 
   // Reconnection management
@@ -286,6 +287,21 @@ export class WebSocketClient {
       });
       return;
     }
+
+    // Handle AI Assistant messages
+    if (msg.type === "ai_chat_response") {
+      this.aiChatListeners.forEach((cb) => {
+        try {
+          cb({
+            text: msg.text,
+            model: msg.model,
+            provider: msg.provider,
+            requestId: msg.requestId,
+          });
+        } catch (e) {}
+      });
+      return;
+    }
   }
 
   private sendRaw(data: any): boolean {
@@ -370,6 +386,33 @@ export class WebSocketClient {
     return () => {
       this.signalListeners.delete(cb);
     };
+  }
+
+  /**
+   * Subscribe to AI Chat responses
+   */
+  public onAiChatResponse(cb: (response: { text: string; model: string; provider: string; requestId: string }) => void): () => void {
+    this.aiChatListeners.add(cb);
+    return () => {
+      this.aiChatListeners.delete(cb);
+    };
+  }
+
+  /**
+   * Send an AI chat message request over WebSockets
+   */
+  public sendAiChat(payload: {
+    requestId: string;
+    messages: any[];
+    model?: string;
+    systemPrompt?: string;
+    temperature?: number;
+    customKey?: string;
+  }): boolean {
+    return this.sendRaw({
+      type: "ai_chat",
+      ...payload,
+    });
   }
 
   public disconnect() {

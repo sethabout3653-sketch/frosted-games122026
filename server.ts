@@ -10,12 +10,12 @@ import { execSync } from "child_process";
 import { Filter } from "bad-words";
 import Tesseract from "tesseract.js";
 import { GoogleGenAI } from "@google/genai";
-import { checkTextModeration } from "./src/utils/moderation.js";
+import { checkTextModeration } from "./src/utils/moderation";
 import dbDataHandler from "./api/db/data";
 import dbStreamHandler from "./api/db/stream";
 
-import { createPool, db } from "./src/db/index.js";
-import { records, webrtcSignals } from "./src/db/schema.js";
+import { createPool, db } from "./src/db/index";
+import { records, webrtcSignals } from "./src/db/schema";
 import { eq, and, gt, ne, or } from "drizzle-orm";
 
 export const app = express();
@@ -483,32 +483,38 @@ const PORT = 3000;
 
   // Safe Vercel-compatible body parser middleware
   app.use((req: any, res: any, next: any) => {
-    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
+    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body) && Object.keys(req.body).length > 0) {
       return next();
     }
-    express.json({ limit: "500mb" })(req, res, next);
+    if (typeof req.body === "string") {
+      try {
+        req.body = JSON.parse(req.body);
+      } catch (e) {}
+      return next();
+    }
+    express.json({ limit: "500mb" })(req, res, (err: any) => {
+      if (err) req.body = req.body || {};
+      next();
+    });
   });
   app.use((req: any, res: any, next: any) => {
-    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
+    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body) && Object.keys(req.body).length > 0) {
       return next();
     }
-    express.urlencoded({ extended: true, limit: "500mb" })(req, res, next);
+    express.urlencoded({ extended: true, limit: "500mb" })(req, res, (err: any) => {
+      if (err) req.body = req.body || {};
+      next();
+    });
   });
 
-  // Vercel serverless request body normalizer middleware
-  app.use((req, res, next) => {
-    if (req.body) {
-      if (typeof req.body === "string") {
-        try {
-          req.body = JSON.parse(req.body);
-        } catch (e) {}
-      } else if (Buffer.isBuffer(req.body)) {
-        try {
-          req.body = JSON.parse(req.body.toString("utf-8"));
-        } catch (e) {}
-      }
-    }
-    next();
+  // HTTP route handler for /api/ws and /ws to return 200 OK JSON in serverless environments
+  app.all(["/api/ws", "/ws"], (req, res) => {
+    return res.status(200).json({
+      status: "ok",
+      websocket: false,
+      mode: "serverless_polling",
+      message: "WebSocket endpoint is active. SSE (/api/db/stream) or HTTP polling is used in serverless mode."
+    });
   });
 
   // ==========================================
@@ -738,6 +744,34 @@ const PORT = 3000;
 
           // Mirror to SSE stream
           broadcastWebRTCSignal(sigObj);
+          return;
+        }
+
+        // 6. AI Assistant Completion over WebSocket
+        if (msg.type === "ai_chat") {
+          const { requestId, messages, model, systemPrompt, temperature, customKey } = msg;
+          try {
+            const result = await executeAiCompletion({
+              messages,
+              model,
+              systemPrompt,
+              temperature,
+              customKey,
+            });
+            ws.send(JSON.stringify({
+              type: "ai_chat_response",
+              requestId,
+              ...result,
+            }));
+          } catch (aiErr: any) {
+            ws.send(JSON.stringify({
+              type: "ai_chat_response",
+              requestId,
+              text: `AI WebSocket error: ${aiErr?.message || String(aiErr)}`,
+              model: model || "error",
+              provider: "error"
+            }));
+          }
           return;
         }
       } catch (err) {
@@ -2582,6 +2616,146 @@ Respond strictly in valid JSON:
     });
   });
 
+  async function executeAiCompletion(opts: {
+    messages: any[];
+    model?: string;
+    systemPrompt?: string;
+    temperature?: number;
+    customKey?: string;
+  }): Promise<{ text: string; model: string; provider: string }> {
+    const {
+      messages = [],
+      model = "groq/compound",
+      systemPrompt = "You are a helpful, clear, and friendly AI assistant. Give articulate, well-structured answers using clean Markdown. Format code snippets with proper language tags.",
+      temperature = 0.7,
+      customKey = ""
+    } = opts || {};
+
+    const clientKey = (typeof customKey === "string" && customKey.trim().length > 0)
+      ? customKey.trim()
+      : GROQ_API_KEY;
+
+    // Priority 1: Gemini Engine (Primary choice in AI Studio)
+    try {
+      const gemini = getGeminiClient();
+      if (gemini && Date.now() >= quotaExhaustedCooldown) {
+        const candidateModels = ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-3.8-flash"];
+        const formattedHistory = messages.map((m: any) => {
+          const speaker = m.role === "assistant" ? "Assistant" : "User";
+          return `${speaker}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`;
+        }).join("\n\n");
+
+        const prompt = `${systemPrompt}\n\nConversation history:\n${formattedHistory}\n\nAssistant:`;
+
+        for (const gemModel of candidateModels) {
+          try {
+            const result = await gemini.models.generateContent({
+              model: gemModel,
+              contents: prompt,
+              config: {
+                temperature: Math.min(1.0, Math.max(0.1, temperature))
+              }
+            });
+
+            if (result && result.text) {
+              return {
+                text: result.text,
+                model: gemModel,
+                provider: "gemini"
+              };
+            }
+          } catch (gemErr: any) {
+            const errMsg = gemErr?.message || "";
+            if (errMsg.includes("quota") || errMsg.includes("exceeded") || errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED")) {
+              quotaExhaustedCooldown = Date.now() + 60000;
+              break;
+            }
+          }
+        }
+      }
+    } catch (geminiException) {
+      console.warn("Gemini engine error:", geminiException);
+    }
+
+    // Priority 2: Groq Cascade (Ultra-fast LLM inference via Groq LPU)
+    if (clientKey) {
+      const targetModels = Array.from(new Set([
+        model && model !== "auto" && !model.includes("openrouter") ? model : "openai/gpt-oss-120b",
+        "openai/gpt-oss-120b",
+        "groq/compound",
+        "qwen/qwen3.8-27b",
+        "openai/gpt-oss-20b",
+        "groq/compound-mini"
+      ].filter(Boolean)));
+
+      const payloadMessages = [
+        { role: "system", content: systemPrompt },
+        ...messages.map((m: any) => ({
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+        }))
+      ];
+
+      for (const targetModel of targetModels) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+
+          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              "Authorization": `Bearer ${clientKey}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              model: targetModel,
+              messages: payloadMessages,
+              temperature: Math.min(1.0, Math.max(0.1, temperature))
+            })
+          });
+          clearTimeout(timeout);
+
+          if (response.ok) {
+            const data: any = await response.json();
+            const text = data?.choices?.[0]?.message?.content;
+            if (text) {
+              return {
+                text,
+                model: data?.model || targetModel,
+                provider: "groq"
+              };
+            }
+          }
+        } catch (e: any) {
+          console.warn(`Groq model ${targetModel} attempt failed:`, e?.message);
+        }
+      }
+    }
+
+    // Priority 3: Intelligent Offline Assistant (Zero rate limit guarantee)
+    const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user")?.content || "";
+    const lower = typeof lastUserMsg === "string" ? lastUserMsg.toLowerCase() : "";
+    
+    let offlineText = "I'm here to help you study! What concept, math problem, or code question would you like to break down next?";
+
+    if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey")) {
+      offlineText = "Hello! I'm your AI Assistant. How can I help you with your studies, code, or projects today?";
+    } else if (lower.includes("code") || lower.includes("function") || lower.includes("javascript") || lower.includes("python") || lower.includes("react") || lower.includes("typescript")) {
+      offlineText = "### Programming Solution & Code Structure\n\nWhen implementing software logic, follow these best practices:\n\n```typescript\n// Example clean function pattern\nexport async function handleUserQuery(query: string) {\n  if (!query) throw new Error('Query string is required');\n  // Execute core task logic\n  return { status: 'success', timestamp: Date.now() };\n}\n```\n\n**Key Steps:**\n1. **Validate Inputs**: Ensure parameter safety.\n2. **Isolate Logic**: Use modular helper functions.\n3. **Handle Errors Gracefully**: Prevent unexpected crashes.\n\n*Feel free to paste your specific code snippet or bug description!*";
+    } else if (lower.includes("math") || lower.includes("solve") || lower.includes("equation") || lower.includes("formula")) {
+      offlineText = "### Step-by-Step Math Solution\n\n1. **Define Known Variables**: Note given constants and unknowns.\n2. **Set Up Equation**: Align terms systematically.\n3. **Isolate Variable**: Perform step-by-step arithmetic operations.\n4. **Check Work**: Substitute your answer back into the original expression.\n\n*Paste your exact equation and I will guide you through every step!*";
+    } else if (lower.includes("photosynthesis") || lower.includes("biology") || lower.includes("science")) {
+      offlineText = "### Photosynthesis Explained Simply\n\nPhotosynthesis is the process plants use to convert light into chemical energy:\n\n$$\\text{Water} + \\text{Carbon Dioxide} + \\text{Sunlight} \\rightarrow \\text{Glucose} + \\text{Oxygen}$$\n\n- **Chloroplasts**: Organelles in plant cells that capture light.\n- **Chlorophyll**: Green pigment that absorbs sunlight.\n- **Byproduct**: Releases oxygen into the atmosphere!";
+    }
+
+    return {
+      text: offlineText,
+      model: "offline-assistant",
+      provider: "intelligent-fallback"
+    };
+  }
+
   app.post("/api/ai/chat", async (req, res) => {
     try {
       let body = req.body;
@@ -2607,129 +2781,15 @@ Respond strictly in valid JSON:
         ? customKey.trim()
         : ((req.headers["x-groq-key"] as string) || GROQ_API_KEY);
 
-      // Priority 1: Gemini Engine (Primary choice in AI Studio)
-      try {
-        const gemini = getGeminiClient();
-        if (gemini && Date.now() >= quotaExhaustedCooldown) {
-          const candidateModels = ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-3.8-flash"];
-          const formattedHistory = messages.map((m: any) => {
-            const speaker = m.role === "assistant" ? "Assistant" : "User";
-            return `${speaker}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`;
-          }).join("\n\n");
-
-          const prompt = `${systemPrompt}\n\nConversation history:\n${formattedHistory}\n\nAssistant:`;
-
-          for (const gemModel of candidateModels) {
-            try {
-              const result = await gemini.models.generateContent({
-                model: gemModel,
-                contents: prompt,
-                config: {
-                  temperature: Math.min(1.0, Math.max(0.1, temperature))
-                }
-              });
-
-              if (result && result.text) {
-                return res.json({
-                  text: result.text,
-                  model: gemModel,
-                  provider: "gemini"
-                });
-              }
-            } catch (gemErr: any) {
-              const errMsg = gemErr?.message || "";
-              console.warn(`Gemini model ${gemModel} attempt failed:`, errMsg);
-              if (errMsg.includes("quota") || errMsg.includes("exceeded") || errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED")) {
-                quotaExhaustedCooldown = Date.now() + 60000;
-                break;
-              }
-            }
-          }
-        }
-      } catch (geminiException) {
-        console.warn("Gemini engine error:", geminiException);
-      }
-
-      // Priority 2: Groq Cascade (Ultra-fast LLM inference via Groq LPU)
-      if (clientKey) {
-        const targetModels = Array.from(new Set([
-          model && model !== "auto" && !model.includes("openrouter") ? model : "openai/gpt-oss-120b",
-          "openai/gpt-oss-120b",
-          "groq/compound",
-          "qwen/qwen3.8-27b",
-          "openai/gpt-oss-20b",
-          "groq/compound-mini"
-        ].filter(Boolean)));
-
-        const payloadMessages = [
-          { role: "system", content: systemPrompt },
-          ...messages.map((m: any) => ({
-            role: m.role === "assistant" ? "assistant" : "user",
-            content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
-          }))
-        ];
-
-        for (const targetModel of targetModels) {
-          try {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 10000);
-
-            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-              method: "POST",
-              signal: controller.signal,
-              headers: {
-                "Authorization": `Bearer ${clientKey}`,
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                model: targetModel,
-                messages: payloadMessages,
-                temperature: Math.min(1.0, Math.max(0.1, temperature))
-              })
-            });
-            clearTimeout(timeout);
-
-            if (response.ok) {
-              const data: any = await response.json();
-              const text = data?.choices?.[0]?.message?.content;
-              if (text) {
-                return res.json({
-                  text,
-                  model: data?.model || targetModel,
-                  provider: "groq"
-                });
-              }
-            } else {
-              const errText = await response.text().catch(() => "");
-              console.warn(`Groq model ${targetModel} status ${response.status}: ${errText}`);
-            }
-          } catch (e: any) {
-            console.warn(`Groq model ${targetModel} attempt failed:`, e?.message);
-          }
-        }
-      }
-
-      // Priority 3: Intelligent Offline Assistant (Zero rate limit guarantee)
-      const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user")?.content || "";
-      const lower = typeof lastUserMsg === "string" ? lastUserMsg.toLowerCase() : "";
-      
-      let offlineText = "I'm here to help you study! What concept, math problem, or code question would you like to break down next?";
-
-      if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey")) {
-        offlineText = "Hello! I'm your AI Assistant. How can I help you with your studies, code, or projects today?";
-      } else if (lower.includes("code") || lower.includes("function") || lower.includes("javascript") || lower.includes("python") || lower.includes("react") || lower.includes("typescript")) {
-        offlineText = "### Programming Solution & Code Structure\n\nWhen implementing software logic, follow these best practices:\n\n```typescript\n// Example clean function pattern\nexport async function handleUserQuery(query: string) {\n  if (!query) throw new Error('Query string is required');\n  // Execute core task logic\n  return { status: 'success', timestamp: Date.now() };\n}\n```\n\n**Key Steps:**\n1. **Validate Inputs**: Ensure parameter safety.\n2. **Isolate Logic**: Use modular helper functions.\n3. **Handle Errors Gracefully**: Prevent unexpected crashes.\n\n*Feel free to paste your specific code snippet or bug description!*";
-      } else if (lower.includes("math") || lower.includes("solve") || lower.includes("equation") || lower.includes("formula")) {
-        offlineText = "### Step-by-Step Math Solution\n\n1. **Define Known Variables**: Note given constants and unknowns.\n2. **Set Up Equation**: Align terms systematically.\n3. **Isolate Variable**: Perform step-by-step arithmetic operations.\n4. **Check Work**: Substitute your answer back into the original expression.\n\n*Paste your exact equation and I will guide you through every step!*";
-      } else if (lower.includes("photosynthesis") || lower.includes("biology") || lower.includes("science")) {
-        offlineText = "### Photosynthesis Explained Simply\n\nPhotosynthesis is the process plants use to convert light into chemical energy:\n\n$$\\text{Water} + \\text{Carbon Dioxide} + \\text{Sunlight} \\rightarrow \\text{Glucose} + \\text{Oxygen}$$\n\n- **Chloroplasts**: Organelles in plant cells that capture light.\n- **Chlorophyll**: Green pigment that absorbs sunlight.\n- **Byproduct**: Releases oxygen into the atmosphere!";
-      }
-
-      return res.json({
-        text: offlineText,
-        model: "offline-assistant",
-        provider: "intelligent-fallback"
+      const result = await executeAiCompletion({
+        messages,
+        model,
+        systemPrompt,
+        temperature,
+        customKey: clientKey
       });
+
+      return res.json(result);
     } catch (err: any) {
       console.error("AI chat endpoint fatal error:", err);
       return res.json({

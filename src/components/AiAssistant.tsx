@@ -18,6 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { wsClient } from "../lib/websocket-client";
 
 export interface ChatMessage {
   id: string;
@@ -109,6 +110,27 @@ export default function AiAssistant() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
+
+  // Subscribe to real-time WebSocket AI Assistant responses
+  useEffect(() => {
+    const unsubscribe = wsClient.onAiChatResponse((response) => {
+      if (activeRequestIdRef.current && response.requestId === activeRequestIdRef.current) {
+        const assistantMessage: ChatMessage = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: response.text || "I was unable to generate a response. Please try again.",
+          timestamp: Date.now(),
+        };
+
+        setMessages((prev) => [...prev, assistantMessage]);
+        setIsLoading(false);
+        activeRequestIdRef.current = null;
+        setTimeout(() => textareaRef.current?.focus(), 100);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -162,6 +184,27 @@ export default function AiAssistant() {
     setIsLoading(true);
 
     const activeModel = selectedModel === "auto" ? pickAutoModel(text) : selectedModel;
+
+    // Use fast WebSocket channel if connected
+    if (wsClient.isConnected()) {
+      const requestId = `req-${Date.now()}`;
+      activeRequestIdRef.current = requestId;
+      const sent = wsClient.sendAiChat({
+        requestId,
+        messages: newHistory.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        model: activeModel,
+        systemPrompt:
+          "You are a helpful, clear, and friendly AI assistant. Give articulate, well-structured answers using clean Markdown. Format code snippets with proper language tags.",
+        temperature: 0.7,
+      });
+
+      if (sent) {
+        return;
+      }
+    }
 
     try {
       const response = await fetch("/api/ai/chat", {
