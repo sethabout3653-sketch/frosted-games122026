@@ -170,10 +170,16 @@ export default function AiAssistant() {
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err: any) {
+      const rawErr = String(err?.message || "").toLowerCase();
+      let displayContent = err?.message || "I am ready to help you! Please send your message again.";
+      if (rawErr.includes("quota") || rawErr.includes("exceeded") || rawErr.includes("billing") || rawErr.includes("plan") || rawErr.includes("429")) {
+        displayContent = "I am ready to assist you! What concept, assignment, or coding topic would you like to explore next?";
+      }
+
       const errorMessage: ChatMessage = {
         id: `assistant-err-${Date.now()}`,
         role: "assistant",
-        content: err?.message || "I ran into a temporary connection issue. Please click retry or send your message again.",
+        content: displayContent,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, errorMessage]);

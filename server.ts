@@ -1787,16 +1787,21 @@ Rules:
           }
         }
       } catch (err: any) {
-        // If 503 (high demand) or 429 (quota), smoothly try next candidate model without crashing
-        const isUnavailableOrExhausted =
-          err?.status === 503 ||
+        // If 503 (high demand) or 429 (quota), smoothly try next candidate model or set cooldown without crashing
+        const errMsg = err?.message || "";
+        const isQuotaExhausted =
           err?.status === 429 ||
-          err?.message?.includes("503") ||
-          err?.message?.includes("429") ||
-          err?.message?.includes("UNAVAILABLE") ||
-          err?.message?.includes("RESOURCE_EXHAUSTED");
+          errMsg.includes("429") ||
+          errMsg.includes("RESOURCE_EXHAUSTED") ||
+          errMsg.includes("quota") ||
+          errMsg.includes("exceeded");
 
-        if (isUnavailableOrExhausted) {
+        if (isQuotaExhausted) {
+          quotaExhaustedCooldown = Date.now() + 60000;
+          break;
+        }
+
+        if (err?.status === 503 || errMsg.includes("503") || errMsg.includes("UNAVAILABLE")) {
           continue; // Seamlessly try the next model in cascade
         }
       }
@@ -2667,7 +2672,50 @@ Respond strictly in valid JSON:
         ? customKey.trim()
         : ((req.headers["x-openrouter-key"] as string) || OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || process.env.VITE_OPENROUTER_API_KEY || "");
 
-      // Attempt 1: Call OpenRouter if key is available
+      // Priority 1: Gemini Engine (Fastest, highest quota, primary choice in AI Studio)
+      try {
+        const gemini = getGeminiClient();
+        if (gemini && Date.now() >= quotaExhaustedCooldown) {
+          const candidateModels = ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-3.8-flash"];
+          const formattedHistory = messages.map((m: any) => {
+            const speaker = m.role === "assistant" ? "Assistant" : "User";
+            return `${speaker}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`;
+          }).join("\n\n");
+
+          const prompt = `${systemPrompt}\n\nConversation history:\n${formattedHistory}\n\nAssistant:`;
+
+          for (const gemModel of candidateModels) {
+            try {
+              const result = await gemini.models.generateContent({
+                model: gemModel,
+                contents: prompt,
+                config: {
+                  temperature: Math.min(1.0, Math.max(0.1, temperature))
+                }
+              });
+
+              if (result && result.text) {
+                return res.json({
+                  text: result.text,
+                  model: gemModel,
+                  provider: "gemini"
+                });
+              }
+            } catch (gemErr: any) {
+              const errMsg = gemErr?.message || "";
+              console.warn(`Gemini model ${gemModel} attempt failed:`, errMsg);
+              if (errMsg.includes("quota") || errMsg.includes("exceeded") || errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED")) {
+                quotaExhaustedCooldown = Date.now() + 60000;
+                break;
+              }
+            }
+          }
+        }
+      } catch (geminiException) {
+        console.warn("Gemini engine error:", geminiException);
+      }
+
+      // Priority 2: OpenRouter Cascade (used if custom key is provided or Gemini is unconfigured/busy)
       if (clientKey) {
         const rawModel = model || "openrouter/free";
         const strippedModel = rawModel.replace(/:free$/, "");
@@ -2676,12 +2724,8 @@ Respond strictly in valid JSON:
           strippedModel,
           "openrouter/free",
           "deepseek/deepseek-chat",
-          "deepseek/deepseek-chat:free",
           "meta-llama/llama-3.3-70b-instruct",
-          "meta-llama/llama-3.3-70b-instruct:free",
-          "deepseek/deepseek-r1",
-          "deepseek/deepseek-r1:free",
-          "google/gemma-2-9b-it:free"
+          "deepseek/deepseek-r1"
         ].filter(Boolean)));
 
         const payloadMessages = [
@@ -2695,7 +2739,7 @@ Respond strictly in valid JSON:
         for (const targetModel of modelsToTry) {
           try {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 12000);
+            const timeout = setTimeout(() => controller.abort(), 10000);
 
             const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
               method: "POST",
@@ -2727,6 +2771,10 @@ Respond strictly in valid JSON:
             } else {
               const errText = await response.text().catch(() => "");
               console.warn(`OpenRouter model ${targetModel} status ${response.status}: ${errText}`);
+              if (response.status === 429) {
+                console.warn("OpenRouter rate limit hit. Skipping further OpenRouter attempts.");
+                break;
+              }
             }
           } catch (e: any) {
             console.warn(`OpenRouter model ${targetModel} attempt failed:`, e?.message);
@@ -2734,58 +2782,20 @@ Respond strictly in valid JSON:
         }
       }
 
-      // Attempt 2: Multi-tier fallback using official Gemini models (gemini-3.6-flash primary)
-      try {
-        const gemini = getGeminiClient();
-        if (gemini) {
-          const candidateModels = ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-3.8-flash"];
-          const formattedHistory = messages.map((m: any) => {
-            const speaker = m.role === "assistant" ? "Assistant" : "User";
-            return `${speaker}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`;
-          }).join("\n\n");
-
-          const prompt = `${systemPrompt}\n\nConversation so far:\n${formattedHistory}\n\nAssistant:`;
-
-          for (const gemModel of candidateModels) {
-            try {
-              const result = await gemini.models.generateContent({
-                model: gemModel,
-                contents: prompt,
-                config: {
-                  temperature: Math.min(1.0, Math.max(0.1, temperature))
-                }
-              });
-
-              if (result && result.text) {
-                return res.json({
-                  text: result.text,
-                  model: gemModel,
-                  provider: "gemini-fallback",
-                  note: "Powered by Gemini 3.6 Flash"
-                });
-              }
-            } catch (gemErr: any) {
-              console.warn(`Gemini model ${gemModel} failed:`, gemErr?.message);
-            }
-          }
-        }
-      } catch (geminiException) {
-        console.warn("Gemini fallback engine error:", geminiException);
-      }
-
-      // Attempt 3: Intelligent offline study responder if cloud APIs are rate-limited or unconfigured
+      // Priority 3: Intelligent Offline Assistant (Zero rate limit guarantee)
       const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user")?.content || "";
       const lower = typeof lastUserMsg === "string" ? lastUserMsg.toLowerCase() : "";
+      
       let offlineText = "I'm here to help you study! What concept, math problem, or code question would you like to break down next?";
 
       if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey")) {
         offlineText = "Hello! I'm your AI Assistant. How can I help you with your studies, code, or projects today?";
-      } else if (lower.includes("code") || lower.includes("function") || lower.includes("javascript") || lower.includes("python")) {
-        offlineText = "### Code Explanation & Help\n\nWhen writing functions, always break down the problem into 3 main steps:\n1. **Define Inputs**: Identify parameters and expected data types.\n2. **Process Logic**: Execute step-by-step transformations or loops.\n3. **Return Output**: Produce the clean result.\n\n*Feel free to paste your specific code snippet or error message!*";
-      } else if (lower.includes("math") || lower.includes("solve") || lower.includes("equation")) {
-        offlineText = "### Step-by-Step Math Strategy\n\nTo solve algebraic equations:\n1. **Isolate the Variable**: Move numbers without variables to the opposite side.\n2. **Simplify Both Sides**: Perform basic arithmetic operations.\n3. **Divide or Multiply**: Solve for x.\n\n*Paste your exact equation and we will solve it together step-by-step!*";
+      } else if (lower.includes("code") || lower.includes("function") || lower.includes("javascript") || lower.includes("python") || lower.includes("react") || lower.includes("typescript")) {
+        offlineText = "### Programming Solution & Code Structure\n\nWhen implementing software logic, follow these best practices:\n\n```typescript\n// Example clean function pattern\nexport async function handleUserQuery(query: string) {\n  if (!query) throw new Error('Query string is required');\n  // Execute core task logic\n  return { status: 'success', timestamp: Date.now() };\n}\n```\n\n**Key Steps:**\n1. **Validate Inputs**: Ensure parameter safety.\n2. **Isolate Logic**: Use modular helper functions.\n3. **Handle Errors Gracefully**: Prevent unexpected crashes.\n\n*Feel free to paste your specific code snippet or bug description!*";
+      } else if (lower.includes("math") || lower.includes("solve") || lower.includes("equation") || lower.includes("formula")) {
+        offlineText = "### Step-by-Step Math Solution\n\n1. **Define Known Variables**: Note given constants and unknowns.\n2. **Set Up Equation**: Align terms systematically.\n3. **Isolate Variable**: Perform step-by-step arithmetic operations.\n4. **Check Work**: Substitute your answer back into the original expression.\n\n*Paste your exact equation and I will guide you through every step!*";
       } else if (lower.includes("photosynthesis") || lower.includes("biology") || lower.includes("science")) {
-        offlineText = "### Photosynthesis Explained Simply\n\nPhotosynthesis is the process plants use to convert light into energy:\n\n$$\\text{Water} + \\text{Carbon Dioxide} + \\text{Sunlight} \\rightarrow \\text{Glucose} + \\text{Oxygen}$$\n\n- **Chloroplasts**: Organelles in plant cells that capture light.\n- **Chlorophyll**: Green pigment that absorbs sunlight.\n- **Byproduct**: Releases oxygen into the atmosphere!";
+        offlineText = "### Photosynthesis Explained Simply\n\nPhotosynthesis is the process plants use to convert light into chemical energy:\n\n$$\\text{Water} + \\text{Carbon Dioxide} + \\text{Sunlight} \\rightarrow \\text{Glucose} + \\text{Oxygen}$$\n\n- **Chloroplasts**: Organelles in plant cells that capture light.\n- **Chlorophyll**: Green pigment that absorbs sunlight.\n- **Byproduct**: Releases oxygen into the atmosphere!";
       }
 
       return res.json({
