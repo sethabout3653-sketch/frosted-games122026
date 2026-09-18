@@ -8,6 +8,13 @@ declare global {
 
 export const createPool = () => {
   if (!global._postgresPool) {
+    if (!process.env.SQL_HOST) {
+      return {
+        query: async () => ({ rows: [] }),
+        on: () => {},
+      } as any;
+    }
+
     global._postgresPool = new Pool({
       host: process.env.SQL_HOST,
       user: process.env.SQL_USER,

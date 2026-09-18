@@ -11,6 +11,8 @@ import { Filter } from "bad-words";
 import Tesseract from "tesseract.js";
 import { GoogleGenAI } from "@google/genai";
 import { checkTextModeration } from "./src/utils/moderation.js";
+import dbDataHandler from "./api/db/data";
+import dbStreamHandler from "./api/db/stream";
 
 import { db } from "./src/db/index.js";
 import { records, webrtcSignals } from "./src/db/schema.js";
@@ -2879,8 +2881,7 @@ Respond strictly in valid JSON:
   // Custom Real-Time Database Engine Routes (Vercel & Local Node compatible)
   app.all(["/api/db/data", "/api/db/data/*"], async (req, res) => {
     try {
-      const { default: handler } = await import("./api/db/data.js").catch(() => import("./api/db/data"));
-      return handler(req, res);
+      return await dbDataHandler(req, res);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
     }
@@ -2888,8 +2889,7 @@ Respond strictly in valid JSON:
 
   app.get(["/api/db/stream", "/api/db/stream/*"], async (req, res) => {
     try {
-      const { default: handler } = await import("./api/db/stream.js").catch(() => import("./api/db/stream"));
-      return handler(req, res);
+      return await dbStreamHandler(req, res);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
     }
