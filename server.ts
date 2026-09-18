@@ -14,7 +14,7 @@ import { checkTextModeration } from "./src/utils/moderation.js";
 import dbDataHandler from "./api/db/data";
 import dbStreamHandler from "./api/db/stream";
 
-import { db } from "./src/db/index.js";
+import { createPool, db } from "./src/db/index.js";
 import { records, webrtcSignals } from "./src/db/schema.js";
 import { eq, and, gt, ne, or } from "drizzle-orm";
 
@@ -485,6 +485,22 @@ const PORT = 3000;
   app.use(express.json({ limit: "500mb" }));
   app.use(express.urlencoded({ extended: true, limit: "500mb" }));
 
+  // Vercel serverless request body normalizer middleware
+  app.use((req, res, next) => {
+    if (req.body) {
+      if (typeof req.body === "string") {
+        try {
+          req.body = JSON.parse(req.body);
+        } catch (e) {}
+      } else if (Buffer.isBuffer(req.body)) {
+        try {
+          req.body = JSON.parse(req.body.toString("utf-8"));
+        } catch (e) {}
+      }
+    }
+    next();
+  });
+
   // ==========================================
   // Distributed Postgres Engine & Storage
   // ==========================================
@@ -493,7 +509,6 @@ const PORT = 3000;
   async function getDb() {
     if (dbInstance) return dbInstance;
     
-    const { createPool } = await import("./src/db/index.js");
     const pool = createPool();
     
     dbInstance = {
@@ -1825,7 +1840,6 @@ Rules:
     // Pass 2 with contrast enhancement only if initial pass returned empty
     const contrastTmp = path.join("/tmp", `ocr_c_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.jpg`);
     try {
-      const { execSync } = await import("child_process");
       execSync(`ffmpeg -y -i "${imagePath}" -vf "format=gray,eq=contrast=1.6:brightness=0.03" -threads 2 -preset ultrafast -q:v 2 "${contrastTmp}" 2>/dev/null`, { timeout: 2500 });
       if (fs.existsSync(contrastTmp) && fs.statSync(contrastTmp).size > 100) {
         const res2 = await Tesseract.recognize(contrastTmp, "eng");
@@ -1858,7 +1872,6 @@ Rules:
     const scaledTmp = path.join("/tmp", `scaled_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`);
     try {
       try {
-        const { execSync } = await import("child_process");
         execSync(`ffmpeg -y -i "${imagePath}" -vf "scale='min(512,iw)':-1" -threads 2 -preset ultrafast -q:v 3 "${scaledTmp}" 2>/dev/null`, { timeout: 3000 });
       } catch (e) {
         fs.copyFileSync(imagePath, scaledTmp);
@@ -1917,7 +1930,6 @@ Rules:
     const extractedFrames: string[] = [];
 
     try {
-      const { execSync } = await import("child_process");
       try {
         // Sample 3 keyframes across the GIF animation
         execSync(`ffmpeg -y -i "${gifPath}" -vf "fps=2,scale='min(480,iw)':-1" -threads 2 -preset ultrafast -vframes 3 "${framePattern}" 2>/dev/null`, { timeout: 4000 });
@@ -2003,7 +2015,6 @@ Rules:
 
     try {
       if (!fs.existsSync(audioPath) || fs.statSync(audioPath).size < 100) return { safe: true };
-      const { execSync } = await import("child_process");
 
       // 1. Check ID3 & stream metadata tags for profanity/slurs
       try {
@@ -2187,8 +2198,6 @@ Respond strictly in valid JSON:
     const extractedFrames: string[] = [];
 
     try {
-      const { execSync } = await import("child_process");
-
       // 1. Check video metadata tags
       try {
         const metaJson = execSync(`ffprobe -v error -show_entries format_tags:stream_tags -of json "${videoPath}" 2>/dev/null`, { timeout: 2500 }).toString();
