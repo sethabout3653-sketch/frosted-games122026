@@ -13,6 +13,9 @@ import {
   BookOpen,
   HelpCircle,
   ArrowUp,
+  Cpu,
+  ChevronDown,
+  Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -22,6 +25,15 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
 }
+
+const MODEL_OPTIONS = [
+  { id: "auto", name: "Auto Select", badge: "Smart Router", desc: "Dynamically picks the best model for your prompt" },
+  { id: "openai/gpt-oss-120b", name: "GPT OSS 120B", badge: "Groq LPU", desc: "Maximum reasoning & deep comprehension" },
+  { id: "groq/compound", name: "Groq Compound Engine", badge: "Groq LPU", desc: "Fast multi-step compound reasoning" },
+  { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B", badge: "Groq LPU", desc: "Optimized for code & math execution" },
+  { id: "openai/gpt-oss-20b", name: "GPT OSS 20B", badge: "Groq LPU", desc: "Lightweight & responsive" },
+  { id: "groq/compound-mini", name: "Groq Compound Mini", badge: "Groq LPU", desc: "Instant low-latency model" },
+];
 
 const SUGGESTIONS = [
   {
@@ -89,11 +101,25 @@ export default function AiAssistant() {
 
   const [inputPrompt, setInputPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>("auto");
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [copiedCodeSnippet, setCopiedCodeSnippet] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Auto-save history
   useEffect(() => {
@@ -135,7 +161,7 @@ export default function AiAssistant() {
     }
     setIsLoading(true);
 
-    const autoModel = pickAutoModel(text);
+    const activeModel = selectedModel === "auto" ? pickAutoModel(text) : selectedModel;
 
     try {
       const response = await fetch("/api/ai/chat", {
@@ -148,7 +174,7 @@ export default function AiAssistant() {
             role: m.role,
             content: m.content,
           })),
-          model: autoModel,
+          model: activeModel,
           systemPrompt:
             "You are a helpful, clear, and friendly AI assistant. Give articulate, well-structured answers using clean Markdown. Format code snippets with proper language tags.",
           temperature: 0.7,
@@ -382,6 +408,70 @@ export default function AiAssistant() {
           </div>
           <div>
             <h1 className="text-sm font-semibold text-white tracking-wide">Assistant</h1>
+          </div>
+
+          {/* Model Selector Dropdown */}
+          <div className="relative ml-2" ref={dropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+              style={{
+                backgroundColor: "rgba(255, 255, 255, 0.05)",
+                borderColor: "var(--theme-border)",
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-medium text-neutral-200 hover:text-white hover:bg-white/10 transition-all cursor-pointer shadow-sm"
+            >
+              <Cpu size={13} className="text-[var(--theme-text-accent)]" />
+              <span>{MODEL_OPTIONS.find((m) => m.id === selectedModel)?.name || "Select Model"}</span>
+              <ChevronDown size={12} className={`text-neutral-400 transition-transform duration-200 ${isModelDropdownOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            <AnimatePresence>
+              {isModelDropdownOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
+                  style={{
+                    backgroundColor: "var(--theme-darkest)",
+                    borderColor: "var(--theme-border)",
+                  }}
+                  className="absolute left-0 top-full mt-2 w-64 rounded-xl border shadow-xl z-50 p-1.5 space-y-1 backdrop-blur-xl"
+                >
+                  <div className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 border-b border-white/5 flex items-center justify-between">
+                    <span>Groq LPU Models</span>
+                    <Zap size={11} className="text-[var(--theme-text-accent)]" />
+                  </div>
+                  {MODEL_OPTIONS.map((m) => {
+                    const isSelected = selectedModel === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedModel(m.id);
+                          setIsModelDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition-all flex flex-col gap-0.5 cursor-pointer ${
+                          isSelected
+                            ? "bg-white/10 text-white font-medium ring-1 ring-white/15"
+                            : "text-neutral-300 hover:text-white hover:bg-white/5"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">{m.name}</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-[var(--theme-text-accent)] font-medium">
+                            {m.badge}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-neutral-400 font-normal line-clamp-1">{m.desc}</span>
+                      </button>
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
 

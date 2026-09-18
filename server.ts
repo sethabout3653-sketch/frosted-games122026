@@ -481,9 +481,19 @@ const PORT = 3000;
     }
   });
 
-  // JSON and URL parsing middleware with generous limit for large attachments
-  app.use(express.json({ limit: "500mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "500mb" }));
+  // Safe Vercel-compatible body parser middleware
+  app.use((req: any, res: any, next: any) => {
+    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
+      return next();
+    }
+    express.json({ limit: "500mb" })(req, res, next);
+  });
+  app.use((req: any, res: any, next: any) => {
+    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
+      return next();
+    }
+    express.urlencoded({ extended: true, limit: "500mb" })(req, res, next);
+  });
 
   // Vercel serverless request body normalizer middleware
   app.use((req, res, next) => {
