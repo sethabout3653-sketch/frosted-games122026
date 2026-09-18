@@ -1492,28 +1492,15 @@ const PORT = 3000;
     return geminiClientInstance;
   }
 
-  // 🛡️ Core OpenRouter & Gemini Multi-Modal Safety Engine with Free Model Routing
-  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+  // 🛡️ Core Groq & Gemini Safety Engine with High-Speed Inference Routing
+  const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || "";
   
-  const OPENROUTER_VISION_MODELS = [
-    "openrouter/free",                          // Primary: Free auto-router
-    "inclusionai/ling-3.0-flash-vl:free",       // Vision + Video multimodal (Free tier)
-    "nex-agi/nex-n2.5-pro:free",                // Multimodal vision (Free tier)
-    "nvidia/nemotron-3.5-content-safety:free",  // Content safety vision (Free tier)
-    "dots-studio/dots-3-note-preview:free",     // Multimodal preview (Free tier)
-  ];
-
-  const OPENROUTER_TEXT_MODELS = [
-    "deepseek/deepseek-v4-flash-0731:free",       // Ultra-fast DeepSeek reasoning (Free tier)
-    "openrouter/free",                          // Free auto-router fallback
-    "nvidia/nemotron-3.5-content-safety:free",    // Content safety model (Free tier)
-    "deepseek/deepseek-chat:free",               // DeepSeek Chat (Free tier)
-    "deepseek/deepseek-r1:free",                 // DeepSeek R1 reasoning (Free tier)
-  ];
-
-  const OPENROUTER_AUDIO_MODELS = [
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", // Audio + Omni reasoning (Free tier)
-    "openrouter/free",
+  const GROQ_MODELS = [
+    "openai/gpt-oss-120b",
+    "groq/compound",
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-20b",
+    "groq/compound-mini"
   ];
 
   const GEMINI_MODELS_CASCADE = [
@@ -1552,82 +1539,34 @@ const PORT = 3000;
     safetyDecisionCache.set(key, { ...result, timestamp: Date.now() });
   }
 
-  async function callOpenRouterInspection(
-    prompt: string,
+  async function callGroqInspection(
+    promptText: string,
     mediaParts?: Array<{ mimeType: string; data: string }> | { mimeType: string; data: string }
   ): Promise<{ safe: boolean; reason?: string; description?: string; transcript?: string; moderator?: string; moderationNote?: string; category?: string; model?: string } | null> {
-    if (!OPENROUTER_API_KEY) return null;
+    const key = GROQ_API_KEY;
+    if (!key) return null;
 
-    const partsArray = mediaParts ? (Array.isArray(mediaParts) ? mediaParts : [mediaParts]) : [];
-    const hasMedia = partsArray.length > 0;
-    const hasAudio = partsArray.some(p => (p.mimeType || "").startsWith("audio/"));
-
-    // Construct OpenRouter message payload supporting audio, images, and text
-    const userContent: any[] = [{ type: "text", text: prompt }];
-    for (const p of partsArray) {
-      if (p?.data) {
-        if ((p.mimeType || "").startsWith("audio/")) {
-          userContent.push({
-            type: "audio_url",
-            audio_url: {
-              url: `data:${p.mimeType || "audio/mp3"};base64,${p.data}`
-            }
-          });
-        } else {
-          userContent.push({
-            type: "image_url",
-            image_url: {
-              url: `data:${p.mimeType || "image/jpeg"};base64,${p.data}`
-            }
-          });
-        }
-      }
-    }
-
-    const systemPrompt = `You are a strict content safety and media moderation filter powered by DeepSeek and OpenRouter AI.
-Rules:
-1. PROHIBIT and BLOCK:
-   - All racial, ethnic, religious, gender, homophobic, and ableist slurs or hate speech.
-   - All curse words and profanity (e.g. fuck, shit, bitch, cunt, dick, pussy, asshole, bastard, whore, slut, etc.).
-   - All sexually explicit, pornographic, NSFW, nudity, erotic, or sexual terms, sounds, and scenes.
-   - All sexual vocalizations, MOANING, erotic sighing, heavy sexual panting, sexual groaning, or orgasm sounds (even if no words are spoken or transcription is empty).
-   - Graphic violence, screams of terror, weapons, self-harm, and harassment.
-2. PERMITTED EXCEPTIONS:
-   - 'damn' and 'hell' (and direct forms like 'dammit', 'damned', 'heck') ARE ALLOWED and must NOT be marked unsafe.
-3. OUTPUT FORMAT:
-   Return strictly valid JSON:
-   {
-     "safe": boolean,
-     "reason": "Clear concise reason for user",
-     "moderationNote": "Detailed moderation note and context analysis",
-     "category": "slur" | "curse word" | "sexual term" | "moaning" | "violence" | "nsfw" | "general",
-     "extractedText": "string"
-   }
-   If unsafe, explain the exact violation in reason and moderationNote. If safe, set safe to true.`;
-
-    const modelList = hasAudio ? OPENROUTER_AUDIO_MODELS : (hasMedia ? OPENROUTER_VISION_MODELS : OPENROUTER_TEXT_MODELS);
-
-    for (const model of modelList) {
+    for (const model of GROQ_MODELS) {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 6000);
 
-        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           signal: controller.signal,
           headers: {
-            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://ai.studio/build",
-            "X-Title": "Chat Safe Shield"
+            "Authorization": `Bearer ${key}`,
+            "Content-Type": "application/json"
           },
           body: JSON.stringify({
             model,
             messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: hasMedia ? userContent : prompt }
+              {
+                role: "system",
+                content: "You are a content safety filter powered by Groq LPU inference. Respond strictly in valid raw JSON with keys: safe (boolean), reason (string), category (string)."
+              },
+              { role: "user", content: promptText }
             ],
-            response_format: { type: "json_object" },
             temperature: 0.1
           })
         });
@@ -1639,76 +1578,45 @@ Rules:
         const rawContent = data?.choices?.[0]?.message?.content;
         if (!rawContent) continue;
 
-        const isDeepSeek = model.toLowerCase().includes("deepseek");
-        const modName = isDeepSeek ? "DeepSeek AI" : "DeepSeek / OpenRouter AI Shield";
-
-        // Clean json markdown wrappers if present
-        const cleaned = rawContent.replace(/```json/g, "").replace(/```/g, "").trim();
+        const cleaned = rawContent.replace(/```json/gi, "").replace(/```/g, "").trim();
         try {
           const parsed = JSON.parse(cleaned);
           if (parsed.safe === false) {
             return {
               safe: false,
-              reason: parsed.reason || "Inappropriate, explicit, profane, or prohibited content detected.",
-              moderationNote: parsed.moderationNote || parsed.reason || "DeepSeek AI flagged prohibited slurs, profanity, or sexually explicit content in this submission.",
+              reason: parsed.reason || "Content flagged by Groq safety filter.",
               category: parsed.category || "prohibited content",
-              moderator: modName,
-              model,
-              description: parsed.extractedText || parsed.description || "",
-              transcript: parsed.extractedText || ""
+              moderationNote: parsed.reason || "Content flagged by Groq safety filter.",
+              moderator: "Groq LPU Safety Engine",
+              model
             };
-          }
-          return {
-            safe: true,
-            moderator: modName,
-            moderationNote: parsed.moderationNote || "Content approved by DeepSeek AI safety filter.",
-            model,
-            description: parsed.extractedText || parsed.description || "",
-            transcript: parsed.extractedText || ""
-          };
-        } catch {
-          const lower = cleaned.toLowerCase();
-          if (
-            lower.includes('"safe": false') ||
-            lower.includes('"safe":false') ||
-            lower.includes("unsafe") ||
-            lower.includes("explicit") ||
-            lower.includes("nudity") ||
-            lower.includes("porn") ||
-            lower.includes("slur")
-          ) {
-            return { 
-              safe: false, 
-              reason: "Explicit, sexual, or prohibited content detected.",
-              moderationNote: "DeepSeek AI identified prohibited content in the submitted text.",
-              moderator: modName,
+          } else {
+            return {
+              safe: true,
+              moderator: "Groq LPU Safety Engine",
               model
             };
           }
-          return { 
-            safe: true,
-            moderator: modName,
-            moderationNote: "Approved by DeepSeek AI.",
-            model
-          };
+        } catch (e) {
+          continue;
         }
       } catch (e) {
         continue;
       }
     }
 
-    return null;
+    return { safe: true };
   }
 
   async function callGeminiInspection(
     prompt: string,
     mediaParts?: Array<{ mimeType: string; data: string }> | { mimeType: string; data: string }
   ): Promise<{ safe: boolean; reason?: string; description?: string; transcript?: string; moderator?: string; moderationNote?: string; category?: string; model?: string }> {
-    // 1. Try Free Unlimited OpenRouter (DeepSeek) models first
+    // 1. Try High-Speed Groq models first
     try {
-      const openRouterResult = await callOpenRouterInspection(prompt, mediaParts);
-      if (openRouterResult !== null) {
-        return openRouterResult;
+      const groqResult = await callGroqInspection(prompt, mediaParts);
+      if (groqResult !== null && groqResult.safe === false) {
+        return groqResult;
       }
     } catch (e) {}
 
@@ -2061,7 +1969,7 @@ Rules:
 - If acoustic patterns indicate moaning, sexual groaning, erotic sounds, or screaming, set safe: false, category: "moaning".
 - If normal speech, music, ambient background, tone, or clean audio, set safe: true.
 Respond strictly in valid JSON: {"safe": boolean, "category": "clean" | "moaning" | "violence", "reason": "string"}`;
-          const specRes = await callOpenRouterInspection(specPrompt, { mimeType: "image/jpeg", data: specBase64 });
+          const specRes = await callGroqInspection(specPrompt, { mimeType: "image/jpeg", data: specBase64 });
           if (specRes && specRes.safe === false && (specRes.category === "moaning" || specRes.reason?.toLowerCase().includes("moan") || specRes.reason?.toLowerCase().includes("sexual"))) {
             const res = {
               safe: false,
@@ -2078,7 +1986,7 @@ Respond strictly in valid JSON: {"safe": boolean, "category": "clean" | "moaning
         const orAudioPrompt = `Listen to this audio track. Check for moaning, erotic sounds, sexual groaning, heavy panting, or spoken curse words (except 'damn' and 'hell').
 CRITICAL: Even if there are few or no transcribed words, if moaning or sexual sounds are present, you MUST reject it with safe: false and category: "moaning".
 Respond in valid JSON: {"safe": boolean, "category": "clean" | "moaning" | "curse word", "extractedText": "transcription", "reason": "string"}`;
-        const orAudioRes = await callOpenRouterInspection(orAudioPrompt, { mimeType: "audio/mp3", data: audioBase64 });
+        const orAudioRes = await callGroqInspection(orAudioPrompt, { mimeType: "audio/mp3", data: audioBase64 });
         if (orAudioRes && orAudioRes.safe === false) {
           const res = {
             safe: false,
@@ -2157,9 +2065,9 @@ Respond strictly in valid JSON:
           return res;
         }
 
-        // OpenRouter DeepSeek text safety check on transcript
+        // Groq text safety check on transcript
         try {
-          const orTextRes = await callOpenRouterInspection(
+          const orTextRes = await callGroqInspection(
             `Perform strict safety moderation on this transcribed speech from an audio track: "${transcript}". Check for slurs, profanity, or sexual terms (allow 'damn' and 'hell'). Keep reason brief.`
           );
           if (orTextRes && orTextRes.safe === false) {
@@ -2368,7 +2276,7 @@ Respond strictly in valid JSON:
 
         // Contextual moderation inspection
         try {
-          const aiCheck = await callOpenRouterInspection(
+          const aiCheck = await callGroqInspection(
             `Perform strict safety and context moderation on this user message text: "${text}". Check for hidden slurs, homoglyphs, sexual terms, harassment, hate speech, or profanity (remember: 'damn' and 'hell' are permitted). Keep any explanation short and polite.`
           );
           if (aiCheck && aiCheck.safe === false) {
@@ -2653,8 +2561,14 @@ Respond strictly in valid JSON:
     }
 
     res.json({
-      models: cachedFreeModels,
-      hasServerKey: !!OPENROUTER_API_KEY,
+      models: [
+        { id: "openai/gpt-oss-120b", name: "GPT OSS 120B (Groq LPU)" },
+        { id: "groq/compound", name: "Groq Compound Engine" },
+        { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B Vision (Groq)" },
+        { id: "openai/gpt-oss-20b", name: "GPT OSS 20B (Groq LPU)" },
+        { id: "groq/compound-mini", name: "Groq Compound Mini" }
+      ],
+      hasServerKey: !!GROQ_API_KEY,
     });
   });
 
@@ -2669,7 +2583,7 @@ Respond strictly in valid JSON:
 
       const {
         messages = [],
-        model = "openrouter/free",
+        model = "groq/compound",
         systemPrompt = "You are a helpful, clear, and friendly AI assistant. Give articulate, well-structured answers using clean Markdown. Format code snippets with proper language tags.",
         temperature = 0.7,
         customKey = ""
@@ -2681,9 +2595,9 @@ Respond strictly in valid JSON:
 
       const clientKey = (typeof customKey === "string" && customKey.trim().length > 0)
         ? customKey.trim()
-        : ((req.headers["x-openrouter-key"] as string) || OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || process.env.VITE_OPENROUTER_API_KEY || "");
+        : ((req.headers["x-groq-key"] as string) || GROQ_API_KEY);
 
-      // Priority 1: Gemini Engine (Fastest, highest quota, primary choice in AI Studio)
+      // Priority 1: Gemini Engine (Primary choice in AI Studio)
       try {
         const gemini = getGeminiClient();
         if (gemini && Date.now() >= quotaExhaustedCooldown) {
@@ -2726,17 +2640,15 @@ Respond strictly in valid JSON:
         console.warn("Gemini engine error:", geminiException);
       }
 
-      // Priority 2: OpenRouter Cascade (used if custom key is provided or Gemini is unconfigured/busy)
+      // Priority 2: Groq Cascade (Ultra-fast LLM inference via Groq LPU)
       if (clientKey) {
-        const rawModel = model || "openrouter/free";
-        const strippedModel = rawModel.replace(/:free$/, "");
-        const modelsToTry = Array.from(new Set([
-          rawModel,
-          strippedModel,
-          "openrouter/free",
-          "deepseek/deepseek-chat",
-          "meta-llama/llama-3.3-70b-instruct",
-          "deepseek/deepseek-r1"
+        const targetModels = Array.from(new Set([
+          model && model !== "auto" && !model.includes("openrouter") ? model : "openai/gpt-oss-120b",
+          "openai/gpt-oss-120b",
+          "groq/compound",
+          "qwen/qwen3.8-27b",
+          "openai/gpt-oss-20b",
+          "groq/compound-mini"
         ].filter(Boolean)));
 
         const payloadMessages = [
@@ -2747,24 +2659,22 @@ Respond strictly in valid JSON:
           }))
         ];
 
-        for (const targetModel of modelsToTry) {
+        for (const targetModel of targetModels) {
           try {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 10000);
 
-            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
               method: "POST",
               signal: controller.signal,
               headers: {
                 "Authorization": `Bearer ${clientKey}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://ai.studio/build",
-                "X-Title": "Frosted Companion"
+                "Content-Type": "application/json"
               },
               body: JSON.stringify({
                 model: targetModel,
                 messages: payloadMessages,
-                temperature
+                temperature: Math.min(1.0, Math.max(0.1, temperature))
               })
             });
             clearTimeout(timeout);
@@ -2776,19 +2686,15 @@ Respond strictly in valid JSON:
                 return res.json({
                   text,
                   model: data?.model || targetModel,
-                  provider: "openrouter"
+                  provider: "groq"
                 });
               }
             } else {
               const errText = await response.text().catch(() => "");
-              console.warn(`OpenRouter model ${targetModel} status ${response.status}: ${errText}`);
-              if (response.status === 429) {
-                console.warn("OpenRouter rate limit hit. Skipping further OpenRouter attempts.");
-                break;
-              }
+              console.warn(`Groq model ${targetModel} status ${response.status}: ${errText}`);
             }
           } catch (e: any) {
-            console.warn(`OpenRouter model ${targetModel} attempt failed:`, e?.message);
+            console.warn(`Groq model ${targetModel} attempt failed:`, e?.message);
           }
         }
       }

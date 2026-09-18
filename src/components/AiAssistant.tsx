@@ -59,7 +59,7 @@ function pickAutoModel(prompt: string): string {
     lower.includes("css") ||
     lower.includes("react")
   ) {
-    return "qwen/qwen-2.5-coder-32b-instruct:free";
+    return "openai/gpt-oss-120b";
   }
   if (
     lower.includes("math") ||
@@ -67,12 +67,12 @@ function pickAutoModel(prompt: string): string {
     lower.includes("calculate") ||
     lower.includes("equation")
   ) {
-    return "deepseek/deepseek-chat:free";
+    return "groq/compound";
   }
   if (lower.length > 300) {
-    return "meta-llama/llama-3.3-70b-instruct:free";
+    return "openai/gpt-oss-120b";
   }
-  return "openrouter/free";
+  return "groq/compound";
 }
 
 export default function AiAssistant() {
