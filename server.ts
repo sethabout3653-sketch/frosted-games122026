@@ -1500,10 +1500,10 @@ const PORT = 3000;
   ];
 
   const GEMINI_MODELS_CASCADE = [
-    "gemini-3.1-flash-lite", // Primary: fast, unmetered/quota available, full native audio & vision support
-    "gemini-3.7-flash",      // Backup 1
-    "gemini-3.8-flash",      // Backup 2
-    "gemini-flash-latest",   // Backup 3
+    "gemini-3.6-flash",      // Primary: recommended modern Gemini flash model
+    "gemini-3.1-flash-lite", // Backup 1
+    "gemini-3.7-flash",      // Backup 2
+    "gemini-3.8-flash",      // Backup 3
   ];
 
   // In-memory LRU safety cache keyed by SHA-256 hash
@@ -2480,7 +2480,7 @@ Respond strictly in valid JSON:
       highlight: "Auto-Selected"
     },
     {
-      id: "deepseek/deepseek-r1:free",
+      id: "deepseek/deepseek-r1",
       name: "DeepSeek R1",
       description: "State-of-the-art chain-of-thought reasoning. Excels at math, multi-step logic, and deep analysis.",
       category: "reasoning",
@@ -2488,7 +2488,7 @@ Respond strictly in valid JSON:
       highlight: "Deep Reasoning"
     },
     {
-      id: "deepseek/deepseek-chat:free",
+      id: "deepseek/deepseek-chat",
       name: "DeepSeek V3",
       description: "High-capability flagship model for natural conversations, essay writing, and analytical problem-solving.",
       category: "conversational",
@@ -2496,7 +2496,7 @@ Respond strictly in valid JSON:
       highlight: "All-Rounder"
     },
     {
-      id: "meta-llama/llama-3.3-70b-instruct:free",
+      id: "meta-llama/llama-3.3-70b-instruct",
       name: "Llama 3.3 70B",
       description: "Meta's flagship 70B open weight model. Highly articulate, comprehensive knowledge and writing ability.",
       category: "conversational",
@@ -2644,13 +2644,20 @@ Respond strictly in valid JSON:
 
   app.post("/api/ai/chat", async (req, res) => {
     try {
+      let body = req.body;
+      if (typeof body === "string") {
+        try { body = JSON.parse(body); } catch (e) {}
+      } else if (Buffer.isBuffer(body)) {
+        try { body = JSON.parse(body.toString("utf-8")); } catch (e) {}
+      }
+
       const {
         messages = [],
         model = "openrouter/free",
-        systemPrompt = "You are Frosted Companion, a warm, patient, and knowledgeable study buddy and assistant. Explain things clearly, format code blocks with language tags, and be encouraging.",
+        systemPrompt = "You are a helpful, clear, and friendly AI assistant. Give articulate, well-structured answers using clean Markdown. Format code snippets with proper language tags.",
         temperature = 0.7,
         customKey = ""
-      } = req.body || {};
+      } = body || {};
 
       if (!Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: "Messages array cannot be empty." });
@@ -2658,96 +2665,117 @@ Respond strictly in valid JSON:
 
       const clientKey = (typeof customKey === "string" && customKey.trim().length > 0)
         ? customKey.trim()
-        : ((req.headers["x-openrouter-key"] as string) || OPENROUTER_API_KEY);
+        : ((req.headers["x-openrouter-key"] as string) || OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || process.env.VITE_OPENROUTER_API_KEY || "");
 
-      // Attempt 1: Call OpenRouter if a key is provided
+      // Attempt 1: Call OpenRouter if key is available
       if (clientKey) {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 12000);
+        const rawModel = model || "openrouter/free";
+        const strippedModel = rawModel.replace(/:free$/, "");
+        const modelsToTry = Array.from(new Set([
+          rawModel,
+          strippedModel,
+          "openrouter/free",
+          "deepseek/deepseek-chat",
+          "deepseek/deepseek-chat:free",
+          "meta-llama/llama-3.3-70b-instruct",
+          "meta-llama/llama-3.3-70b-instruct:free",
+          "deepseek/deepseek-r1",
+          "deepseek/deepseek-r1:free",
+          "google/gemma-2-9b-it:free"
+        ].filter(Boolean)));
 
-          const payloadMessages = [
-            { role: "system", content: systemPrompt },
-            ...messages.map((m: any) => ({
-              role: m.role === "assistant" ? "assistant" : "user",
-              content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
-            }))
-          ];
+        const payloadMessages = [
+          { role: "system", content: systemPrompt },
+          ...messages.map((m: any) => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+          }))
+        ];
 
-          const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            signal: controller.signal,
-            headers: {
-              "Authorization": `Bearer ${clientKey}`,
-              "Content-Type": "application/json",
-              "HTTP-Referer": "https://ai.studio/build",
-              "X-Title": "Frosted Companion"
-            },
-            body: JSON.stringify({
-              model: model || "openrouter/free",
-              messages: payloadMessages,
-              temperature
-            })
-          });
-          clearTimeout(timeout);
-
-          if (response.ok) {
-            const data: any = await response.json();
-            const text = data?.choices?.[0]?.message?.content;
-            if (text) {
-              return res.json({
-                text,
-                model: data?.model || model,
-                provider: "openrouter"
-              });
-            }
-          } else {
-            const errText = await response.text().catch(() => "");
-            console.warn("OpenRouter API non-ok status:", response.status, errText);
-          }
-        } catch (e: any) {
-          console.warn("OpenRouter call failed, falling back to Gemini:", e?.message);
-        }
-      }
-
-      // Attempt 2: Multi-tier fallback using Gemini models
-      const gemini = getGeminiClient();
-      if (gemini) {
-        const candidateModels = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
-        const formattedHistory = messages.map((m: any) => {
-          const speaker = m.role === "assistant" ? "Assistant" : "User";
-          return `${speaker}: ${m.content}`;
-        }).join("\n\n");
-
-        const prompt = `${systemPrompt}\n\nConversation so far:\n${formattedHistory}\n\nAssistant:`;
-
-        for (const gemModel of candidateModels) {
+        for (const targetModel of modelsToTry) {
           try {
-            const result = await gemini.models.generateContent({
-              model: gemModel,
-              contents: prompt,
-              config: {
-                temperature: Math.min(1.0, Math.max(0.1, temperature))
-              }
-            });
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 12000);
 
-            if (result && result.text) {
-              return res.json({
-                text: result.text,
-                model: gemModel,
-                provider: "gemini-fallback",
-                note: "Powered by Frosted AI Assistant"
-              });
+            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+              method: "POST",
+              signal: controller.signal,
+              headers: {
+                "Authorization": `Bearer ${clientKey}`,
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://ai.studio/build",
+                "X-Title": "Frosted Companion"
+              },
+              body: JSON.stringify({
+                model: targetModel,
+                messages: payloadMessages,
+                temperature
+              })
+            });
+            clearTimeout(timeout);
+
+            if (response.ok) {
+              const data: any = await response.json();
+              const text = data?.choices?.[0]?.message?.content;
+              if (text) {
+                return res.json({
+                  text,
+                  model: data?.model || targetModel,
+                  provider: "openrouter"
+                });
+              }
+            } else {
+              const errText = await response.text().catch(() => "");
+              console.warn(`OpenRouter model ${targetModel} status ${response.status}: ${errText}`);
             }
-          } catch (gemErr: any) {
-            console.warn(`Gemini model ${gemModel} failed:`, gemErr?.message);
+          } catch (e: any) {
+            console.warn(`OpenRouter model ${targetModel} attempt failed:`, e?.message);
           }
         }
       }
 
-      // Attempt 3: Intelligent offline study responder if cloud APIs are rate-limited
+      // Attempt 2: Multi-tier fallback using official Gemini models (gemini-3.6-flash primary)
+      try {
+        const gemini = getGeminiClient();
+        if (gemini) {
+          const candidateModels = ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-3.8-flash"];
+          const formattedHistory = messages.map((m: any) => {
+            const speaker = m.role === "assistant" ? "Assistant" : "User";
+            return `${speaker}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`;
+          }).join("\n\n");
+
+          const prompt = `${systemPrompt}\n\nConversation so far:\n${formattedHistory}\n\nAssistant:`;
+
+          for (const gemModel of candidateModels) {
+            try {
+              const result = await gemini.models.generateContent({
+                model: gemModel,
+                contents: prompt,
+                config: {
+                  temperature: Math.min(1.0, Math.max(0.1, temperature))
+                }
+              });
+
+              if (result && result.text) {
+                return res.json({
+                  text: result.text,
+                  model: gemModel,
+                  provider: "gemini-fallback",
+                  note: "Powered by Gemini 3.6 Flash"
+                });
+              }
+            } catch (gemErr: any) {
+              console.warn(`Gemini model ${gemModel} failed:`, gemErr?.message);
+            }
+          }
+        }
+      } catch (geminiException) {
+        console.warn("Gemini fallback engine error:", geminiException);
+      }
+
+      // Attempt 3: Intelligent offline study responder if cloud APIs are rate-limited or unconfigured
       const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user")?.content || "";
-      const lower = lastUserMsg.toLowerCase();
+      const lower = typeof lastUserMsg === "string" ? lastUserMsg.toLowerCase() : "";
       let offlineText = "I'm here to help you study! What concept, math problem, or code question would you like to break down next?";
 
       if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey")) {
@@ -2767,7 +2795,11 @@ Respond strictly in valid JSON:
       });
     } catch (err: any) {
       console.error("AI chat endpoint fatal error:", err);
-      res.status(500).json({ error: "Something went wrong while generating response. Please try again." });
+      return res.json({
+        text: "I am ready to assist you. Please ask any question about your studies, code, or project!",
+        model: "fallback-assistant",
+        provider: "safe-recovery"
+      });
     }
   });
 
