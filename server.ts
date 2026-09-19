@@ -11,7 +11,7 @@ import { Filter } from "bad-words";
 import Tesseract from "tesseract.js";
 import { GoogleGenAI } from "@google/genai";
 import { checkTextModeration } from "./src/utils/moderation";
-import dbDataHandler from "./api/db/data";
+import dbDataHandler, { addLocalSubscriber } from "./api/db/data";
 import dbStreamHandler from "./api/db/stream";
 import { getLibSQLClient, initSQLite } from "./src/db/sqlite";
 
@@ -743,6 +743,14 @@ const PORT = 3000;
       }
     });
   };
+
+  try {
+    addLocalSubscriber("*", (event: any) => {
+      if (event && event.path) {
+        broadcastWebSocketChange(event.op || "set", event.path, event.id, event.data);
+      }
+    });
+  } catch (err) {}
 
   export const broadcastWebSocketSignal = (
     signal: any,
