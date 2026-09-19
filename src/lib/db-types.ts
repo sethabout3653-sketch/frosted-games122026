@@ -1,6 +1,24 @@
 // Auto-generated from your database schema — do not edit by hand.
 // Regenerates automatically whenever a table is created or altered.
 
+export type ChatMessagesRow = {
+  id: string
+  channelId: string
+  uid: string
+  username: string
+  photoUrl: string
+  text: string | null
+  gif: string | null
+  gifTitle: string | null
+  attachment: string | null
+  attachmentType: string | null
+  attachmentName: string | null
+  attachmentSize: number | string | null
+  timestamp: string
+  reactions: string | null
+  createdAt: string
+}
+
 export type UsersRow = {
   id: string
   email: string
