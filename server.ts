@@ -14,6 +14,8 @@ import { checkTextModeration } from "./src/utils/moderation";
 import dbDataHandler, { addLocalSubscriber } from "./api/db/data";
 import dbStreamHandler from "./api/db/stream";
 import { getLibSQLClient, initSQLite } from "./src/db/sqlite";
+import { adminDb } from "./src/lib/firebase-admin";
+import { queueFirebaseSync } from "./src/lib/firebase-sync-queue";
 
 import { createPool, db } from "./src/db/index";
 import { records, webrtcSignals } from "./src/db/schema";
@@ -612,6 +614,48 @@ const PORT = 3000;
     await initSQLite();
     const libClient = getLibSQLClient();
 
+    // Warm up / Bootstrap local storage from Cloud Firestore
+    (async () => {
+      try {
+        console.log("[Firebase Bootstrapper] Starting local database warming from Firestore...");
+        const collections = ["messages", "presence", "channels", "voice_users", "records"];
+        let docCount = 0;
+        for (const col of collections) {
+          try {
+            const snapshot = await adminDb.collection(col).limit(500).get();
+            if (!snapshot.empty) {
+              for (const doc of snapshot.docs) {
+                const data = doc.data();
+                const id = doc.id;
+                const ts = data.timestamp || Date.now();
+                
+                // Insert/Replace in SQLite
+                try {
+                  await libClient.execute({
+                    sql: "INSERT OR REPLACE INTO records (collection, id, data, timestamp) VALUES (?, ?, ?, ?)",
+                    args: [col, id, JSON.stringify(data), ts]
+                  });
+                } catch (e) {}
+
+                // Store in localMap
+                if (!localMap[col]) localMap[col] = {};
+                localMap[col][id] = { ...data, id, timestamp: ts };
+                docCount++;
+              }
+            }
+          } catch (colErr) {
+            // Log collection specific error but continue other collections
+          }
+        }
+        if (docCount > 0) {
+          saveStore(localMap);
+          console.log(`[Firebase Bootstrapper] Warmed ${docCount} records into local SQLite cache!`);
+        }
+      } catch (err: any) {
+        console.warn("[Firebase Bootstrapper] Failed to bootstrap from Firestore (using offline local engine instead):", err?.message || err);
+      }
+    })();
+
     dbInstance = {
       run: async (sql: string, params: any[] = []) => {
         try {
@@ -636,6 +680,9 @@ const PORT = 3000;
           } else if (col && id && localMap[col]) {
             delete localMap[col][id];
             saveStore(localMap);
+
+            // Asynchronously queue delete to Firestore (Self-healing & throttle aware)
+            queueFirebaseSync("delete", col, id);
           }
         } else if (u.includes("INSERT")) {
           const col = params[0];
@@ -650,6 +697,9 @@ const PORT = 3000;
             }
             localMap[col][id] = { ...(parsedData || {}), id, timestamp: ts };
             saveStore(localMap);
+
+            // Asynchronously queue set to Firestore (Self-healing & throttle aware)
+            queueFirebaseSync("set", col, id, parsedData);
           }
         }
         return { changes: 1 };

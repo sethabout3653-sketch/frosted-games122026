@@ -5,6 +5,8 @@
 import fs from "fs";
 import path from "path";
 import { sqliteGetRecord, sqliteGetCollection, sqliteSetRecord, sqliteDeleteRecord } from "../../src/db/sqlite";
+import { adminDb } from "../../src/lib/firebase-admin";
+import { queueFirebaseSync } from "../../src/lib/firebase-sync-queue";
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "https://ideal-ray-149114.upstash.io";
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAAkZ6AAIgcDI2NmNkOTFjMWZkMzc0YWRkODc1OWJmMDRlMjlhZTZiOA";
@@ -192,6 +194,10 @@ export default async function handler(req: any, res: any) {
           delete memoryStore[targetPath][docId];
           saveToDisk(memoryStore);
         }
+
+        // Asynchronously delete from Firestore (Self-healing & throttle aware)
+        queueFirebaseSync("delete", targetPath, docId);
+
         notifyLocalSubscribers(targetPath, {
           op: "delete",
           path: targetPath,
@@ -236,6 +242,9 @@ export default async function handler(req: any, res: any) {
       if (!memoryStore[targetPath]) memoryStore[targetPath] = {};
       memoryStore[targetPath][docId] = data;
       saveToDisk(memoryStore);
+
+      // Asynchronously update Firestore in the background (Self-healing & throttle aware)
+      queueFirebaseSync("set", targetPath, docId, data);
 
       // Broadcast delta to local SSE listeners
       notifyLocalSubscribers(targetPath, {

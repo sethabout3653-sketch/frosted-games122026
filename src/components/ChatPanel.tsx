@@ -638,6 +638,21 @@ export default function ChatPanel({
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const currentText = text.trim();
+
+    // /clear or /delete-all command to instantly wipe all messages
+    if (currentText === "/clear" || currentText === "/clearall" || currentText === "/delete-all") {
+      setText("");
+      setMessages([]);
+      saveCachedMessages([]);
+      try {
+        // Asynchronously delete all message documents
+        for (const msg of messages) {
+          await deleteDoc(doc(db, "messages", msg.id)).catch(() => {});
+        }
+      } catch (err) {}
+      return;
+    }
+
     let currentAttachment = attachment;
     const currentType = attachmentType;
     const currentName = attachmentName;
@@ -1077,6 +1092,10 @@ export default function ChatPanel({
 
   const channelMessages = useMemo(() => {
     return messages.filter((m) => {
+      // If message is malformed (has no text, attachment, or gif), filter it out
+      if (!m.text && !m.attachment && !m.gif) {
+        return false;
+      }
       // If message has channelId, ensure it belongs to activeChannel
       if (m.channelId && activeChannel && m.channelId !== activeChannel) {
         return false;
@@ -1430,7 +1449,7 @@ export default function ChatPanel({
                       {emoji}
                     </button>
                   ))}
-                  {(isMe || msg.uid === "ai-assistant" || msg.username === "AI Assistant" || msg.uid?.startsWith("ai")) && (
+                  {true && (
                     <button
                       onClick={() => handleDeleteMessage(msg.id)}
                       className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-[#0e1b56] rounded transition-colors duration-150 cursor-pointer ml-1 border-l border-indigo-950/60 active:scale-90"
