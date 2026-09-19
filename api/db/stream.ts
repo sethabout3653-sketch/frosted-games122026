@@ -4,8 +4,8 @@
 
 import { addLocalSubscriber, getLocalSnapshot } from "./data";
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "";
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "https://ideal-ray-149114.upstash.io";
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAAkZ6AAIgcDI2NmNkOTFjMWZkMzc0YWRkODc1OWJmMDRlMjlhZTZiOA";
 
 async function redisRest(command: string, ...args: (string | number)[]) {
   if (!REDIS_URL || !REDIS_TOKEN) return null;

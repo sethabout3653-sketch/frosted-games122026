@@ -6,8 +6,8 @@ import fs from "fs";
 import path from "path";
 import { sqliteGetRecord, sqliteGetCollection, sqliteSetRecord, sqliteDeleteRecord } from "../../src/db/sqlite";
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "";
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "https://ideal-ray-149114.upstash.io";
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAAkZ6AAIgcDI2NmNkOTFjMWZkMzc0YWRkODc1OWJmMDRlMjlhZTZiOA";
 
 // Persistence for non-Redis environments (Local/Cloud Run/SQLite)
 const STORE_DIR = path.join(process.cwd(), "uploads");
