@@ -1,39 +1,7 @@
-// Vercel Serverless Function: /api/db/data
-// Custom Unrestricted Real-Time Database Engine - Data API
-// Accepts any arbitrary raw JSON document with zero restrictions or schema validation
+// Real-Time Memory-Backed Data Store (No Database / Fully Decoupled)
+// Accepts any arbitrary JSON document without external SQL, Redis, or Firestore dependencies.
 
-import fs from "fs";
-import path from "path";
-import { sqliteGetRecord, sqliteGetCollection, sqliteSetRecord, sqliteDeleteRecord } from "../../src/db/sqlite";
-import { adminDb } from "../../src/lib/firebase-admin";
-import { queueFirebaseSync } from "../../src/lib/firebase-sync-queue";
-
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "https://ideal-ray-149114.upstash.io";
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAAkZ6AAIgcDI2NmNkOTFjMWZkMzc0YWRkODc1OWJmMDRlMjlhZTZiOA";
-
-// Persistence for non-Redis environments (Local/Cloud Run/SQLite)
-const STORE_DIR = path.join(process.cwd(), "uploads");
-const STORE_FILE = path.join(STORE_DIR, "realtime_db_store.json");
-
-function loadFromDisk() {
-  try {
-    if (fs.existsSync(STORE_FILE)) {
-      return JSON.parse(fs.readFileSync(STORE_FILE, "utf-8"));
-    }
-  } catch (e) {}
-  return {};
-}
-
-function saveToDisk(data: any) {
-  try {
-    if (!fs.existsSync(STORE_DIR)) {
-      fs.mkdirSync(STORE_DIR, { recursive: true });
-    }
-    fs.writeFileSync(STORE_FILE, JSON.stringify(data), "utf-8");
-  } catch (e) {}
-}
-
-const memoryStore: Record<string, Record<string, any>> = loadFromDisk();
+export const memoryStore: Record<string, Record<string, any>> = {};
 const memorySubscribers: Record<string, Set<(event: any) => void>> = {};
 
 export function notifyLocalSubscribers(path: string, event: any) {
@@ -58,23 +26,6 @@ export function getLocalSnapshot(path: string) {
   return memoryStore[path] || {};
 }
 
-async function redisRest(command: string, ...args: (string | number)[]) {
-  if (!REDIS_URL || !REDIS_TOKEN) return null;
-  try {
-    const url = `${REDIS_URL}/${command}/${args.map((a) => encodeURIComponent(String(a))).join("/")}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error(`Redis HTTP error: ${res.statusText}`);
-    const json = await res.json();
-    return json.result;
-  } catch (err) {
-    console.warn("[RealtimeDB] Upstash request failed:", err);
-    return null;
-  }
-}
-
 export default async function handler(req: any, res: any) {
   // CORS configuration
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -89,62 +40,21 @@ export default async function handler(req: any, res: any) {
   const path = (req.query?.collection || req.query?.path || searchParams.get("collection") || searchParams.get("path") || "root").toString();
   const id = (req.query?.id || searchParams.get("id") || "").toString();
 
-  // 1. GET: Read document or full collection
+  // 1. GET: Read document or full collection from Memory Store
   if (req.method === "GET") {
     try {
-      if (REDIS_URL && REDIS_TOKEN) {
-        if (id) {
-          const doc = await redisRest("HGET", `db:${path}`, id);
-          let parsedDoc = null;
-          if (doc) {
-            try {
-              parsedDoc = typeof doc === "string" ? JSON.parse(doc) : doc;
-            } catch {
-              parsedDoc = doc;
-            }
-          }
-          return res.status(200).json({ success: true, id, data: parsedDoc });
-        }
-        const rawMap = await redisRest("HGETALL", `db:${path}`);
-        const parsed: Record<string, any> = {};
-        if (Array.isArray(rawMap)) {
-          for (let i = 0; i < rawMap.length; i += 2) {
-            const key = rawMap[i];
-            const val = rawMap[i + 1];
-            if (!key) continue;
-            try {
-              parsed[key] = typeof val === "string" ? JSON.parse(val) : val;
-            } catch {
-              parsed[key] = val;
-            }
-          }
-        } else if (rawMap && typeof rawMap === "object") {
-          for (const [k, v] of Object.entries(rawMap)) {
-            try {
-              parsed[k] = typeof v === "string" ? JSON.parse(v as string) : v;
-            } catch {
-              parsed[k] = v;
-            }
-          }
-        }
-        return res.status(200).json({ success: true, path, data: parsed });
-      }
-
-      // SQLite & In-memory store read
       if (id) {
-        const sqData = await sqliteGetRecord(path, id).catch(() => null);
-        const docData = sqData !== null ? sqData : memoryStore[path]?.[id] || null;
+        const docData = memoryStore[path]?.[id] || null;
         return res.status(200).json({ success: true, id, data: docData });
       }
-      const sqCollection = await sqliteGetCollection(path).catch(() => ({}));
-      const combinedData = { ...memoryStore[path], ...sqCollection };
+      const combinedData = memoryStore[path] || {};
       return res.status(200).json({ success: true, path, data: combinedData });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || String(err) });
     }
   }
 
-  // 2. POST / PUT: Upsert raw JSON document
+  // 2. POST / PUT: Upsert document in Memory Store
   if (req.method === "POST" || req.method === "PUT") {
     try {
       let body = req.body;
@@ -170,33 +80,9 @@ export default async function handler(req: any, res: any) {
       // Handle delete via POST if op is delete
       if (body.op === "delete") {
         const timestamp = Date.now();
-        if (REDIS_URL && REDIS_TOKEN) {
-          await redisRest("HDEL", `db:${targetPath}`, docId);
-          await redisRest(
-            "XADD",
-            `stream:${targetPath}`,
-            "MAXLEN",
-            "~",
-            2000,
-            "*",
-            "op",
-            "delete",
-            "path",
-            targetPath,
-            "id",
-            docId,
-            "timestamp",
-            timestamp
-          );
-        }
-        await sqliteDeleteRecord(targetPath, docId).catch(() => {});
         if (memoryStore[targetPath]) {
           delete memoryStore[targetPath][docId];
-          saveToDisk(memoryStore);
         }
-
-        // Asynchronously delete from Firestore (Self-healing & throttle aware)
-        queueFirebaseSync("delete", targetPath, docId);
 
         notifyLocalSubscribers(targetPath, {
           op: "delete",
@@ -208,50 +94,17 @@ export default async function handler(req: any, res: any) {
       }
 
       const data = body.data !== undefined ? body.data : body;
-
-      const serialized = JSON.stringify(data);
       const timestamp = Date.now();
 
-      // Persist to Upstash Redis if configured
-      if (REDIS_URL && REDIS_TOKEN) {
-        await redisRest("HSET", `db:${targetPath}`, docId, serialized);
-        await redisRest(
-          "XADD",
-          `stream:${targetPath}`,
-          "MAXLEN",
-          "~",
-          2000,
-          "*",
-          "op",
-          "upsert",
-          "path",
-          targetPath,
-          "id",
-          docId,
-          "data",
-          serialized,
-          "timestamp",
-          timestamp
-        );
-      }
-
-      // Update SQLite store
-      await sqliteSetRecord(targetPath, docId, data, timestamp).catch(() => {});
-
-      // Update in-memory store
       if (!memoryStore[targetPath]) memoryStore[targetPath] = {};
-      memoryStore[targetPath][docId] = data;
-      saveToDisk(memoryStore);
+      const payload = { ...data, id: docId, timestamp };
+      memoryStore[targetPath][docId] = payload;
 
-      // Asynchronously update Firestore in the background (Self-healing & throttle aware)
-      queueFirebaseSync("set", targetPath, docId, data);
-
-      // Broadcast delta to local SSE listeners
       notifyLocalSubscribers(targetPath, {
         op: "upsert",
         path: targetPath,
         id: docId,
-        data,
+        data: payload,
         timestamp,
       });
 
@@ -260,7 +113,7 @@ export default async function handler(req: any, res: any) {
         op: "upsert",
         path: targetPath,
         id: docId,
-        data,
+        data: payload,
         timestamp,
       });
     } catch (err: any) {
@@ -277,29 +130,8 @@ export default async function handler(req: any, res: any) {
 
       const timestamp = Date.now();
 
-      if (REDIS_URL && REDIS_TOKEN) {
-        await redisRest("HDEL", `db:${path}`, id);
-        await redisRest(
-          "XADD",
-          `stream:${path}`,
-          "MAXLEN",
-          "~",
-          2000,
-          "*",
-          "op",
-          "delete",
-          "path",
-          path,
-          "id",
-          id,
-          "timestamp",
-          timestamp
-        );
-      }
-
       if (memoryStore[path]) {
         delete memoryStore[path][id];
-        saveToDisk(memoryStore);
       }
 
       notifyLocalSubscribers(path, {

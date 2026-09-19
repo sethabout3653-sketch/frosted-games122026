@@ -11,7 +11,7 @@ import { Filter } from "bad-words";
 import Tesseract from "tesseract.js";
 import { GoogleGenAI } from "@google/genai";
 import { checkTextModeration } from "./src/utils/moderation";
-import dbDataHandler, { addLocalSubscriber } from "./api/db/data";
+import dbDataHandler, { addLocalSubscriber, memoryStore } from "./api/db/data";
 import dbStreamHandler from "./api/db/stream";
 import { getLibSQLClient, initSQLite } from "./src/db/sqlite";
 import { adminDb } from "./src/lib/firebase-admin";
@@ -530,9 +530,9 @@ const PORT = 3000;
   app.all(["/api/ws", "/ws"], (req, res) => {
     return res.status(200).json({
       status: "ok",
-      websocket: false,
-      mode: "serverless_polling",
-      message: "WebSocket endpoint is active. SSE (/api/db/stream) or HTTP polling is used in serverless mode."
+      websocket: true,
+      mode: "websockets",
+      message: "WebSocket endpoint is active. App is configured for real WebSockets on Render with zero databases!"
     });
   });
 
@@ -540,149 +540,188 @@ const PORT = 3000;
   // Distributed Postgres Engine & Storage
   // ==========================================
   
+  // Distributed Postgres Engine & Storage
+  // ==========================================
+  import pg from "pg";
+  const { Pool, Client } = pg;
+
+  const MY_INSTANCE_ID = crypto.randomUUID();
+  let pgPool: pg.Pool | null = null;
+
+  function getPgPool() {
+    if (!process.env.DATABASE_URL) return null;
+    if (!pgPool) {
+      pgPool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: process.env.DATABASE_URL.includes("localhost") || process.env.DATABASE_URL.includes("127.0.0.1") ? false : { rejectUnauthorized: false }
+      });
+    }
+    return pgPool;
+  }
+
+  async function initPostgresTables() {
+    const pool = getPgPool();
+    if (!pool) return;
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS records (
+          collection VARCHAR(255) NOT NULL,
+          id VARCHAR(255) NOT NULL,
+          data TEXT NOT NULL,
+          timestamp BIGINT NOT NULL,
+          PRIMARY KEY (collection, id)
+        )
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS webrtc_signals (
+          id VARCHAR(255) PRIMARY KEY,
+          target_uid VARCHAR(255),
+          uid VARCHAR(255),
+          payload TEXT,
+          timestamp BIGINT
+        )
+      `);
+      console.log("[PG Bootstrap] Database tables initialized successfully.");
+    } catch (err) {
+      console.error("[PG Bootstrap] Error initializing tables:", err);
+    }
+  }
+
+  async function publishCrossInstanceEvent(event: any) {
+    const pool = getPgPool();
+    if (!pool) return;
+    try {
+      const payload = JSON.stringify({
+        ...event,
+        instanceId: MY_INSTANCE_ID,
+      });
+      await pool.query("SELECT pg_notify('real_time_events', $1)", [payload]);
+    } catch (err) {
+      console.error("[PG PubSub] Failed to publish real-time event:", err);
+    }
+  }
+
+  async function startPostgresListener() {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) return;
+
+    const client = new Client({
+      connectionString,
+      ssl: connectionString.includes("localhost") || connectionString.includes("127.0.0.1") ? false : { rejectUnauthorized: false }
+    });
+
+    try {
+      await client.connect();
+      await client.query("LISTEN real_time_events");
+      console.log(`[PG PubSub] Listening for real-time events on instance ${MY_INSTANCE_ID}`);
+
+      client.on("notification", (msg) => {
+        try {
+          if (msg.channel === "real_time_events" && msg.payload) {
+            const event = JSON.parse(msg.payload);
+            if (event.instanceId === MY_INSTANCE_ID) {
+              return; // Ignore notifications broadcast from ourselves
+            }
+
+            if (event.type === "change") {
+              const { op, collection, id, data } = event;
+              
+              // Synchronize to our memoryStore so GET requests read correct values
+              if (!memoryStore[collection]) memoryStore[collection] = {};
+              if (op === "delete") {
+                delete memoryStore[collection][id];
+              } else {
+                memoryStore[collection][id] = data;
+              }
+
+              // Broadcast to local WebSocket clients
+              broadcastWebSocketChange(op, collection, id, data);
+            } else if (event.type === "webrtc_signal") {
+              broadcastWebSocketSignal(event.payload);
+            }
+          }
+        } catch (err) {
+          console.error("[PG PubSub] Error parsing pub/sub message:", err);
+        }
+      });
+
+      client.on("error", async (err) => {
+        console.error("[PG PubSub] Client connection error:", err);
+        try { await client.end(); } catch (e) {}
+        setTimeout(startPostgresListener, 5000);
+      });
+    } catch (err) {
+      console.error("[PG PubSub] Failed to connect listener client:", err);
+      try { await client.end(); } catch (e) {}
+      setTimeout(startPostgresListener, 5000);
+    }
+  }
+
+  // Trigger PostgreSQL setup asynchronously at startup
+  initPostgresTables().then(() => {
+    startPostgresListener();
+  });
+
   let dbInstance: any = null;
   async function getDb() {
     if (dbInstance) return dbInstance;
-    
-    if (process.env.SQL_HOST || process.env.DATABASE_URL) {
-      const pool = createPool();
-      try {
-        await pool.query(`
-          CREATE TABLE IF NOT EXISTS records (
-            collection VARCHAR(255) NOT NULL,
-            id VARCHAR(255) NOT NULL,
-            data TEXT NOT NULL,
-            timestamp BIGINT NOT NULL,
-            PRIMARY KEY (collection, id)
-          )
-        `);
-      } catch (err) {}
-      dbInstance = {
-        run: async (sql: string, params: any[] = []) => {
-          let i = 1;
-          let pgSql = sql.replace(/\?/g, () => `${i++}`);
-          
-          if (pgSql.toUpperCase().includes("INSERT OR REPLACE INTO RECORDS") || pgSql.toUpperCase().includes("INSERT INTO RECORDS")) {
-             if (!pgSql.toUpperCase().includes("ON CONFLICT")) {
-               pgSql = pgSql.replace(/INSERT OR REPLACE INTO records/gi, "INSERT INTO records");
-               pgSql += " ON CONFLICT (collection, id) DO UPDATE SET data = EXCLUDED.data, timestamp = EXCLUDED.timestamp";
-             }
-          }
-          
-          return pool.query(pgSql, params);
-        },
-        all: async (sql: string, params: any[] = []) => {
-          let i = 1;
-          const pgSql = sql.replace(/\?/g, () => `${i++}`);
-          const rs = await pool.query(pgSql, params);
-          return rs.rows;
-        },
-        get: async (sql: string, params: any[] = []) => {
-          let i = 1;
-          const pgSql = sql.replace(/\?/g, () => `${i++}`);
-          const rs = await pool.query(pgSql, params);
-          return rs.rows[0];
-        }
-      };
-      return dbInstance;
-    }
-
-    // High-speed persistent SQLite store (file:uploads/app.db or Remote Turso/libSQL over HTTP)
-    const storeDir = path.join(process.cwd(), "uploads");
-    const storeFile = path.join(storeDir, "realtime_db_store.json");
-
-    function loadStore(): Record<string, Record<string, any>> {
-      try {
-        if (fs.existsSync(storeFile)) {
-          return JSON.parse(fs.readFileSync(storeFile, "utf-8"));
-        }
-      } catch (e) {}
-      return {};
-    }
-
-    function saveStore(data: any) {
-      try {
-        if (!fs.existsSync(storeDir)) {
-          fs.mkdirSync(storeDir, { recursive: true });
-        }
-        fs.writeFileSync(storeFile, JSON.stringify(data), "utf-8");
-      } catch (e) {}
-    }
-
-    const localMap: Record<string, Record<string, any>> = loadStore();
-
-    await initSQLite();
-    const libClient = getLibSQLClient();
-
-    // Warm up / Bootstrap local storage from Cloud Firestore
-    (async () => {
-      try {
-        console.log("[Firebase Bootstrapper] Starting local database warming from Firestore...");
-        const collections = ["messages", "presence", "channels", "voice_users", "records"];
-        let docCount = 0;
-        for (const col of collections) {
-          try {
-            const snapshot = await adminDb.collection(col).limit(500).get();
-            if (!snapshot.empty) {
-              for (const doc of snapshot.docs) {
-                const data = doc.data();
-                const id = doc.id;
-                const ts = data.timestamp || Date.now();
-                
-                // Insert/Replace in SQLite
-                try {
-                  await libClient.execute({
-                    sql: "INSERT OR REPLACE INTO records (collection, id, data, timestamp) VALUES (?, ?, ?, ?)",
-                    args: [col, id, JSON.stringify(data), ts]
-                  });
-                } catch (e) {}
-
-                // Store in localMap
-                if (!localMap[col]) localMap[col] = {};
-                localMap[col][id] = { ...data, id, timestamp: ts };
-                docCount++;
-              }
-            }
-          } catch (colErr) {
-            // Log collection specific error but continue other collections
-          }
-        }
-        if (docCount > 0) {
-          saveStore(localMap);
-          console.log(`[Firebase Bootstrapper] Warmed ${docCount} records into local SQLite cache!`);
-        }
-      } catch (err: any) {
-        console.warn("[Firebase Bootstrapper] Failed to bootstrap from Firestore (using offline local engine instead):", err?.message || err);
-      }
-    })();
 
     dbInstance = {
       run: async (sql: string, params: any[] = []) => {
-        try {
-          await libClient.execute({ sql, args: params });
-        } catch (e) {}
+        const pool = getPgPool();
+        if (pool) {
+          // Translate SQLite params/queries to PostgreSQL
+          let pgSql = sql;
+          let idx = 1;
+          pgSql = pgSql.replace(/\?/g, () => `$${idx++}`);
 
+          if (pgSql.toUpperCase().includes("INSERT OR REPLACE INTO RECORDS") || pgSql.toUpperCase().includes("INSERT INTO RECORDS")) {
+            if (!pgSql.toUpperCase().includes("ON CONFLICT")) {
+              pgSql = pgSql.replace(/INSERT OR REPLACE INTO records/gi, "INSERT INTO records");
+              pgSql += " ON CONFLICT (collection, id) DO UPDATE SET data = EXCLUDED.data, timestamp = EXCLUDED.timestamp";
+            }
+          }
+
+          if (pgSql.toUpperCase().includes("INSERT INTO WEBRTC_SIGNALS")) {
+            if (!pgSql.toUpperCase().includes("ON CONFLICT")) {
+              pgSql = pgSql.replace(/INSERT INTO webrtc_signals/gi, "INSERT INTO webrtc_signals");
+              pgSql += " ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, timestamp = EXCLUDED.timestamp";
+            }
+          }
+
+          try {
+            await pool.query(pgSql, params);
+          } catch (err) {
+            console.error("[PG DB Query Error] run:", pgSql, err);
+          }
+        }
+
+        // Keep local memoryStore updated so we can serve HTTP GET queries instantly with zero lag, and fallback safely
         const u = sql.toUpperCase();
         if (u.includes("DELETE FROM RECORDS")) {
           const col = params[0];
           const id = params[1];
           const ts = params[1]; // for timestamp < ?
           if (u.includes("TIMESTAMP <")) {
-            if (localMap[col]) {
-              Object.keys(localMap[col]).forEach((k) => {
-                const item = localMap[col][k];
+            if (memoryStore[col]) {
+              Object.keys(memoryStore[col]).forEach((k) => {
+                const item = memoryStore[col][k];
                 if (item && item.timestamp && item.timestamp < ts) {
-                  delete localMap[col][k];
+                  delete memoryStore[col][k];
                 }
               });
-              saveStore(localMap);
             }
-          } else if (col && id && localMap[col]) {
-            delete localMap[col][id];
-            saveStore(localMap);
-
-            // Asynchronously queue delete to Firestore (Self-healing & throttle aware)
-            queueFirebaseSync("delete", col, id);
+          } else if (col && id) {
+            if (memoryStore[col]) {
+              delete memoryStore[col][id];
+            }
+            // Trigger cross-instance sync delete
+            publishCrossInstanceEvent({
+              type: "change",
+              op: "delete",
+              collection: col,
+              id,
+            });
           }
         } else if (u.includes("INSERT")) {
           const col = params[0];
@@ -690,33 +729,53 @@ const PORT = 3000;
           const dataStr = params[2];
           const ts = params[3] || Date.now();
           if (col && id) {
-            if (!localMap[col]) localMap[col] = {};
+            if (!memoryStore[col]) memoryStore[col] = {};
             let parsedData = dataStr;
             if (typeof dataStr === "string") {
               try { parsedData = JSON.parse(dataStr); } catch (e) {}
             }
-            localMap[col][id] = { ...(parsedData || {}), id, timestamp: ts };
-            saveStore(localMap);
+            const recordData = { ...(parsedData || {}), id, timestamp: ts };
+            memoryStore[col][id] = recordData;
 
-            // Asynchronously queue set to Firestore (Self-healing & throttle aware)
-            queueFirebaseSync("set", col, id, parsedData);
+            // Trigger cross-instance sync upsert
+            publishCrossInstanceEvent({
+              type: "change",
+              op: "upsert",
+              collection: col,
+              id,
+              data: recordData,
+            });
           }
         }
+
         return { changes: 1 };
       },
       all: async (sql: string, params: any[] = []) => {
-        try {
-          const rs = await libClient.execute({ sql, args: params });
-          if (rs && rs.rows && rs.rows.length > 0) {
-            return rs.rows;
+        const pool = getPgPool();
+        if (pool) {
+          let pgSql = sql;
+          let idx = 1;
+          pgSql = pgSql.replace(/\?/g, () => `$${idx++}`);
+          try {
+            const res = await pool.query(pgSql, params);
+            // Transform pg rows to conform to sqlite signature
+            return res.rows.map(row => ({
+              id: row.id,
+              collection: row.collection,
+              data: typeof row.data === "string" ? row.data : JSON.stringify(row.data),
+              timestamp: Number(row.timestamp),
+            }));
+          } catch (err) {
+            console.error("[PG DB Query Error] all:", pgSql, err);
           }
-        } catch (e) {}
+        }
 
+        // Fallback to memoryStore
         const u = sql.toUpperCase();
         if (u.includes("WHERE COLLECTION =")) {
           const col = params[0];
-          if (!col || !localMap[col]) return [];
-          return Object.entries(localMap[col]).map(([id, val]) => ({
+          if (!col || !memoryStore[col]) return [];
+          return Object.entries(memoryStore[col]).map(([id, val]) => ({
             id,
             collection: col,
             data: JSON.stringify(val),
@@ -724,7 +783,7 @@ const PORT = 3000;
           }));
         }
         const list: any[] = [];
-        Object.entries(localMap).forEach(([col, items]) => {
+        Object.entries(memoryStore).forEach(([col, items]) => {
           Object.entries(items).forEach(([id, val]) => {
             list.push({
               id,
@@ -737,26 +796,62 @@ const PORT = 3000;
         return list;
       },
       get: async (sql: string, params: any[] = []) => {
-        try {
-          const rs = await libClient.execute({ sql, args: params });
-          if (rs && rs.rows && rs.rows.length > 0) {
-            return rs.rows[0];
+        const pool = getPgPool();
+        if (pool) {
+          let pgSql = sql;
+          let idx = 1;
+          pgSql = pgSql.replace(/\?/g, () => `$${idx++}`);
+          try {
+            const res = await pool.query(pgSql, params);
+            if (res.rows && res.rows.length > 0) {
+              const row = res.rows[0];
+              return {
+                id: row.id || params[1],
+                collection: row.collection || params[0],
+                data: typeof row.data === "string" ? row.data : JSON.stringify(row.data),
+                timestamp: Number(row.timestamp),
+              };
+            }
+          } catch (err) {
+            console.error("[PG DB Query Error] get:", pgSql, err);
           }
-        } catch (e) {}
+        }
 
+        // Fallback to memoryStore
         const col = params[0];
         const id = params[1];
-        if (col && id && localMap[col] && localMap[col][id]) {
+        if (col && id && memoryStore[col] && memoryStore[col][id]) {
           return {
             id,
             collection: col,
-            data: JSON.stringify(localMap[col][id]),
-            timestamp: localMap[col][id].timestamp || Date.now(),
+            data: JSON.stringify(memoryStore[col][id]),
+            timestamp: memoryStore[col][id].timestamp || Date.now(),
           };
         }
         return null;
       }
     };
+
+    // Try to load any existing records from Postgres to warm up the in-memory cache at boot time
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        const res = await pool.query("SELECT collection, id, data, timestamp FROM records LIMIT 1000");
+        for (const row of res.rows) {
+          const col = row.collection;
+          const id = row.id;
+          let parsedData = row.data;
+          if (typeof row.data === "string") {
+            try { parsedData = JSON.parse(row.data); } catch (e) {}
+          }
+          if (!memoryStore[col]) memoryStore[col] = {};
+          memoryStore[col][id] = { ...(parsedData || {}), id, timestamp: Number(row.timestamp) };
+        }
+        console.log(`[PG Cache Warmer] Warmed ${res.rows.length} records into RAM memoryStore from PostgreSQL.`);
+      } catch (err) {
+        console.warn("[PG Cache Warmer] Failed to warm cache:", err);
+      }
+    }
 
     return dbInstance;
   }
@@ -848,76 +943,6 @@ const PORT = 3000;
     });
   };
 
-  const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "https://ideal-ray-149114.upstash.io";
-  const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAAkZ6AAIgcDI2NmNkOTFjMWZkMzc0YWRkODc1OWJmMDRlMjlhZTZiOA";
-
-  const wsRedisRest = async (command: string, ...args: (string | number)[]) => {
-    if (!REDIS_URL || !REDIS_TOKEN) return null;
-    try {
-      const url = `${REDIS_URL}/${command}/${args.map((a) => encodeURIComponent(String(a))).join("/")}`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
-        cache: "no-store",
-      });
-      if (!res.ok) return null;
-      const json = await res.json();
-      return json.result;
-    } catch {
-      return null;
-    }
-  };
-
-  const startCrossInstancePoller = () => {
-    if (!REDIS_URL || !REDIS_TOKEN) return;
-    const activeCollections = ["messages", "presence", "channels", "voice_users", "records"];
-    const lastStreamIds: Record<string, string> = {};
-
-    activeCollections.forEach((col) => {
-      lastStreamIds[col] = "$";
-    });
-
-    setInterval(async () => {
-      for (const col of activeCollections) {
-        try {
-          const response = await wsRedisRest("XREAD", "COUNT", 100, "STREAMS", `stream:${col}`, lastStreamIds[col] || "$");
-          if (response && Array.isArray(response) && response.length > 0) {
-            const streamData = response[0];
-            if (Array.isArray(streamData) && streamData.length >= 2) {
-              const entries = streamData[1];
-              if (Array.isArray(entries)) {
-                for (const entry of entries) {
-                  if (!Array.isArray(entry) || entry.length < 2) continue;
-                  const msgId = entry[0];
-                  lastStreamIds[col] = msgId;
-
-                  const fields = entry[1];
-                  const delta: Record<string, any> = {};
-                  if (Array.isArray(fields)) {
-                    for (let i = 0; i < fields.length; i += 2) {
-                      delta[fields[i]] = fields[i + 1];
-                    }
-                  }
-
-                  let parsedData = delta.data;
-                  if (typeof parsedData === "string") {
-                    try {
-                      parsedData = JSON.parse(parsedData);
-                    } catch {}
-                  }
-
-                  // Broadcast to all locally connected WebSocket clients on this instance
-                  broadcastWebSocketChange(delta.op || "set", col, delta.id, parsedData);
-                }
-              }
-            }
-          }
-        } catch (err) {}
-      }
-    }, 1200);
-  };
-
-  startCrossInstancePoller();
-
   wss.on("connection", (ws: ExtendedWebSocket) => {
     ws.isAlive = true;
     ws.subscriptions = new Set(["all"]);
@@ -991,56 +1016,6 @@ const PORT = 3000;
 
           // Instant 0ms broadcast to all other WebSocket clients
           broadcastWebSocketChange(op || "set", col, id, recordData, ws);
-
-          // Write to Upstash Redis Stream for cross-instance replication
-          if (REDIS_URL && REDIS_TOKEN) {
-            (async () => {
-              try {
-                if (op === "delete") {
-                  await wsRedisRest("HDEL", `db:${col}`, id);
-                  await wsRedisRest(
-                    "XADD",
-                    `stream:${col}`,
-                    "MAXLEN",
-                    "~",
-                    2000,
-                    "*",
-                    "op",
-                    "delete",
-                    "collection",
-                    col,
-                    "id",
-                    id,
-                    "timestamp",
-                    ts
-                  );
-                } else {
-                  await wsRedisRest("HSET", `db:${col}`, id, JSON.stringify(recordData));
-                  await wsRedisRest(
-                    "XADD",
-                    `stream:${col}`,
-                    "MAXLEN",
-                    "~",
-                    2000,
-                    "*",
-                    "op",
-                    op || "set",
-                    "collection",
-                    col,
-                    "id",
-                    id,
-                    "data",
-                    JSON.stringify(recordData),
-                    "timestamp",
-                    ts
-                  );
-                }
-              } catch (e) {}
-            })();
-          }
-
-          // Also broadcast to SSE clients
-          broadcastCassandraChange(op || "set", col, id, recordData);
           return;
         }
 
@@ -1071,6 +1046,13 @@ const PORT = 3000;
 
           // Mirror to SSE stream
           broadcastWebRTCSignal(sigObj);
+
+          // Broadcast WebRTC signals cross-instance to other nodes!
+          publishCrossInstanceEvent({
+            type: "webrtc_signal",
+            payload: sigObj,
+          });
+
           return;
         }
 
