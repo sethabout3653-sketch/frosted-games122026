@@ -101,6 +101,13 @@ const ICE_SERVERS: RTCConfiguration = {
       ],
       username: "free",
       credential: "free",
+    },
+    {
+      urls: [
+        "turn:numb.viagenie.ca",
+      ],
+      username: "sethabout3653@gmail.com",
+      credential: "password123",
     }
   ],
   iceCandidatePoolSize: 10,

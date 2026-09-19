@@ -11,7 +11,7 @@ import { Filter } from "bad-words";
 import Tesseract from "tesseract.js";
 import { GoogleGenAI } from "@google/genai";
 import { checkTextModeration } from "./src/utils/moderation";
-import dbDataHandler, { addLocalSubscriber, memoryStore } from "./api/db/data";
+import dbDataHandler, { addLocalSubscriber, memoryStore, notifyLocalSubscribers } from "./api/db/data";
 import dbStreamHandler from "./api/db/stream";
 import { getLibSQLClient, initSQLite } from "./src/db/sqlite";
 import { adminDb } from "./src/lib/firebase-admin";
@@ -734,6 +734,12 @@ const PORT = 3000;
             if (memoryStore[col]) {
               delete memoryStore[col][id];
             }
+            // Notify local WebSocket subscribers
+            notifyLocalSubscribers(col, {
+              op: "delete",
+              path: col,
+              id,
+            });
             // Trigger cross-instance sync delete
             publishCrossInstanceEvent({
               type: "change",
@@ -755,6 +761,14 @@ const PORT = 3000;
             }
             const recordData = { ...(parsedData || {}), id, timestamp: ts };
             memoryStore[col][id] = recordData;
+
+            // Notify local WebSocket subscribers
+            notifyLocalSubscribers(col, {
+              op: "upsert",
+              path: col,
+              id,
+              data: recordData,
+            });
 
             // Trigger cross-instance sync upsert
             publishCrossInstanceEvent({

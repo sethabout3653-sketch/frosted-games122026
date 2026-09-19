@@ -5,8 +5,17 @@ export const memoryStore: Record<string, Record<string, any>> = {};
 const memorySubscribers: Record<string, Set<(event: any) => void>> = {};
 
 export function notifyLocalSubscribers(path: string, event: any) {
+  // Notify specific path subscribers
   if (memorySubscribers[path]) {
     memorySubscribers[path].forEach((cb) => {
+      try {
+        cb(event);
+      } catch {}
+    });
+  }
+  // Notify wildcard '*' subscribers
+  if (memorySubscribers["*"]) {
+    memorySubscribers["*"].forEach((cb) => {
       try {
         cb(event);
       } catch {}
