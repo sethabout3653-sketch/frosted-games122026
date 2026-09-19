@@ -4,11 +4,12 @@
 
 import fs from "fs";
 import path from "path";
+import { sqliteGetRecord, sqliteGetCollection, sqliteSetRecord, sqliteDeleteRecord } from "../../src/db/sqlite";
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "";
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
 
-// Persistence for non-Redis environments (Local/Cloud Run)
+// Persistence for non-Redis environments (Local/Cloud Run/SQLite)
 const STORE_DIR = path.join(process.cwd(), "uploads");
 const STORE_FILE = path.join(STORE_DIR, "realtime_db_store.json");
 
@@ -30,7 +31,6 @@ function saveToDisk(data: any) {
   } catch (e) {}
 }
 
-// In-memory fallback for environments without Upstash credentials configured
 const memoryStore: Record<string, Record<string, any>> = loadFromDisk();
 const memorySubscribers: Record<string, Set<(event: any) => void>> = {};
 
@@ -109,11 +109,15 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ success: true, path, data: parsed });
       }
 
-      // In-memory fallback
+      // SQLite & In-memory store read
       if (id) {
-        return res.status(200).json({ success: true, id, data: memoryStore[path]?.[id] || null });
+        const sqData = await sqliteGetRecord(path, id).catch(() => null);
+        const docData = sqData !== null ? sqData : memoryStore[path]?.[id] || null;
+        return res.status(200).json({ success: true, id, data: docData });
       }
-      return res.status(200).json({ success: true, path, data: memoryStore[path] || {} });
+      const sqCollection = await sqliteGetCollection(path).catch(() => ({}));
+      const combinedData = { ...memoryStore[path], ...sqCollection };
+      return res.status(200).json({ success: true, path, data: combinedData });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || String(err) });
     }
@@ -148,6 +152,7 @@ export default async function handler(req: any, res: any) {
             timestamp
           );
         }
+        await sqliteDeleteRecord(targetPath, docId).catch(() => {});
         if (memoryStore[targetPath]) {
           delete memoryStore[targetPath][docId];
           saveToDisk(memoryStore);
@@ -188,6 +193,9 @@ export default async function handler(req: any, res: any) {
           timestamp
         );
       }
+
+      // Update SQLite store
+      await sqliteSetRecord(targetPath, docId, data, timestamp).catch(() => {});
 
       // Update in-memory store
       if (!memoryStore[targetPath]) memoryStore[targetPath] = {};

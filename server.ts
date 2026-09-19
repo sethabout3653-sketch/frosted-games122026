@@ -13,6 +13,7 @@ import { GoogleGenAI } from "@google/genai";
 import { checkTextModeration } from "./src/utils/moderation";
 import dbDataHandler from "./api/db/data";
 import dbStreamHandler from "./api/db/stream";
+import { getLibSQLClient, initSQLite } from "./src/db/sqlite";
 
 import { createPool, db } from "./src/db/index";
 import { records, webrtcSignals } from "./src/db/schema";
@@ -541,34 +542,158 @@ const PORT = 3000;
   async function getDb() {
     if (dbInstance) return dbInstance;
     
-    const pool = createPool();
-    
+    if (process.env.SQL_HOST) {
+      const pool = createPool();
+      dbInstance = {
+        run: async (sql: string, params: any[] = []) => {
+          let i = 1;
+          let pgSql = sql.replace(/\?/g, () => `${i++}`);
+          
+          if (pgSql.toUpperCase().includes("INSERT OR REPLACE INTO RECORDS") || pgSql.toUpperCase().includes("INSERT INTO RECORDS")) {
+             if (!pgSql.toUpperCase().includes("ON CONFLICT")) {
+               pgSql = pgSql.replace(/INSERT OR REPLACE INTO records/gi, "INSERT INTO records");
+               pgSql += " ON CONFLICT (collection, id) DO UPDATE SET data = EXCLUDED.data, timestamp = EXCLUDED.timestamp";
+             }
+          }
+          
+          return pool.query(pgSql, params);
+        },
+        all: async (sql: string, params: any[] = []) => {
+          let i = 1;
+          const pgSql = sql.replace(/\?/g, () => `${i++}`);
+          const rs = await pool.query(pgSql, params);
+          return rs.rows;
+        },
+        get: async (sql: string, params: any[] = []) => {
+          let i = 1;
+          const pgSql = sql.replace(/\?/g, () => `${i++}`);
+          const rs = await pool.query(pgSql, params);
+          return rs.rows[0];
+        }
+      };
+      return dbInstance;
+    }
+
+    // High-speed persistent SQLite store (file:uploads/app.db or Remote Turso/libSQL over HTTP)
+    const storeDir = path.join(process.cwd(), "uploads");
+    const storeFile = path.join(storeDir, "realtime_db_store.json");
+
+    function loadStore(): Record<string, Record<string, any>> {
+      try {
+        if (fs.existsSync(storeFile)) {
+          return JSON.parse(fs.readFileSync(storeFile, "utf-8"));
+        }
+      } catch (e) {}
+      return {};
+    }
+
+    function saveStore(data: any) {
+      try {
+        if (!fs.existsSync(storeDir)) {
+          fs.mkdirSync(storeDir, { recursive: true });
+        }
+        fs.writeFileSync(storeFile, JSON.stringify(data), "utf-8");
+      } catch (e) {}
+    }
+
+    const localMap: Record<string, Record<string, any>> = loadStore();
+
+    await initSQLite();
+    const libClient = getLibSQLClient();
+
     dbInstance = {
       run: async (sql: string, params: any[] = []) => {
-        let i = 1;
-        let pgSql = sql.replace(/\?/g, () => `$${i++}`);
-        
-        // Convert SQLite INSERT OR REPLACE INTO to Postgres UPSERT
-        if (pgSql.toUpperCase().includes("INSERT OR REPLACE INTO RECORDS") || pgSql.toUpperCase().includes("INSERT INTO RECORDS")) {
-           if (!pgSql.toUpperCase().includes("ON CONFLICT")) {
-             pgSql = pgSql.replace(/INSERT OR REPLACE INTO records/gi, "INSERT INTO records");
-             pgSql += " ON CONFLICT (collection, id) DO UPDATE SET data = EXCLUDED.data, timestamp = EXCLUDED.timestamp";
-           }
+        try {
+          await libClient.execute({ sql, args: params });
+        } catch (e) {}
+
+        const u = sql.toUpperCase();
+        if (u.includes("DELETE FROM RECORDS")) {
+          const col = params[0];
+          const id = params[1];
+          const ts = params[1]; // for timestamp < ?
+          if (u.includes("TIMESTAMP <")) {
+            if (localMap[col]) {
+              Object.keys(localMap[col]).forEach((k) => {
+                const item = localMap[col][k];
+                if (item && item.timestamp && item.timestamp < ts) {
+                  delete localMap[col][k];
+                }
+              });
+              saveStore(localMap);
+            }
+          } else if (col && id && localMap[col]) {
+            delete localMap[col][id];
+            saveStore(localMap);
+          }
+        } else if (u.includes("INSERT")) {
+          const col = params[0];
+          const id = params[1];
+          const dataStr = params[2];
+          const ts = params[3] || Date.now();
+          if (col && id) {
+            if (!localMap[col]) localMap[col] = {};
+            let parsedData = dataStr;
+            if (typeof dataStr === "string") {
+              try { parsedData = JSON.parse(dataStr); } catch (e) {}
+            }
+            localMap[col][id] = { ...(parsedData || {}), id, timestamp: ts };
+            saveStore(localMap);
+          }
         }
-        
-        return pool.query(pgSql, params);
+        return { changes: 1 };
       },
       all: async (sql: string, params: any[] = []) => {
-        let i = 1;
-        const pgSql = sql.replace(/\?/g, () => `$${i++}`);
-        const rs = await pool.query(pgSql, params);
-        return rs.rows;
+        try {
+          const rs = await libClient.execute({ sql, args: params });
+          if (rs && rs.rows && rs.rows.length > 0) {
+            return rs.rows;
+          }
+        } catch (e) {}
+
+        const u = sql.toUpperCase();
+        if (u.includes("WHERE COLLECTION =")) {
+          const col = params[0];
+          if (!col || !localMap[col]) return [];
+          return Object.entries(localMap[col]).map(([id, val]) => ({
+            id,
+            collection: col,
+            data: JSON.stringify(val),
+            timestamp: val.timestamp || val.lastSeen || Date.now(),
+          }));
+        }
+        const list: any[] = [];
+        Object.entries(localMap).forEach(([col, items]) => {
+          Object.entries(items).forEach(([id, val]) => {
+            list.push({
+              id,
+              collection: col,
+              data: JSON.stringify(val),
+              timestamp: val.timestamp || val.lastSeen || Date.now(),
+            });
+          });
+        });
+        return list;
       },
       get: async (sql: string, params: any[] = []) => {
-        let i = 1;
-        const pgSql = sql.replace(/\?/g, () => `$${i++}`);
-        const rs = await pool.query(pgSql, params);
-        return rs.rows[0];
+        try {
+          const rs = await libClient.execute({ sql, args: params });
+          if (rs && rs.rows && rs.rows.length > 0) {
+            return rs.rows[0];
+          }
+        } catch (e) {}
+
+        const col = params[0];
+        const id = params[1];
+        if (col && id && localMap[col] && localMap[col][id]) {
+          return {
+            id,
+            collection: col,
+            data: JSON.stringify(localMap[col][id]),
+            timestamp: localMap[col][id].timestamp || Date.now(),
+          };
+        }
+        return null;
       }
     };
 
