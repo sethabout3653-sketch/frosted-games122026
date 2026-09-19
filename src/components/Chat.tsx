@@ -169,7 +169,7 @@ export default function Chat({
           return;
         }
         const ts = toTimestampMs(data.timestamp || data.lastSeen);
-        if (ts > 0 && now - ts <= 120000) {
+        if (ts > 0 && now - ts <= 30000) {
           const existing = userMap.get(unameClean);
           const isSelf = data.uid === profile?.uid || unameClean === myNameClean;
           if (!existing || isSelf || ts > (existing.timestamp || 0)) {
@@ -188,7 +188,7 @@ export default function Chat({
         }
         if (data.inVoice) {
           const ts = toTimestampMs(data.lastSeen || data.timestamp);
-          if (ts > 0 && now - ts <= 60000) {
+          if (ts > 0 && now - ts <= 15000) {
             const existing = userMap.get(unameClean);
             const isSelf = data.uid === profile?.uid || unameClean === myNameClean;
             if (!existing || isSelf || ts > (existing.timestamp || 0)) {

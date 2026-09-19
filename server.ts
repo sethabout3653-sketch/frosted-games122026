@@ -1079,8 +1079,21 @@ const PORT = 3000;
 
               // Prune stale presence and voice users
               if (col === "presence" || col === "voice_users") {
-                const staleThreshold = ts - 120000;
+                const now = Date.now();
+                const staleThreshold = now - 30000; // 30s threshold for database
                 await db.run("DELETE FROM records WHERE collection = ? AND timestamp < ?", [col, staleThreshold]);
+                
+                // Also aggressively prune memoryStore
+                if (memoryStore[col]) {
+                  const memoryStaleThreshold = now - 15000; // 15s for in-memory cache
+                  Object.keys(memoryStore[col]).forEach(k => {
+                    const item = memoryStore[col][k];
+                    const itemTs = item.timestamp || item.lastSeen || 0;
+                    if (itemTs < memoryStaleThreshold && k !== id) {
+                      delete memoryStore[col][k];
+                    }
+                  });
+                }
               }
             } catch (err) {
               console.warn("[WS Database Persistence]", err);
@@ -3252,6 +3265,32 @@ Respond strictly in valid JSON:
           res.sendFile(path.join(distPath, "index.html"));
         });
       }
+
+      // Periodic background maintenance for stale presence (backup to the change-based pruning)
+      setInterval(() => {
+        getDb().then(async (db) => {
+          try {
+            const now = Date.now();
+            const staleThreshold = now - 45000; // 45s hard prune from database
+            await db.run("DELETE FROM records WHERE collection = ? AND timestamp < ?", ["presence", staleThreshold]);
+            await db.run("DELETE FROM records WHERE collection = ? AND timestamp < ?", ["voice_users", staleThreshold]);
+            
+            // Memory store maintenance
+            ["presence", "voice_users"].forEach(col => {
+              if (memoryStore[col]) {
+                const memoryStaleThreshold = now - 20000; // 20s soft prune from RAM
+                Object.keys(memoryStore[col]).forEach(k => {
+                  const item = memoryStore[col][k];
+                  const itemTs = item.timestamp || item.lastSeen || 0;
+                  if (itemTs < memoryStaleThreshold) {
+                    delete memoryStore[col][k];
+                  }
+                });
+              }
+            });
+          } catch (e) {}
+        }).catch(() => {});
+      }, 30000);
 
       httpServer.listen(PORT, "0.0.0.0", () => {
         console.log(`Server running with WebSockets enabled on http://localhost:${PORT}`);

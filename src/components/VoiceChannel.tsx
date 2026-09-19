@@ -319,7 +319,7 @@ export default function VoiceChannel({
       const isConnected = pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected");
       const ts = toTimestampMs(p.timestamp);
 
-      if (!isConnected && ts > 0 && currentTime - ts > 60000) {
+      if (!isConnected && ts > 0 && currentTime - ts > 15000) {
         return;
       }
 

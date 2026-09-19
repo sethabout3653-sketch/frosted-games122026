@@ -170,6 +170,29 @@ export default function ChatPanel({
     }, 5000);
     return () => clearInterval(timer);
   }, []);
+
+  const [isDeletingAllUsers, setIsDeletingAllUsers] = useState(false);
+
+  const handleDeleteAllUsers = async () => {
+    if (!window.confirm("Are you sure you want to delete and reset all stored user presence profiles? This will clear all offline/stale players and force active users to re-broadcast their status.")) {
+      return;
+    }
+    setIsDeletingAllUsers(true);
+    try {
+      const querySnapshot = await getDocs(collection(db, "presence"));
+      const deletePromises: Promise<void>[] = [];
+      querySnapshot.forEach((docSnap: any) => {
+        deletePromises.push(deleteDoc(doc(db, "presence", docSnap.id)).catch(() => {}));
+      });
+      await Promise.all(deletePromises);
+      alert("All presence user profiles have been deleted and cleaned from database!");
+    } catch (err: any) {
+      console.error("Error clearing users:", err);
+      alert("Error clearing users: " + err.message);
+    } finally {
+      setIsDeletingAllUsers(false);
+    }
+  };
   const [typingUsers, setTypingUsers] = useState<any[]>([]);
   const [isLocalTyping, setIsLocalTyping] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(initialCache.length === 0);
@@ -431,7 +454,19 @@ export default function ChatPanel({
           });
         }
 
-        setMemberUsers(users);
+        setMemberUsers((prev) => {
+          const newUserMap = new Map<string, MemberUser>();
+          // 1. Start with new users from database
+          users.forEach(u => newUserMap.set(u.uid, u));
+          // 2. Merge with existing users from RAM (WebSocket) if they are more recent
+          prev.forEach(u => {
+            const existing = newUserMap.get(u.uid);
+            if (!existing || (u.lastSeen && u.lastSeen > (existing.lastSeen || 0))) {
+              newUserMap.set(u.uid, { ...existing, ...u });
+            }
+          });
+          return Array.from(newUserMap.values());
+        });
       },
       (error) => {
         console.warn("ChatPanel presence listener error:", error);
@@ -1127,8 +1162,9 @@ export default function ChatPanel({
 
       const isMe = u.uid === profile.uid || uNameClean === myNameClean;
       const lastSeenMs = toTimestampMs(u.lastSeen);
-      const isRecentlyActive = u.status === "online" || Math.abs(currentTime - lastSeenMs) < 600000;
-      const isValid = isMe || (isRecentlyActive && u.status !== "left");
+      // Online threshold (heartbeat is 3s, client updates every 5s, so 15s is very safe yet responsive)
+      const isRecentlyActive = Math.abs(currentTime - lastSeenMs) < 15000;
+      const isValid = isMe || (isRecentlyActive && u.status === "online");
 
       if (isValid) {
         const existing = userMap.get(uNameClean);
@@ -1733,9 +1769,19 @@ export default function ChatPanel({
           <div className="flex-1 overflow-y-auto p-3 space-y-5">
             {/* ONLINE SECTION */}
             <div>
-              <h3 className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase mb-2 px-1">
-                ONLINE — {activeOnlineUsers.length}
-              </h3>
+              <div className="flex items-center justify-between mb-2 px-1">
+                <h3 className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                  ONLINE — {activeOnlineUsers.length}
+                </h3>
+                <button
+                  onClick={handleDeleteAllUsers}
+                  disabled={isDeletingAllUsers}
+                  className="p-1 hover:bg-rose-500/20 rounded text-neutral-500 hover:text-rose-400 transition-colors"
+                  title="Force clear and reset all users presence"
+                >
+                  <Trash2 size={10} className={isDeletingAllUsers ? "animate-spin" : ""} />
+                </button>
+              </div>
               <div className="space-y-1">
                 {activeOnlineUsers.map((user, uIdx) => {
                   const isCurrentUser = user.uid === profile.uid;
