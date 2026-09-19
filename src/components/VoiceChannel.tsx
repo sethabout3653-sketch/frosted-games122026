@@ -1754,13 +1754,31 @@ export default function VoiceChannel({
             }
           });
 
+          // Ensure local user profile is present in userMap
+          if (profile && profile.uid) {
+            const existingSelf = userMap.get(profile.uid);
+            userMap.set(profile.uid, {
+              uid: profile.uid,
+              username: profile.username,
+              photoURL: profile.photoURL || existingSelf?.photoURL || "",
+              channelId: existingSelf?.channelId || "general",
+              isMuted: isMuted,
+              isVideoOn: isVideoOn,
+              isScreenSharing: isScreenSharing,
+              isScreenAudioOn: isScreenAudioOn,
+              activity: getCurrentActivity(),
+              timestamp: now,
+            });
+          }
+
           const users: Participant[] = [];
           const activeUids = new Set<string>();
 
           userMap.forEach((u) => {
             activeUids.add(u.uid);
+            users.push(u);
+
             if (u.uid !== profile.uid) {
-              users.push(u);
               const pc = peersRef.current[u.uid];
               const isDead =
                 !pc ||

@@ -72,7 +72,17 @@ export default function Chat({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.username && parsed.username.trim().toLowerCase() !== "anonymous") {
-          return parsed;
+          let tabId = sessionStorage.getItem("frosted_tab_id");
+          if (!tabId) {
+            tabId = Math.random().toString(36).substring(2, 6);
+            sessionStorage.setItem("frosted_tab_id", tabId);
+          }
+          const tabProfile = {
+            ...parsed,
+            uid: parsed.uid.includes("_tab_") ? parsed.uid : `${parsed.uid}_tab_${tabId}`,
+          };
+          sessionStorage.setItem("frosted_chat_profile", JSON.stringify(tabProfile));
+          return tabProfile;
         }
         localStorage.removeItem("frosted_chat_profile");
       }

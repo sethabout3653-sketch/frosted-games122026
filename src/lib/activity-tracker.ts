@@ -28,7 +28,17 @@ export function getSavedProfile(): ChatProfile | null {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && parsed.username && parsed.username.trim().toLowerCase() !== "anonymous") {
-        return parsed;
+        let tabId = sessionStorage.getItem("frosted_tab_id");
+        if (!tabId) {
+          tabId = Math.random().toString(36).substring(2, 6);
+          sessionStorage.setItem("frosted_tab_id", tabId);
+        }
+        const profile = {
+          ...parsed,
+          uid: parsed.uid.includes("_tab_") ? parsed.uid : `${parsed.uid}_tab_${tabId}`,
+        };
+        sessionStorage.setItem("frosted_chat_profile", JSON.stringify(profile));
+        return profile;
       }
     }
   } catch (e) {}
