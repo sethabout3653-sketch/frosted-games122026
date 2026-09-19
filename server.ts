@@ -787,6 +787,76 @@ const PORT = 3000;
     });
   };
 
+  const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "https://ideal-ray-149114.upstash.io";
+  const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAAkZ6AAIgcDI2NmNkOTFjMWZkMzc0YWRkODc1OWJmMDRlMjlhZTZiOA";
+
+  const wsRedisRest = async (command: string, ...args: (string | number)[]) => {
+    if (!REDIS_URL || !REDIS_TOKEN) return null;
+    try {
+      const url = `${REDIS_URL}/${command}/${args.map((a) => encodeURIComponent(String(a))).join("/")}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.result;
+    } catch {
+      return null;
+    }
+  };
+
+  const startCrossInstancePoller = () => {
+    if (!REDIS_URL || !REDIS_TOKEN) return;
+    const activeCollections = ["messages", "presence", "channels", "voice_users", "records"];
+    const lastStreamIds: Record<string, string> = {};
+
+    activeCollections.forEach((col) => {
+      lastStreamIds[col] = "$";
+    });
+
+    setInterval(async () => {
+      for (const col of activeCollections) {
+        try {
+          const response = await wsRedisRest("XREAD", "COUNT", 100, "STREAMS", `stream:${col}`, lastStreamIds[col] || "$");
+          if (response && Array.isArray(response) && response.length > 0) {
+            const streamData = response[0];
+            if (Array.isArray(streamData) && streamData.length >= 2) {
+              const entries = streamData[1];
+              if (Array.isArray(entries)) {
+                for (const entry of entries) {
+                  if (!Array.isArray(entry) || entry.length < 2) continue;
+                  const msgId = entry[0];
+                  lastStreamIds[col] = msgId;
+
+                  const fields = entry[1];
+                  const delta: Record<string, any> = {};
+                  if (Array.isArray(fields)) {
+                    for (let i = 0; i < fields.length; i += 2) {
+                      delta[fields[i]] = fields[i + 1];
+                    }
+                  }
+
+                  let parsedData = delta.data;
+                  if (typeof parsedData === "string") {
+                    try {
+                      parsedData = JSON.parse(parsedData);
+                    } catch {}
+                  }
+
+                  // Broadcast to all locally connected WebSocket clients on this instance
+                  broadcastWebSocketChange(delta.op || "set", col, delta.id, parsedData);
+                }
+              }
+            }
+          }
+        } catch (err) {}
+      }
+    }, 1200);
+  };
+
+  startCrossInstancePoller();
+
   wss.on("connection", (ws: ExtendedWebSocket) => {
     ws.isAlive = true;
     ws.subscriptions = new Set(["all"]);
@@ -860,6 +930,53 @@ const PORT = 3000;
 
           // Instant 0ms broadcast to all other WebSocket clients
           broadcastWebSocketChange(op || "set", col, id, recordData, ws);
+
+          // Write to Upstash Redis Stream for cross-instance replication
+          if (REDIS_URL && REDIS_TOKEN) {
+            (async () => {
+              try {
+                if (op === "delete") {
+                  await wsRedisRest("HDEL", `db:${col}`, id);
+                  await wsRedisRest(
+                    "XADD",
+                    `stream:${col}`,
+                    "MAXLEN",
+                    "~",
+                    2000,
+                    "*",
+                    "op",
+                    "delete",
+                    "collection",
+                    col,
+                    "id",
+                    id,
+                    "timestamp",
+                    ts
+                  );
+                } else {
+                  await wsRedisRest("HSET", `db:${col}`, id, JSON.stringify(recordData));
+                  await wsRedisRest(
+                    "XADD",
+                    `stream:${col}`,
+                    "MAXLEN",
+                    "~",
+                    2000,
+                    "*",
+                    "op",
+                    op || "set",
+                    "collection",
+                    col,
+                    "id",
+                    id,
+                    "data",
+                    JSON.stringify(recordData),
+                    "timestamp",
+                    ts
+                  );
+                }
+              } catch (e) {}
+            })();
+          }
 
           // Also broadcast to SSE clients
           broadcastCassandraChange(op || "set", col, id, recordData);
