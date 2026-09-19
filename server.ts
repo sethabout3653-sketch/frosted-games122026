@@ -548,11 +548,23 @@ const PORT = 3000;
         const sqlUpper = sql.toUpperCase();
         if (sqlUpper.includes("DELETE FROM RECORDS")) {
           const col = params[0];
-          const id = params[1];
-          if (col && id && wsMemoryRecords[col]) {
-            delete wsMemoryRecords[col][id];
-          } else if (col && !id) {
-            delete wsMemoryRecords[col];
+          if (params.length === 2 && typeof params[1] === "number" && sqlUpper.includes("TIMESTAMP <")) {
+            const threshold = params[1];
+            if (col && wsMemoryRecords[col]) {
+              for (const [docId, docVal] of Object.entries(wsMemoryRecords[col])) {
+                const ts = docVal?.timestamp || docVal?.lastSeen || 0;
+                if (ts && ts < threshold) {
+                  delete wsMemoryRecords[col][docId];
+                }
+              }
+            }
+          } else {
+            const id = params[1];
+            if (col && id && wsMemoryRecords[col]) {
+              delete wsMemoryRecords[col][id];
+            } else if (col && !id) {
+              delete wsMemoryRecords[col];
+            }
           }
         } else if (sqlUpper.includes("INSERT") && sqlUpper.includes("RECORDS")) {
           const col = params[0];
@@ -1152,7 +1164,8 @@ const PORT = 3000;
         await db.run("DELETE FROM records WHERE collection = ? AND timestamp < ?", [col, staleThreshold]);
       }
 
-      // Broadcast to all SSE listeners in real time
+      // Broadcast to all WebSocket and SSE listeners in real time
+      broadcastWebSocketChange(op || "set", col, id, recordData);
       broadcastCassandraChange(op || "set", col, id, recordData);
 
       res.json({ success: true, timestamp: ts });

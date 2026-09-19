@@ -435,19 +435,19 @@ class SupabaseRealtimeManager {
       }
     });
 
-    // Periodic heartbeat sync every 6 seconds so messages never fail or stall when idle
+    // Periodic heartbeat sync every 2.5 seconds so peers and presence never stall
     window.setInterval(() => {
       if (this.listeners.size > 0) {
         this.resyncAllActiveCollections();
       }
-    }, 6000);
+    }, 2500);
   }
 
   public async resyncAllActiveCollections() {
     const activeCols = Array.from(this.listeners.keys());
     for (const colName of activeCols) {
       if ((this.listeners.get(colName)?.size || 0) > 0) {
-        await this.getCollection(colName, true);
+        const dataMap = await this.getCollection(colName, true);
         this.notify(colName);
       }
     }
@@ -521,8 +521,8 @@ class SupabaseRealtimeManager {
     } catch (e) {}
 
     const cachedMap = this.cache.get(colName) || {};
-    // Merge server WebSocket memory store + local client memory cache
-    const mergedMap = { ...cassandraDataMap, ...cachedMap };
+    // Merge: server WebSocket store is authoritative, merge with local cache
+    const mergedMap = forceFetch ? { ...cassandraDataMap } : { ...cachedMap, ...cassandraDataMap };
     this.cache.set(colName, mergedMap);
     return mergedMap;
   }
@@ -534,8 +534,13 @@ class SupabaseRealtimeManager {
     const listenerEntry: ListenerEntry = { cb, queryObj };
     this.listeners.get(colName)!.add(listenerEntry);
 
+    // Register collection subscription with WebSocket client
+    const unsubWs = wsClient.onCollectionChange(colName, ({ op, id, data }) => {
+      this.applyChange(op, colName, id, data);
+    });
+
     // Initial load + immediate snapshot delivery
-    this.getCollection(colName).then((dataMap) => {
+    this.getCollection(colName, true).then((dataMap) => {
       try {
         const snap = this.buildSnapshot(dataMap, queryObj);
         cb(snap);
@@ -544,6 +549,7 @@ class SupabaseRealtimeManager {
 
     return () => {
       this.listeners.get(colName)?.delete(listenerEntry);
+      unsubWs();
     };
   }
 
