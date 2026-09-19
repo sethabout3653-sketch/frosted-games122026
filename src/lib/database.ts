@@ -260,12 +260,14 @@ class UniversalDatabaseManager {
         const json = await res.json();
         const serverData = json.data || {};
         if (typeof serverData === "object") {
-          // Remove keys from local map that do not exist on the server
-          Array.from(map.keys()).forEach((key) => {
-            if (!(key in serverData)) {
-              map.delete(key);
-            }
-          });
+          // Remove keys from local map that do not exist on the server (only for messages)
+          if (collection === "messages") {
+            Array.from(map.keys()).forEach((key) => {
+              if (!(key in serverData)) {
+                map.delete(key);
+              }
+            });
+          }
 
           // Insert/Update from server
           Object.entries(serverData).forEach(([k, v]) => {
@@ -283,12 +285,14 @@ class UniversalDatabaseManager {
         if (res2.ok) {
           const serverData2 = await res2.json() || {};
           if (typeof serverData2 === "object") {
-            // Remove keys from local map that do not exist on the server
-            Array.from(map.keys()).forEach((key) => {
-              if (!(key in serverData2)) {
-                map.delete(key);
-              }
-            });
+            // Remove keys from local map that do not exist on the server (only for messages)
+            if (collection === "messages") {
+              Array.from(map.keys()).forEach((key) => {
+                if (!(key in serverData2)) {
+                  map.delete(key);
+                }
+              });
+            }
 
             Object.entries(serverData2).forEach(([k, v]: [string, any]) => {
               map.set(k, { ...(v || {}), id: k });
