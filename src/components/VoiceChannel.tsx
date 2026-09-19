@@ -310,9 +310,9 @@ export default function VoiceChannel({
           return true;
         }
 
-        // If the user hasn't sent a heartbeat in the last 12 seconds, consider them disconnected
+        // If the user hasn't sent a heartbeat in the last 60 seconds, consider them disconnected
         const ts = toTimestampMs(p.timestamp);
-        if (ts > 0 && currentTime - ts > 12000) {
+        if (ts > 0 && currentTime - ts > 60000) {
           return false;
         }
 
@@ -1720,7 +1720,7 @@ export default function VoiceChannel({
             }
             let ts = toTimestampMs(u.timestamp || (u as any).lastSeen);
             if (ts <= 0) ts = now;
-            if (now - ts <= 12000) {
+            if (now - ts <= 60000) {
               userMap.set(u.uid, { ...u, timestamp: ts });
             }
           });
@@ -1735,7 +1735,7 @@ export default function VoiceChannel({
             if (pData.inVoice) {
               let ts = toTimestampMs(pData.lastSeen || pData.timestamp);
               if (ts <= 0) ts = now;
-              if (now - ts <= 12000) {
+              if (now - ts <= 60000) {
                 const existing = userMap.get(pData.uid);
                 userMap.set(pData.uid, {
                   uid: pData.uid,

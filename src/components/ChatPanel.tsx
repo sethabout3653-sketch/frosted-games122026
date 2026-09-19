@@ -412,9 +412,8 @@ export default function ChatPanel({
           });
         });
 
-        // Ensure current profile is present if valid and not already in the list
-        const lowerProfileName = (profile?.username || "").trim().toLowerCase();
-        if (lowerProfileName && lowerProfileName !== "anonymous" && !users.some((u) => (u.username || "").trim().toLowerCase() === lowerProfileName)) {
+        // Ensure current profile is present if valid and not already in the list by unique UID
+        if (profile?.uid && !users.some((u) => u.uid === profile.uid)) {
           users.unshift({
             uid: profile.uid,
             username: profile.username,
@@ -1099,7 +1098,8 @@ export default function ChatPanel({
       if (!u.uid) return;
 
       const isMe = u.uid === profile.uid;
-      const isRecent = typeof u.lastSeen === "number" && currentTime - u.lastSeen < 60000;
+      const lastSeenMs = toTimestampMs(u.lastSeen);
+      const isRecent = Math.abs(currentTime - lastSeenMs) < 300000;
       const isValid = isMe || (isRecent && u.status !== "left");
 
       if (isValid) {
