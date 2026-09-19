@@ -145,7 +145,23 @@ export default async function handler(req: any, res: any) {
   // 2. POST / PUT: Upsert raw JSON document
   if (req.method === "POST" || req.method === "PUT") {
     try {
-      const body = req.body || {};
+      let body = req.body;
+      if (!body) {
+        body = await new Promise((resolve) => {
+          let raw = "";
+          req.on("data", (c: any) => { raw += c; });
+          req.on("end", () => {
+            try { resolve(JSON.parse(raw)); } catch { resolve({}); }
+          });
+          req.on("error", () => resolve({}));
+        });
+      } else if (typeof body === "string") {
+        try { body = JSON.parse(body); } catch { body = {}; }
+      } else if (Buffer.isBuffer(body)) {
+        try { body = JSON.parse(body.toString("utf-8")); } catch { body = {}; }
+      }
+      body = body || {};
+
       const targetPath = body.collection || body.path || path || "root";
       const docId = body.id || id || `doc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       

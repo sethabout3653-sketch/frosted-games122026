@@ -158,17 +158,23 @@ export default function Chat({
     const mergeAndSetVoiceUsers = () => {
       const now = Date.now();
       const userMap = new Map<string, any>();
+      const myNameClean = (profile?.username || "").trim().toLowerCase();
 
       // 1. Ingest from voice_users collection
       latestVoiceDocs.forEach((d) => {
         const data = d.data();
         const uname = (data?.username || "").trim();
-        if (!data?.uid || !uname || uname.toLowerCase() === "anonymous" || uname.toLowerCase() === "guest") {
+        const unameClean = uname.toLowerCase();
+        if (!data?.uid || !uname || unameClean === "anonymous" || unameClean === "guest") {
           return;
         }
         const ts = toTimestampMs(data.timestamp || data.lastSeen);
         if (ts > 0 && now - ts <= 120000) {
-          userMap.set(data.uid, { ...data, timestamp: ts });
+          const existing = userMap.get(unameClean);
+          const isSelf = data.uid === profile?.uid || unameClean === myNameClean;
+          if (!existing || isSelf || ts > (existing.timestamp || 0)) {
+            userMap.set(unameClean, { ...data, uid: isSelf ? profile?.uid : data.uid, timestamp: ts });
+          }
         }
       });
 
@@ -176,23 +182,27 @@ export default function Chat({
       latestPresenceDocs.forEach((d) => {
         const data = d.data();
         const uname = (data?.username || "").trim();
-        if (!data?.uid || !uname || uname.toLowerCase() === "anonymous" || uname.toLowerCase() === "guest") {
+        const unameClean = uname.toLowerCase();
+        if (!data?.uid || !uname || unameClean === "anonymous" || unameClean === "guest") {
           return;
         }
         if (data.inVoice) {
           const ts = toTimestampMs(data.lastSeen || data.timestamp);
           if (ts > 0 && now - ts <= 60000) {
-            const existing = userMap.get(data.uid);
-            userMap.set(data.uid, {
-              uid: data.uid,
-              username: uname,
-              photoURL: data.photoURL || existing?.photoURL || "",
-              isMuted: data.isMuted !== undefined ? data.isMuted : existing?.isMuted ?? false,
-              isVideoOn: data.isVideoOn !== undefined ? data.isVideoOn : existing?.isVideoOn ?? false,
-              isScreenSharing: data.isScreenSharing !== undefined ? data.isScreenSharing : existing?.isScreenSharing ?? false,
-              isScreenAudioOn: data.isScreenAudioOn !== undefined ? data.isScreenAudioOn : existing?.isScreenAudioOn ?? false,
-              timestamp: Math.max(ts, existing?.timestamp || 0),
-            });
+            const existing = userMap.get(unameClean);
+            const isSelf = data.uid === profile?.uid || unameClean === myNameClean;
+            if (!existing || isSelf || ts > (existing.timestamp || 0)) {
+              userMap.set(unameClean, {
+                uid: isSelf ? profile?.uid : data.uid,
+                username: uname,
+                photoURL: data.photoURL || existing?.photoURL || "",
+                isMuted: data.isMuted !== undefined ? data.isMuted : existing?.isMuted ?? false,
+                isVideoOn: data.isVideoOn !== undefined ? data.isVideoOn : existing?.isVideoOn ?? false,
+                isScreenSharing: data.isScreenSharing !== undefined ? data.isScreenSharing : existing?.isScreenSharing ?? false,
+                isScreenAudioOn: data.isScreenAudioOn !== undefined ? data.isScreenAudioOn : existing?.isScreenAudioOn ?? false,
+                timestamp: Math.max(ts, existing?.timestamp || 0),
+              });
+            }
           }
         }
       });

@@ -1097,32 +1097,34 @@ export default function ChatPanel({
     return [...list].sort(compareMessagesChronological);
   }, [channelMessages, searchQuery]);
 
-  // Deduplicate by UID (keeping most recent or local user) and filter by activity
+  // Deduplicate by normalized username (keeping local profile or most recent activity) and filter by activity
   const activeOnlineUsers = useMemo(() => {
     const userMap = new Map<string, MemberUser>();
+    const myNameClean = (profile.username || "").trim().toLowerCase();
     
     memberUsers.forEach(u => {
-      if (!u.uid) return;
+      const uNameClean = (u.username || "").trim().toLowerCase();
+      if (!uNameClean || uNameClean === "anonymous" || uNameClean === "guest") return;
 
-      const isMe = u.uid === profile.uid;
+      const isMe = u.uid === profile.uid || uNameClean === myNameClean;
       const lastSeenMs = toTimestampMs(u.lastSeen);
       const isRecentlyActive = u.status === "online" || Math.abs(currentTime - lastSeenMs) < 600000;
       const isValid = isMe || (isRecentlyActive && u.status !== "left");
 
       if (isValid) {
-        const existing = userMap.get(u.uid);
-        if (!existing || (u.lastSeen || 0) > (existing.lastSeen || 0) || isMe) {
-          userMap.set(u.uid, u);
+        const existing = userMap.get(uNameClean);
+        if (!existing || isMe || toTimestampMs(u.lastSeen) > toTimestampMs(existing.lastSeen)) {
+          userMap.set(uNameClean, { ...u, uid: isMe ? profile.uid : u.uid });
         }
       }
     });
 
     return Array.from(userMap.values()).sort((a, b) => {
-      if (a.uid === profile.uid) return -1;
-      if (b.uid === profile.uid) return 1;
+      if (a.uid === profile.uid || (a.username || "").trim().toLowerCase() === myNameClean) return -1;
+      if (b.uid === profile.uid || (b.username || "").trim().toLowerCase() === myNameClean) return 1;
       return (a.username || "").localeCompare(b.username || "");
     });
-  }, [memberUsers, profile.uid, currentTime]);
+  }, [memberUsers, profile.uid, profile.username, currentTime]);
 
   const leftUsers = useMemo(() => {
     const userMap = new Map<string, MemberUser>();

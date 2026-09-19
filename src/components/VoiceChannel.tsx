@@ -294,37 +294,45 @@ export default function VoiceChannel({
     return () => clearInterval(timer);
   }, []);
 
-  // Filter out any invalid, anonymous, or disconnected participant (> 8s without heartbeat), sorted deterministically
+  // Filter out local user (since local user is rendered via renderLocalTile) and deduplicate remote participants
   const activeParticipants = useMemo(() => {
-    return participants
-      .filter((p) => {
-        if (!p || !p.uid) return false;
-        const uName = (p.username || "").trim();
-        // Strictly ban Anonymous or empty users from appearing in voice chat
-        if (!uName || uName.toLowerCase() === "anonymous" || uName.toLowerCase() === "guest") {
-          return false;
-        }
-        // If we have an active, healthy WebRTC peer connection, they are 100% active and connected!
-        const pc = peersRef.current[p.uid];
-        if (pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected")) {
-          return true;
-        }
+    const myNameClean = (profile?.username || "").trim().toLowerCase();
+    const myUid = profile?.uid;
+    const remoteMap = new Map<string, Participant>();
 
-        // If the user hasn't sent a heartbeat in the last 60 seconds, consider them disconnected
-        const ts = toTimestampMs(p.timestamp);
-        if (ts > 0 && currentTime - ts > 60000) {
-          return false;
-        }
+    participants.forEach((p) => {
+      if (!p || !p.uid) return;
+      const uName = (p.username || "").trim();
+      const uNameClean = uName.toLowerCase();
 
-        return true;
-      })
-      .sort((a, b) => {
-        if (!a || !b) return 0;
-        const nameCompare = (a.username || "").localeCompare(b.username || "");
-        if (nameCompare !== 0) return nameCompare;
-        return (a.uid || "").localeCompare(b.uid || "");
-      });
-  }, [participants, currentTime]);
+      // Filter out invalid/anonymous users
+      if (!uName || uNameClean === "anonymous" || uNameClean === "guest") {
+        return;
+      }
+
+      // STRICTLY EXCLUDE LOCAL USER - local user tile is explicitly rendered by renderLocalTile()!
+      if (p.uid === myUid || uNameClean === myNameClean) {
+        return;
+      }
+
+      const pc = peersRef.current[p.uid];
+      const isConnected = pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected");
+      const ts = toTimestampMs(p.timestamp);
+
+      if (!isConnected && ts > 0 && currentTime - ts > 60000) {
+        return;
+      }
+
+      const existing = remoteMap.get(uNameClean);
+      if (!existing || isConnected || ts > toTimestampMs(existing.timestamp)) {
+        remoteMap.set(uNameClean, p);
+      }
+    });
+
+    return Array.from(remoteMap.values()).sort((a, b) => {
+      return (a.username || "").localeCompare(b.username || "");
+    });
+  }, [participants, currentTime, profile?.uid, profile?.username]);
 
   // Active Screen Share descriptor (local or remote)
   const activeScreenShare = useMemo(() => {
@@ -1710,18 +1718,24 @@ export default function VoiceChannel({
           if (!isMountedRef.current) return;
           const userMap = new Map<string, Participant>();
           const now = Date.now();
+          const myNameClean = (profile.username || "").trim().toLowerCase();
 
           // 1. Process voice_users collection
           latestVoiceDocs.forEach((d) => {
             const u = d.data() as Participant;
             const uName = (u?.username || "").trim();
-            if (!u?.uid || !uName || uName.toLowerCase() === "anonymous" || uName.toLowerCase() === "guest") {
+            const uNameClean = uName.toLowerCase();
+            if (!u?.uid || !uName || uNameClean === "anonymous" || uNameClean === "guest") {
               return;
             }
             let ts = toTimestampMs(u.timestamp || (u as any).lastSeen);
             if (ts <= 0) ts = now;
             if (now - ts <= 60000) {
-              userMap.set(u.uid, { ...u, timestamp: ts });
+              const existing = userMap.get(uNameClean);
+              const isSelf = u.uid === profile.uid || uNameClean === myNameClean;
+              if (!existing || isSelf || ts > (existing.timestamp || 0)) {
+                userMap.set(uNameClean, { ...u, uid: isSelf ? profile.uid : u.uid, timestamp: ts });
+              }
             }
           });
 
@@ -1729,35 +1743,39 @@ export default function VoiceChannel({
           latestPresenceDocs.forEach((d) => {
             const pData = d.data();
             const uName = (pData?.username || "").trim();
-            if (!pData?.uid || !uName || uName.toLowerCase() === "anonymous" || uName.toLowerCase() === "guest") {
+            const uNameClean = uName.toLowerCase();
+            if (!pData?.uid || !uName || uNameClean === "anonymous" || uNameClean === "guest") {
               return;
             }
             if (pData.inVoice) {
               let ts = toTimestampMs(pData.lastSeen || pData.timestamp);
               if (ts <= 0) ts = now;
               if (now - ts <= 60000) {
-                const existing = userMap.get(pData.uid);
-                userMap.set(pData.uid, {
-                  uid: pData.uid,
-                  username: uName,
-                  photoURL: pData.photoURL || existing?.photoURL || "",
-                  channelId: existing?.channelId || "general",
-                  isMuted: pData.isMuted !== undefined ? pData.isMuted : existing?.isMuted ?? false,
-                  isVideoOn: pData.isVideoOn !== undefined ? pData.isVideoOn : existing?.isVideoOn ?? false,
-                  isVideoLoading: pData.isVideoLoading !== undefined ? pData.isVideoLoading : existing?.isVideoLoading ?? false,
-                  isScreenSharing: pData.isScreenSharing !== undefined ? pData.isScreenSharing : existing?.isScreenSharing ?? false,
-                  isScreenAudioOn: pData.isScreenAudioOn !== undefined ? pData.isScreenAudioOn : existing?.isScreenAudioOn ?? false,
-                  activity: pData.activity || existing?.activity,
-                  timestamp: Math.max(ts, existing?.timestamp || 0),
-                });
+                const existing = userMap.get(uNameClean);
+                const isSelf = pData.uid === profile.uid || uNameClean === myNameClean;
+                if (!existing || isSelf || ts > (existing.timestamp || 0)) {
+                  userMap.set(uNameClean, {
+                    uid: isSelf ? profile.uid : pData.uid,
+                    username: uName,
+                    photoURL: pData.photoURL || existing?.photoURL || "",
+                    channelId: existing?.channelId || "general",
+                    isMuted: pData.isMuted !== undefined ? pData.isMuted : existing?.isMuted ?? false,
+                    isVideoOn: pData.isVideoOn !== undefined ? pData.isVideoOn : existing?.isVideoOn ?? false,
+                    isVideoLoading: pData.isVideoLoading !== undefined ? pData.isVideoLoading : existing?.isVideoLoading ?? false,
+                    isScreenSharing: pData.isScreenSharing !== undefined ? pData.isScreenSharing : existing?.isScreenSharing ?? false,
+                    isScreenAudioOn: pData.isScreenAudioOn !== undefined ? pData.isScreenAudioOn : existing?.isScreenAudioOn ?? false,
+                    activity: pData.activity || existing?.activity,
+                    timestamp: Math.max(ts, existing?.timestamp || 0),
+                  });
+                }
               }
             }
           });
 
           // Ensure local user profile is present in userMap
-          if (profile && profile.uid) {
-            const existingSelf = userMap.get(profile.uid);
-            userMap.set(profile.uid, {
+          if (profile && profile.uid && myNameClean) {
+            const existingSelf = userMap.get(myNameClean);
+            userMap.set(myNameClean, {
               uid: profile.uid,
               username: profile.username,
               photoURL: profile.photoURL || existingSelf?.photoURL || "",
