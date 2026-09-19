@@ -1786,6 +1786,47 @@ export default function ChatPanel({
                 })}
               </div>
             </div>
+
+            {/* OFFLINE / RECENT MEMBERS SECTION */}
+            {leftUsers.length > 0 && (
+              <div>
+                <h3 className="text-[10px] font-bold text-neutral-500 tracking-wider uppercase mb-2 px-1">
+                  OFFLINE — {leftUsers.length}
+                </h3>
+                <div className="space-y-1">
+                  {leftUsers.map((user, uIdx) => (
+                    <div
+                      key={`${user.uid || "offline"}-${uIdx}`}
+                      className="flex items-center gap-2.5 p-1.5 rounded-lg opacity-50 hover:opacity-80 transition-opacity"
+                    >
+                      <div className="relative">
+                        <div className="w-8 h-8 rounded-full overflow-hidden bg-neutral-800 border border-neutral-800 flex items-center justify-center text-xs font-bold text-neutral-400">
+                          {user.photoURL ? (
+                            <img
+                              src={user.photoURL}
+                              alt={user.username || "User"}
+                              className="w-full h-full object-cover grayscale"
+                            />
+                          ) : (
+                            <span>{(user.username || "?").charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-neutral-500 border-2 border-[#030514]" />
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-medium text-neutral-400 truncate block">
+                          {user.username}
+                        </span>
+                        <span className="text-[10px] text-neutral-500 block truncate">
+                          Offline
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </aside>
       )}
