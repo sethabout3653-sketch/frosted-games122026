@@ -542,8 +542,19 @@ const PORT = 3000;
   async function getDb() {
     if (dbInstance) return dbInstance;
     
-    if (process.env.SQL_HOST) {
+    if (process.env.SQL_HOST || process.env.DATABASE_URL) {
       const pool = createPool();
+      try {
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS records (
+            collection VARCHAR(255) NOT NULL,
+            id VARCHAR(255) NOT NULL,
+            data TEXT NOT NULL,
+            timestamp BIGINT NOT NULL,
+            PRIMARY KEY (collection, id)
+          )
+        `);
+      } catch (err) {}
       dbInstance = {
         run: async (sql: string, params: any[] = []) => {
           let i = 1;
