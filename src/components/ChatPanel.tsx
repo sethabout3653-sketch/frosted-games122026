@@ -163,6 +163,13 @@ export default function ChatPanel({
   const stagedBlobUrlRef = useRef<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
   const [typingUsers, setTypingUsers] = useState<any[]>([]);
   const [isLocalTyping, setIsLocalTyping] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(initialCache.length === 0);
@@ -1099,8 +1106,8 @@ export default function ChatPanel({
 
       const isMe = u.uid === profile.uid;
       const lastSeenMs = toTimestampMs(u.lastSeen);
-      const isRecent = Math.abs(currentTime - lastSeenMs) < 300000;
-      const isValid = isMe || (isRecent && u.status !== "left");
+      const isRecentlyActive = u.status === "online" || Math.abs(currentTime - lastSeenMs) < 600000;
+      const isValid = isMe || (isRecentlyActive && u.status !== "left");
 
       if (isValid) {
         const existing = userMap.get(u.uid);

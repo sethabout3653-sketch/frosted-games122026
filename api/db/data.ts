@@ -93,14 +93,33 @@ export default async function handler(req: any, res: any) {
       if (REDIS_URL && REDIS_TOKEN) {
         if (id) {
           const doc = await redisRest("HGET", `db:${path}`, id);
-          return res.status(200).json({ success: true, id, data: doc ? JSON.parse(doc) : null });
+          let parsedDoc = null;
+          if (doc) {
+            try {
+              parsedDoc = typeof doc === "string" ? JSON.parse(doc) : doc;
+            } catch {
+              parsedDoc = doc;
+            }
+          }
+          return res.status(200).json({ success: true, id, data: parsedDoc });
         }
         const rawMap = await redisRest("HGETALL", `db:${path}`);
         const parsed: Record<string, any> = {};
-        if (rawMap && typeof rawMap === "object") {
+        if (Array.isArray(rawMap)) {
+          for (let i = 0; i < rawMap.length; i += 2) {
+            const key = rawMap[i];
+            const val = rawMap[i + 1];
+            if (!key) continue;
+            try {
+              parsed[key] = typeof val === "string" ? JSON.parse(val) : val;
+            } catch {
+              parsed[key] = val;
+            }
+          }
+        } else if (rawMap && typeof rawMap === "object") {
           for (const [k, v] of Object.entries(rawMap)) {
             try {
-              parsed[k] = JSON.parse(v as string);
+              parsed[k] = typeof v === "string" ? JSON.parse(v as string) : v;
             } catch {
               parsed[k] = v;
             }

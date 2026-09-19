@@ -60,10 +60,21 @@ export default async function handler(req: any, res: any) {
     if (REDIS_URL && REDIS_TOKEN) {
       const rawMap = await redisRest("HGETALL", `db:${path}`);
       const parsed: Record<string, any> = {};
-      if (rawMap && typeof rawMap === "object") {
+      if (Array.isArray(rawMap)) {
+        for (let i = 0; i < rawMap.length; i += 2) {
+          const key = rawMap[i];
+          const val = rawMap[i + 1];
+          if (!key) continue;
+          try {
+            parsed[key] = typeof val === "string" ? JSON.parse(val) : val;
+          } catch {
+            parsed[key] = val;
+          }
+        }
+      } else if (rawMap && typeof rawMap === "object") {
         for (const [k, v] of Object.entries(rawMap)) {
           try {
-            parsed[k] = JSON.parse(v as string);
+            parsed[k] = typeof v === "string" ? JSON.parse(v as string) : v;
           } catch {
             parsed[k] = v;
           }
@@ -107,27 +118,38 @@ export default async function handler(req: any, res: any) {
     const pollRemoteStream = async () => {
       while (isAlive) {
         try {
-          const response = await redisRest("XREAD", "BLOCK", 2500, "STREAMS", `stream:${path}`, lastStreamId);
+          const response = await redisRest("XREAD", "COUNT", 100, "STREAMS", `stream:${path}`, lastStreamId);
           if (response && Array.isArray(response) && response.length > 0) {
-            const streamEntries = response[0][1];
-            for (const [msgId, fields] of streamEntries) {
-              lastStreamId = msgId;
-              const delta: Record<string, any> = {};
-              for (let i = 0; i < fields.length; i += 2) {
-                delta[fields[i]] = fields[i + 1];
-              }
-              if (delta.data && typeof delta.data === "string") {
-                try {
-                  delta.data = JSON.parse(delta.data);
-                } catch {}
-              }
-              if (isAlive) {
-                res.write(`id: ${msgId}\nevent: change\ndata: ${JSON.stringify(delta)}\n\n`);
+            const streamData = response[0];
+            if (Array.isArray(streamData) && streamData.length >= 2) {
+              const entries = streamData[1];
+              if (Array.isArray(entries)) {
+                for (const entry of entries) {
+                  if (!Array.isArray(entry) || entry.length < 2) continue;
+                  const msgId = entry[0];
+                  lastStreamId = msgId;
+                  const fields = entry[1];
+                  const delta: Record<string, any> = {};
+                  if (Array.isArray(fields)) {
+                    for (let i = 0; i < fields.length; i += 2) {
+                      delta[fields[i]] = fields[i + 1];
+                    }
+                  }
+                  if (delta.data && typeof delta.data === "string") {
+                    try {
+                      delta.data = JSON.parse(delta.data);
+                    } catch {}
+                  }
+                  if (isAlive) {
+                    res.write(`id: ${msgId}\nevent: change\ndata: ${JSON.stringify(delta)}\n\n`);
+                  }
+                }
               }
             }
           }
+          await new Promise((r) => setTimeout(r, 1500));
         } catch {
-          await new Promise((r) => setTimeout(r, 1000));
+          await new Promise((r) => setTimeout(r, 2000));
         }
       }
     };
