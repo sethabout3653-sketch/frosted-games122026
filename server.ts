@@ -483,26 +483,42 @@ const PORT = 3000;
 
   // Safe Vercel-compatible body parser middleware
   app.use((req: any, res: any, next: any) => {
-    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body) && Object.keys(req.body).length > 0) {
+    // 1. Skip if method does not support/have a body
+    if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      req.body = req.body || {};
       return next();
     }
-    if (typeof req.body === "string") {
-      try {
-        req.body = JSON.parse(req.body);
-      } catch (e) {}
+
+    // 2. Skip if req.body is already parsed (as an object, array, or string) by Vercel's gateway
+    if (req.body !== undefined && req.body !== null && !Buffer.isBuffer(req.body)) {
+      if (typeof req.body === "string" && req.body.trim().startsWith("{")) {
+        try {
+          req.body = JSON.parse(req.body);
+        } catch (e) {}
+      }
       return next();
     }
+
+    // 3. Otherwise, parse JSON body (with error handling to prevent hangs)
     express.json({ limit: "500mb" })(req, res, (err: any) => {
-      if (err) req.body = req.body || {};
+      if (err) {
+        req.body = {};
+      }
       next();
     });
   });
+
   app.use((req: any, res: any, next: any) => {
-    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body) && Object.keys(req.body).length > 0) {
+    if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      return next();
+    }
+    if (req.body !== undefined && req.body !== null && !Buffer.isBuffer(req.body)) {
       return next();
     }
     express.urlencoded({ extended: true, limit: "500mb" })(req, res, (err: any) => {
-      if (err) req.body = req.body || {};
+      if (err) {
+        req.body = req.body || {};
+      }
       next();
     });
   });
@@ -788,22 +804,25 @@ const PORT = 3000;
     });
   });
 
-  // Proactive WebSocket Heartbeat Interval (Every 25 seconds)
-  const wsHeartbeatInterval = setInterval(() => {
-    wsClients.forEach((ws) => {
-      if (ws.isAlive === false) {
-        wsClients.delete(ws);
-        try { ws.terminate(); } catch (e) {}
-        return;
-      }
-      ws.isAlive = false;
-      try {
-        ws.ping();
-      } catch (e) {
-        wsClients.delete(ws);
-      }
-    });
-  }, 25000);
+  // Proactive WebSocket Heartbeat Interval (Every 25 seconds) - Only run in actual standalone server environments
+  let wsHeartbeatInterval: any = null;
+  if (typeof process !== 'undefined' && !process.env.VERCEL) {
+    wsHeartbeatInterval = setInterval(() => {
+      wsClients.forEach((ws) => {
+        if (ws.isAlive === false) {
+          wsClients.delete(ws);
+          try { ws.terminate(); } catch (e) {}
+          return;
+        }
+        ws.isAlive = false;
+        try {
+          ws.ping();
+        } catch (e) {
+          wsClients.delete(ws);
+        }
+      });
+    }, 25000);
+  }
 
   // Upgrade HTTP connections to WebSocket on /api/ws and /ws
   httpServer.on("upgrade", (request, socket, head) => {
