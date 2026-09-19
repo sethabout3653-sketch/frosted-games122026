@@ -657,10 +657,21 @@ const PORT = 3000;
     }
   }
 
-  // Trigger PostgreSQL setup asynchronously at startup
-  initPostgresTables().then(() => {
-    startPostgresListener();
-  });
+  // Initialize databases asynchronously at startup
+  (async () => {
+    try {
+      await initSQLite();
+      console.log("[SQLite Bootstrap] Local/LibSQL SQLite database initialized.");
+    } catch (err) {
+      console.error("[SQLite Bootstrap] Error during startup init:", err);
+    }
+    try {
+      await initPostgresTables();
+      await startPostgresListener();
+    } catch (err) {
+      console.warn("[Postgres Bootstrap] Postgres setup bypassed or not configured.");
+    }
+  })();
 
   let dbInstance: any = null;
   async function getDb() {
@@ -693,6 +704,14 @@ const PORT = 3000;
             await pool.query(pgSql, params);
           } catch (err) {
             console.error("[PG DB Query Error] run:", pgSql, err);
+          }
+        } else {
+          // SQLite native run
+          try {
+            const cli = getLibSQLClient();
+            await cli.execute({ sql, args: params });
+          } catch (err) {
+            console.error("[SQLite DB Query Error] run:", sql, err);
           }
         }
 
@@ -768,6 +787,22 @@ const PORT = 3000;
           } catch (err) {
             console.error("[PG DB Query Error] all:", pgSql, err);
           }
+        } else {
+          // SQLite native all
+          try {
+            const cli = getLibSQLClient();
+            const res = await cli.execute({ sql, args: params });
+            return res.rows.map((row: any) => {
+              const result: any = {};
+              for (const key of Object.keys(row)) {
+                const val = row[key];
+                result[key] = typeof val === "bigint" ? Number(val) : val;
+              }
+              return result;
+            });
+          } catch (err) {
+            console.error("[SQLite DB Query Error] all:", sql, err);
+          }
         }
 
         // Fallback to memoryStore
@@ -815,6 +850,23 @@ const PORT = 3000;
           } catch (err) {
             console.error("[PG DB Query Error] get:", pgSql, err);
           }
+        } else {
+          // SQLite native get
+          try {
+            const cli = getLibSQLClient();
+            const res = await cli.execute({ sql, args: params });
+            if (res.rows && res.rows.length > 0) {
+              const row = res.rows[0];
+              const result: any = {};
+              for (const key of Object.keys(row)) {
+                const val = row[key];
+                result[key] = typeof val === "bigint" ? Number(val) : val;
+              }
+              return result;
+            }
+          } catch (err) {
+            console.error("[SQLite DB Query Error] get:", sql, err);
+          }
         }
 
         // Fallback to memoryStore
@@ -832,7 +884,7 @@ const PORT = 3000;
       }
     };
 
-    // Try to load any existing records from Postgres to warm up the in-memory cache at boot time
+    // Warm up the in-memory cache at boot time
     const pool = getPgPool();
     if (pool) {
       try {
@@ -850,6 +902,27 @@ const PORT = 3000;
         console.log(`[PG Cache Warmer] Warmed ${res.rows.length} records into RAM memoryStore from PostgreSQL.`);
       } catch (err) {
         console.warn("[PG Cache Warmer] Failed to warm cache:", err);
+      }
+    } else {
+      try {
+        const cli = getLibSQLClient();
+        const res = await cli.execute("SELECT collection, id, data, timestamp FROM records LIMIT 10000");
+        let count = 0;
+        for (const row of res.rows) {
+          const col = row.collection as string;
+          const id = row.id as string;
+          if (!col || !id) continue;
+          let parsedData = row.data;
+          if (typeof row.data === "string") {
+            try { parsedData = JSON.parse(row.data); } catch (e) {}
+          }
+          if (!memoryStore[col]) memoryStore[col] = {};
+          memoryStore[col][id] = { ...(parsedData || {}), id, timestamp: Number(row.timestamp) };
+          count++;
+        }
+        console.log(`[SQLite Cache Warmer] Warmed ${count} records into RAM memoryStore from SQLite.`);
+      } catch (err) {
+        console.warn("[SQLite Cache Warmer] Failed to warm cache:", err);
       }
     }
 
@@ -1629,6 +1702,95 @@ const PORT = 3000;
   app.post("/api/upload", upload.any() as any, handleFileUpload as any);
   app.post("/api/sethbase/upload", upload.any() as any, handleFileUpload as any);
   app.post("/upload", upload.any() as any, handleFileUpload as any);
+
+  // Dedicated LuminSDK/Magic Leap MPK image extraction endpoint
+  app.post("/api/extract-mpk-images", upload.any() as any, async (req, res) => {
+    try {
+      const file = (req as any).file || (req as any).files?.[0];
+      if (!file) {
+        return res.status(400).json({ error: "No .mpk package uploaded" });
+      }
+
+      const tempId = crypto.randomUUID();
+      const extractDir = path.join(uploadsDir, `unpacked_${tempId}`);
+      fs.mkdirSync(extractDir, { recursive: true });
+
+      // Run unzip on the .mpk file (since .mpk files are zip containers under the hood)
+      const cmd = `unzip -q "${file.path}" -d "${extractDir}"`;
+      try {
+        execSync(cmd, { stdio: "ignore" });
+      } catch (err) {
+        // cleanup temp files
+        try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (e) {}
+        try { fs.unlinkSync(file.path); } catch (e) {}
+        return res.status(400).json({ error: "Failed to unpack .mpk file. Make sure it is a valid zip/mpk archive." });
+      }
+
+      // Find all raw image assets inside
+      const foundImageFiles: string[] = [];
+      function findImages(dir: string) {
+        try {
+          const entries = fs.readdirSync(dir);
+          for (const entry of entries) {
+            const entryPath = path.join(dir, entry);
+            const stat = fs.statSync(entryPath);
+            if (stat.isDirectory()) {
+              findImages(entryPath);
+            } else {
+              const ext = path.extname(entry).toLowerCase();
+              if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"].includes(ext)) {
+                foundImageFiles.push(entryPath);
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
+      findImages(extractDir);
+
+      // Copy images to public uploads with deterministic unique names so they persist and are hosted statically
+      const results: Array<{ originalPath: string; filename: string; url: string }> = [];
+      for (const imgPath of foundImageFiles) {
+        const ext = path.extname(imgPath);
+        const originalName = path.basename(imgPath);
+        const uniqueName = `mpk_${crypto.randomUUID()}${ext}`;
+        const finalDest = path.join(uploadsDir, uniqueName);
+
+        try {
+          fs.copyFileSync(imgPath, finalDest);
+          // Register in metadata store so file serving handler can find it
+          fileMetadataStore[uniqueName] = {
+            originalName: originalName,
+            mimeType: detectFileMimeType(finalDest),
+            size: fs.statSync(finalDest).size,
+            ext: ext.replace(".", "")
+          };
+
+          const relPathInsideMpk = path.relative(extractDir, imgPath);
+          results.push({
+            originalPath: relPathInsideMpk,
+            filename: originalName,
+            url: `/uploads/${uniqueName}`
+          });
+        } catch (e) {}
+      }
+
+      saveFileMetadata();
+
+      // Clean up the unpacked temporary folder and the uploaded raw .mpk file
+      try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (e) {}
+      try { fs.unlinkSync(file.path); } catch (e) {}
+
+      return res.json({
+        success: true,
+        message: `Successfully unpacked LuminSDK .mpk package and extracted ${results.length} image assets.`,
+        images: results
+      });
+    } catch (error: any) {
+      console.error("Error unpacking MPK:", error);
+      return res.status(500).json({ error: error.message || "Failed to extract images from MPK" });
+    }
+  });
 
   // Informative GET on /api/upload so it never 404s
   app.get(["/api/upload", "/api/sethbase/upload"], (req, res) => {

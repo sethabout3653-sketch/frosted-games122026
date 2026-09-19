@@ -47,14 +47,28 @@ export async function initSQLite() {
         PRIMARY KEY (collection, id)
       )
     `);
+
+    // Check if webrtc_signals exists and contains old columns, drop it if needed to migrate
+    try {
+      const info = await cli.execute("PRAGMA table_info(webrtc_signals)");
+      if (info.rows && info.rows.length > 0) {
+        const columns = info.rows.map((r: any) => r.name);
+        if (!columns.includes("payload") || columns.includes("sender_uid")) {
+          console.log("[SQLite] Upgrading old webrtc_signals table to new schema...");
+          await cli.execute("DROP TABLE IF EXISTS webrtc_signals");
+        }
+      }
+    } catch (e) {
+      console.warn("[SQLite] Migration check error (harmless):", e);
+    }
+
     await cli.execute(`
       CREATE TABLE IF NOT EXISTS webrtc_signals (
         id TEXT PRIMARY KEY,
-        sender_uid TEXT NOT NULL,
-        target_uid TEXT NOT NULL,
-        signal_type TEXT NOT NULL,
-        data TEXT NOT NULL,
-        timestamp INTEGER NOT NULL
+        target_uid TEXT,
+        uid TEXT,
+        payload TEXT,
+        timestamp INTEGER
       )
     `);
     isInitialized = true;
