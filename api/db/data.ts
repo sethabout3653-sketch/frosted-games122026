@@ -84,7 +84,7 @@ export default async function handler(req: any, res: any) {
   }
 
   const { searchParams } = new URL(req.url, "http://localhost");
-  const path = (req.query?.path || searchParams.get("path") || "root").toString();
+  const path = (req.query?.collection || req.query?.path || searchParams.get("collection") || searchParams.get("path") || "root").toString();
   const id = (req.query?.id || searchParams.get("id") || "").toString();
 
   // 1. GET: Read document or full collection
@@ -123,8 +123,44 @@ export default async function handler(req: any, res: any) {
   if (req.method === "POST" || req.method === "PUT") {
     try {
       const body = req.body || {};
-      const targetPath = body.path || path || "root";
+      const targetPath = body.collection || body.path || path || "root";
       const docId = body.id || id || `doc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      
+      // Handle delete via POST if op is delete
+      if (body.op === "delete") {
+        const timestamp = Date.now();
+        if (REDIS_URL && REDIS_TOKEN) {
+          await redisRest("HDEL", `db:${targetPath}`, docId);
+          await redisRest(
+            "XADD",
+            `stream:${targetPath}`,
+            "MAXLEN",
+            "~",
+            2000,
+            "*",
+            "op",
+            "delete",
+            "path",
+            targetPath,
+            "id",
+            docId,
+            "timestamp",
+            timestamp
+          );
+        }
+        if (memoryStore[targetPath]) {
+          delete memoryStore[targetPath][docId];
+          saveToDisk(memoryStore);
+        }
+        notifyLocalSubscribers(targetPath, {
+          op: "delete",
+          path: targetPath,
+          id: docId,
+          timestamp,
+        });
+        return res.status(200).json({ success: true, op: "delete", path: targetPath, id: docId, timestamp });
+      }
+
       const data = body.data !== undefined ? body.data : body;
 
       const serialized = JSON.stringify(data);

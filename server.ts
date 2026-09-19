@@ -534,142 +534,41 @@ const PORT = 3000;
   });
 
   // ==========================================
-  // High-Performance Native JSON Database Engine
-  // Self-contained, crash-resilient, with automatic disk persistence & zero latency
+  // Distributed Postgres Engine & Storage
   // ==========================================
-  const dbDataFilePath = path.join(process.cwd(), "frosted_database.json");
-  const wsMemoryRecords: Record<string, Record<string, any>> = {};
-  const wsMemorySignals: any[] = [];
-
-  // Seed or rehydrate database from disk on boot
-  try {
-    if (fs.existsSync(dbDataFilePath)) {
-      const diskData = JSON.parse(fs.readFileSync(dbDataFilePath, "utf8"));
-      if (diskData && typeof diskData === "object") {
-        Object.assign(wsMemoryRecords, diskData);
-      }
-    }
-  } catch (e) {
-    console.warn("[Database] Boot load fallback:", e);
-  }
-
-  // Debounced write-to-disk helper
-  let diskSaveTimeout: any = null;
-  const persistDbToDisk = () => {
-    if (diskSaveTimeout) return;
-    diskSaveTimeout = setTimeout(() => {
-      diskSaveTimeout = null;
-      try {
-        fs.writeFileSync(dbDataFilePath, JSON.stringify(wsMemoryRecords, null, 2), "utf8");
-      } catch (e) {
-        // Fallback to /tmp if root is read-only
-        try {
-          fs.writeFileSync("/tmp/frosted_database.json", JSON.stringify(wsMemoryRecords, null, 2), "utf8");
-        } catch (err) {}
-      }
-    }, 500);
-  };
   
   let dbInstance: any = null;
   async function getDb() {
     if (dbInstance) return dbInstance;
     
+    const pool = createPool();
+    
     dbInstance = {
       run: async (sql: string, params: any[] = []) => {
-        const sqlUpper = sql.toUpperCase();
-        if (sqlUpper.includes("DELETE FROM RECORDS")) {
-          const col = params[0];
-          if (params.length === 2 && typeof params[1] === "number" && sqlUpper.includes("TIMESTAMP <")) {
-            const threshold = params[1];
-            if (col && wsMemoryRecords[col]) {
-              for (const [docId, docVal] of Object.entries(wsMemoryRecords[col])) {
-                const ts = docVal?.timestamp || docVal?.lastSeen || 0;
-                if (ts && ts < threshold) {
-                  delete wsMemoryRecords[col][docId];
-                }
-              }
-            }
-          } else {
-            const id = params[1];
-            if (col && id && wsMemoryRecords[col]) {
-              delete wsMemoryRecords[col][id];
-            } else if (col && !id) {
-              delete wsMemoryRecords[col];
-            }
-          }
-          persistDbToDisk();
-        } else if (sqlUpper.includes("INSERT") && sqlUpper.includes("RECORDS")) {
-          const col = params[0];
-          const id = params[1];
-          const dataStr = params[2];
-          if (col && id) {
-            if (!wsMemoryRecords[col]) wsMemoryRecords[col] = {};
-            try {
-              wsMemoryRecords[col][id] = typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr;
-            } catch (e) {
-              wsMemoryRecords[col][id] = dataStr;
-            }
-            persistDbToDisk();
-          }
-        } else if (sqlUpper.includes("WEBRTC_SIGNALS")) {
-          if (sqlUpper.includes("INSERT")) {
-            wsMemorySignals.push({
-              id: params[0],
-              target_uid: params[1],
-              uid: params[2],
-              payload: params[3],
-              timestamp: params[4] || Date.now(),
-            });
-            if (wsMemorySignals.length > 200) wsMemorySignals.shift();
-          }
+        let i = 1;
+        let pgSql = sql.replace(/\?/g, () => `$${i++}`);
+        
+        // Convert SQLite INSERT OR REPLACE INTO to Postgres UPSERT
+        if (pgSql.toUpperCase().includes("INSERT OR REPLACE INTO RECORDS") || pgSql.toUpperCase().includes("INSERT INTO RECORDS")) {
+           if (!pgSql.toUpperCase().includes("ON CONFLICT")) {
+             pgSql = pgSql.replace(/INSERT OR REPLACE INTO records/gi, "INSERT INTO records");
+             pgSql += " ON CONFLICT (collection, id) DO UPDATE SET data = EXCLUDED.data, timestamp = EXCLUDED.timestamp";
+           }
         }
-        return { rows: [] };
+        
+        return pool.query(pgSql, params);
       },
       all: async (sql: string, params: any[] = []) => {
-        const sqlUpper = sql.toUpperCase();
-        if (sqlUpper.includes("FROM RECORDS")) {
-          const col = params[0];
-          const rows: any[] = [];
-          if (col) {
-            const records = wsMemoryRecords[col] || {};
-            for (const [id, data] of Object.entries(records)) {
-              rows.push({ collection: col, id, data: JSON.stringify(data) });
-            }
-          } else {
-            for (const [colName, records] of Object.entries(wsMemoryRecords)) {
-              for (const [id, data] of Object.entries(records)) {
-                rows.push({ collection: colName, id, data: JSON.stringify(data) });
-              }
-            }
-          }
-          return rows;
-        } else if (sqlUpper.includes("FROM WEBRTC_SIGNALS")) {
-          const targetUid = params[0];
-          const since = params[1] || 0;
-          const uid = params[2];
-          return wsMemorySignals
-            .filter((s) => (s.target_uid === targetUid || s.target_uid === "all") && s.timestamp > since && s.uid !== uid)
-            .map((s) => ({ payload: s.payload }));
-        }
-        return [];
+        let i = 1;
+        const pgSql = sql.replace(/\?/g, () => `$${i++}`);
+        const rs = await pool.query(pgSql, params);
+        return rs.rows;
       },
       get: async (sql: string, params: any[] = []) => {
-        const sqlUpper = sql.toUpperCase();
-        if (sqlUpper.includes("COUNT(*)")) {
-          let count = 0;
-          for (const col of Object.values(wsMemoryRecords)) {
-            count += Object.keys(col).length;
-          }
-          return { count };
-        }
-        if (sqlUpper.includes("FROM RECORDS")) {
-          const col = params[0];
-          const id = params[1];
-          if (col && id && wsMemoryRecords[col]?.[id]) {
-            return { data: JSON.stringify(wsMemoryRecords[col][id]) };
-          }
-        }
-        return null;
+        let i = 1;
+        const pgSql = sql.replace(/\?/g, () => `$${i++}`);
+        const rs = await pool.query(pgSql, params);
+        return rs.rows[0];
       }
     };
 
@@ -786,21 +685,6 @@ const PORT = 3000;
         if (msg.type === "subscribe" && msg.collection) {
           ws.subscriptions = ws.subscriptions || new Set();
           ws.subscriptions.add(msg.collection);
-          
-          // Instantly stream existing in-memory documents to the newly subscribed client
-          const colData = wsMemoryRecords[msg.collection] || {};
-          Object.entries(colData).forEach(([docId, docVal]) => {
-            try {
-              ws.send(JSON.stringify({
-                type: "change",
-                op: "set",
-                collection: msg.collection,
-                id: docId,
-                data: docVal,
-                timestamp: Date.now(),
-              }));
-            } catch (e) {}
-          });
           return;
         }
 
@@ -1197,8 +1081,7 @@ const PORT = 3000;
         await db.run("DELETE FROM records WHERE collection = ? AND timestamp < ?", [col, staleThreshold]);
       }
 
-      // Broadcast to all WebSocket and SSE listeners in real time
-      broadcastWebSocketChange(op || "set", col, id, recordData);
+      // Broadcast to all SSE listeners in real time
       broadcastCassandraChange(op || "set", col, id, recordData);
 
       res.json({ success: true, timestamp: ts });

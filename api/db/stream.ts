@@ -37,7 +37,7 @@ export default async function handler(req: any, res: any) {
   }
 
   const { searchParams } = new URL(req.url, "http://localhost");
-  const path = (req.query?.path || searchParams.get("path") || "root").toString();
+  const path = (req.query?.collection || req.query?.path || searchParams.get("collection") || searchParams.get("path") || "root").toString();
   const lastEventId = req.headers["last-event-id"] || searchParams.get("lastEventId") || "$";
 
   // Initialize SSE streaming headers
