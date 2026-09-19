@@ -115,15 +115,15 @@ export const GiphyPicker: React.FC<GiphyPickerProps> = ({
     try {
       let result;
       if (!query || query === "Trending") {
-        // Enforce PG rating for all trending GIFs
-        result = await gf.trending({ limit: 24, rating: "pg" });
+        // Enforce R rating for all trending GIFs
+        result = await gf.trending({ limit: 24, rating: "r" });
       } else {
-        // Enforce PG rating for all search queries
+        // Enforce R rating for all search queries
         result = await gf.search(query, {
           limit: 24,
           sort: "relevant",
           lang: "en",
-          rating: "pg",
+          rating: "r",
         });
       }
 

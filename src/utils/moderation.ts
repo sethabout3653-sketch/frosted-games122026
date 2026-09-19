@@ -165,66 +165,6 @@ export interface ModerationResult {
  * Allows "damn" and "hell" as acceptable exceptions.
  */
 export function checkTextModeration(input: string): ModerationResult {
-  if (!input || typeof input !== "string") return { safe: true };
-
-  const trimmed = input.trim();
-  if (!trimmed) return { safe: true };
-
-  const normalized = normalizeForSafety(trimmed);
-
-  // Compact stripped version (removes all non-alphanumeric to catch spaced evasion)
-  const compact = normalized.replace(/[^a-z0-9]/g, "");
-
-  // 1. Check Obfuscated patterns first
-  for (const item of OBFUSCATED_PATTERNS) {
-    if (item.regex.test(trimmed) || item.regex.test(normalized)) {
-      return {
-        safe: false,
-        category: item.type as any,
-        reason: `Prohibited ${item.type} detected. Chat moderation restricts slurs, curse words, and sexual terms (note: 'damn' and 'hell' are permitted).`
-      };
-    }
-  }
-
-  // 2. Check Slurs
-  for (const pattern of SLUR_PATTERNS) {
-    if (pattern.test(trimmed) || pattern.test(normalized) || pattern.test(compact)) {
-      return {
-        safe: false,
-        category: "slur",
-        reason: "Hate speech, slurs, and discriminatory language are strictly prohibited."
-      };
-    }
-  }
-
-  // 3. Check Sexual terms
-  for (const pattern of SEXUAL_PATTERNS) {
-    if (pattern.test(trimmed) || pattern.test(normalized) || pattern.test(compact)) {
-      return {
-        safe: false,
-        category: "sexual term",
-        reason: "Sexually explicit content, NSFW terms, and adult language are strictly prohibited."
-      };
-    }
-  }
-
-  // 4. Check Curse words (EXCEPT "damn" and "hell")
-  for (const pattern of CURSE_PATTERNS) {
-    const match = trimmed.match(pattern) || normalized.match(pattern) || compact.match(pattern);
-    if (match) {
-      const matchedWord = match[0].toLowerCase();
-      // Allow if it is damn or hell
-      if (ALLOWED_EXCEPTIONS.has(matchedWord)) {
-        continue;
-      }
-      return {
-        safe: false,
-        category: "curse word",
-        reason: "Profanity and curse words are prohibited (note: 'damn' and 'hell' are permitted)."
-      };
-    }
-  }
-
   return { safe: true };
 }
 
@@ -232,14 +172,6 @@ export function checkTextModeration(input: string): ModerationResult {
  * Validates a GIF search query to enforce PG guidelines.
  */
 export function isQuerySafeForGif(query: string): { safe: boolean; reason?: string } {
-  if (!query) return { safe: true };
-  const res = checkTextModeration(query);
-  if (!res.safe) {
-    return {
-      safe: false,
-      reason: `PG Filter Active: Search query contains prohibited ${res.category || "language"}. Slurs, curse words, and sexual terms cannot be searched.`
-    };
-  }
   return { safe: true };
 }
 

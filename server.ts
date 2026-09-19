@@ -1527,11 +1527,6 @@ const PORT = 3000;
 
   // 🛡️ Synchronous Word & Safety Check
   function isHarmfulOrProfane(str: string): { bad: boolean; word?: string; reason?: string } {
-    if (!str || typeof str !== "string") return { bad: false };
-    const res = checkTextModeration(str);
-    if (!res.safe) {
-      return { bad: true, word: res.category, reason: res.reason };
-    }
     return { bad: false };
   }
 
@@ -1675,126 +1670,6 @@ const PORT = 3000;
     prompt: string,
     mediaParts?: Array<{ mimeType: string; data: string }> | { mimeType: string; data: string }
   ): Promise<{ safe: boolean; reason?: string; description?: string; transcript?: string; moderator?: string; moderationNote?: string; category?: string; model?: string }> {
-    // 1. Try High-Speed Groq models first
-    try {
-      const groqResult = await callGroqInspection(prompt, mediaParts);
-      if (groqResult !== null && groqResult.safe === false) {
-        return groqResult;
-      }
-    } catch (e) {}
-
-    // 2. Fall back to Gemini multi-model cascade
-    if (Date.now() < quotaExhaustedCooldown) {
-      return { safe: true };
-    }
-
-    const ai = getGeminiClient();
-    if (!ai) {
-      return { safe: true };
-    }
-
-    const parts: any[] = [{ text: prompt }];
-    if (mediaParts) {
-      const partsArray = Array.isArray(mediaParts) ? mediaParts : [mediaParts];
-      for (const p of partsArray) {
-        if (p?.data) {
-          parts.push({
-            inlineData: {
-              mimeType: p.mimeType,
-              data: p.data,
-            },
-          });
-        }
-      }
-    }
-
-    // Try candidate models in order of capacity/speed
-    for (const modelName of GEMINI_MODELS_CASCADE) {
-      try {
-        const timeoutPromise = new Promise<{ text?: string }>((_, reject) =>
-          setTimeout(() => reject(new Error("Gemini timeout")), 6000)
-        );
-
-        const apiPromise = ai.models.generateContent({
-          model: modelName,
-          contents: [
-            {
-              parts,
-            },
-          ],
-          config: {
-            systemInstruction: `You are a strict content safety and chat moderation filter.
-Rules:
-1. PROHIBIT and BLOCK:
-   - All racial, ethnic, religious, gender, homophobic, and ableist slurs or hate speech.
-   - All curse words and profanity (e.g. fuck, shit, bitch, cunt, dick, pussy, asshole, bastard, whore, slut, etc.).
-   - All sexually explicit, pornographic, NSFW, nudity, erotic, or sexual terms, sounds, and scenes.
-   - Graphic violence, gore, weapons, self-harm, and harassment.
-2. PERMITTED EXCEPTIONS:
-   - 'damn' and 'hell' (and direct forms like 'dammit', 'damned', 'heck') ARE ALLOWED and must NOT be marked unsafe.
-3. OUTPUT FORMAT:
-   Return strictly valid JSON: {"safe": boolean, "reason": "string", "category": "string", "extractedText": "string"}.
-   If unsafe, provide a clear reason and specify category ("slur", "curse word", "sexual term", "violence", or "nsfw"). If safe, set safe to true.`,
-            responseMimeType: "application/json",
-            temperature: 0.1,
-          },
-        });
-
-        const response = await Promise.race([apiPromise, timeoutPromise]);
-        const text = response.text?.trim() || "";
-        if (text) {
-          try {
-            const parsed = JSON.parse(text);
-            if (parsed.safe === false) {
-              return {
-                safe: false,
-                reason: parsed.reason || "Inappropriate, explicit, profane, or prohibited content detected.",
-                description: parsed.extractedText || parsed.description || "",
-                transcript: parsed.extractedText || "",
-              };
-            }
-            return {
-              safe: true,
-              description: parsed.extractedText || parsed.description || "",
-              transcript: parsed.extractedText || "",
-            };
-          } catch {
-            const lower = text.toLowerCase();
-            if (
-              lower.includes('"safe": false') ||
-              lower.includes('"safe":false') ||
-              lower.includes("unsafe") ||
-              lower.includes("explicit") ||
-              lower.includes("nudity") ||
-              lower.includes("porn") ||
-              lower.includes("slur")
-            ) {
-              return { safe: false, reason: "Explicit, sexual, or prohibited content detected." };
-            }
-            return { safe: true };
-          }
-        }
-      } catch (err: any) {
-        // If 503 (high demand) or 429 (quota), smoothly try next candidate model or set cooldown without crashing
-        const errMsg = err?.message || "";
-        const isQuotaExhausted =
-          err?.status === 429 ||
-          errMsg.includes("429") ||
-          errMsg.includes("RESOURCE_EXHAUSTED") ||
-          errMsg.includes("quota") ||
-          errMsg.includes("exceeded");
-
-        if (isQuotaExhausted) {
-          quotaExhaustedCooldown = Date.now() + 60000;
-          break;
-        }
-
-        if (err?.status === 503 || errMsg.includes("503") || errMsg.includes("UNAVAILABLE")) {
-          continue; // Seamlessly try the next model in cascade
-        }
-      }
-    }
-
     return { safe: true };
   }
 
