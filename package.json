@@ -55,10 +55,8 @@
     "y-webrtc": "^10.3.0",
     "yjs": "^13.6.32"
   },
-  "pnpm": {
-    "overrides": {
-      "electron-to-chromium": "1.5.420"
-    }
+  "overrides": {
+    "electron-to-chromium": "1.5.420"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

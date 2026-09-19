@@ -507,28 +507,9 @@ class SupabaseRealtimeManager {
   }
 
   public async getCollection(colName: string, forceFetch = false): Promise<Record<string, any>> {
-    let supabaseDataMap: Record<string, any> = {};
     let cassandraDataMap: Record<string, any> = {};
 
-    // 1. Try Supabase Postgres Table
-    try {
-      const { data, error } = await supabase
-        .from("records")
-        .select("*")
-        .eq("collection", colName);
-
-      if (!error && Array.isArray(data)) {
-        for (const row of data) {
-          let item = row.data;
-          if (typeof item === "string") {
-            try { item = JSON.parse(item); } catch (e) {}
-          }
-          supabaseDataMap[row.id] = { ...(item || {}), id: row.id };
-        }
-      }
-    } catch (e) {}
-
-    // 2. Local fallback / server storage
+    // 1. WebSocket Memory Store Query via Server Endpoint
     try {
       const res = await fetch(`/api/cassandra/data?collection=${encodeURIComponent(colName)}`);
       if (res.ok) {
@@ -540,8 +521,8 @@ class SupabaseRealtimeManager {
     } catch (e) {}
 
     const cachedMap = this.cache.get(colName) || {};
-    // Merge all data sources seamlessly (Supabase + local SQLite server store + memory cache)
-    const mergedMap = { ...cassandraDataMap, ...supabaseDataMap, ...cachedMap };
+    // Merge server WebSocket memory store + local client memory cache
+    const mergedMap = { ...cassandraDataMap, ...cachedMap };
     this.cache.set(colName, mergedMap);
     return mergedMap;
   }
@@ -586,40 +567,12 @@ class SupabaseRealtimeManager {
     // 1. Optimistic instant local update
     this.applyChange(op, colName, id, recordPayload);
 
-    // 2. Explicit REST delivery using httpSend
+    // 2. Direct HTTP sync to server in-memory WebSocket store
     this.httpSend("/api/cassandra/write", { op, collection: colName, id, data: recordPayload });
 
-    // 3. Database: Persist to Supabase Postgres 'records' table
-    try {
-      if (op === "delete") {
-        await supabase
-          .from("records")
-          .delete()
-          .eq("collection", colName)
-          .eq("id", id);
-      } else {
-        await supabase.from("records").upsert({
-          collection: colName,
-          id,
-          data: typeof recordPayload === "object" ? JSON.stringify(recordPayload) : recordPayload,
-          timestamp: ts,
-        });
-      }
-    } catch (e) {
-      // Supabase table not created yet or RLS restriction, handled gracefully below
-    }
-
-    // 4. WebSockets: Instant 0ms WebSocket Delivery to native WebSockets & Supabase Realtime
+    // 3. WebSockets: Instant 0ms broadcast across all connected instances & clients
     try {
       wsClient.sendChange(op as any, colName, id, recordPayload);
-    } catch (e) {}
-
-    try {
-      this.syncChannel?.send({
-        type: "broadcast",
-        event: "change",
-        payload: { op, collection: colName, id, data: recordPayload, timestamp: ts },
-      });
     } catch (e) {}
   }
 }
