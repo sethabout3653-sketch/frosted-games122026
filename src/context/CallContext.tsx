@@ -56,6 +56,7 @@ interface CallContextType {
   activeCall: ActiveCallData | null;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  isScreenSharing: boolean;
   isVideoSwitchRequested: boolean;
   isVideoSwitchPending: boolean;
   voiceUserCount: number;
@@ -70,6 +71,7 @@ interface CallContextType {
   endActiveCall: () => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
+  toggleScreenShare: () => Promise<void>;
   requestSwitchToVideo: () => void;
   respondToVideoSwitch: (accept: boolean) => Promise<void>;
   toggleCamera: () => Promise<void>;
@@ -96,6 +98,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
 
   const [isVideoSwitchRequested, setIsVideoSwitchRequested] = useState(false);
   const [isVideoSwitchPending, setIsVideoSwitchPending] = useState(false);
@@ -105,6 +108,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const onOpenGroupVoiceRef = useRef<(() => void) | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const ringtoneStopRef = useRef<(() => void) | null>(null);
   const ringbackStopRef = useRef<(() => void) | null>(null);
   const callTimeoutRef = useRef<any>(null);
@@ -257,6 +261,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLocalStream(null);
       localStreamRef.current = null;
     }
+
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach((track) => track.stop());
+      screenStreamRef.current = null;
+    }
+    setIsScreenSharing(false);
 
     pendingIceCandidatesRef.current = [];
     currentCallIdRef.current = null;
@@ -1067,6 +1077,124 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  // Screen Share Toggle for 1-on-1 Direct Calls
+  const toggleScreenShare = useCallback(async () => {
+    const pc = peerConnectionRef.current;
+    const currentAct = activeCallRef.current;
+    const myProf = getMyProfile();
+    if (!currentAct || !myProf?.uid || !pc) return;
+
+    if (screenStreamRef.current) {
+      // STOP screen share
+      screenStreamRef.current.getTracks().forEach((t) => t.stop());
+      screenStreamRef.current = null;
+      setIsScreenSharing(false);
+
+      const senders = pc.getSenders();
+      const videoSender = senders.find((s) => s.track && s.track.kind === "video");
+      const localCameraTrack = localStreamRef.current?.getVideoTracks()[0];
+
+      if (videoSender) {
+        await videoSender.replaceTrack(localCameraTrack && activeCallRef.current?.isCameraOn ? localCameraTrack : null);
+      }
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendBroadcastSignal({
+          type: "direct_call_offer",
+          uid: myProf.uid,
+          targetUid: currentAct.partnerUid,
+          callId: currentAct.callId,
+          sdp: JSON.stringify(offer),
+        });
+      } catch (err) {
+        console.error("Error creating offer after stopping screen share:", err);
+      }
+      return;
+    }
+
+    // START screen share
+    try {
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 },
+        },
+        audio: {
+          suppressLocalAudioPlayback: true, // Crucial: prevent local audio playback
+          echoCancellation: true,
+          noiseSuppression: true,
+        } as any,
+      });
+
+      screenStreamRef.current = displayStream;
+      setIsScreenSharing(true);
+
+      const screenVideoTrack = displayStream.getVideoTracks()[0];
+      const screenAudioTrack = displayStream.getAudioTracks()[0];
+
+      const senders = pc.getSenders();
+      const videoSender = senders.find((s) => s.track && s.track.kind === "video");
+
+      if (videoSender) {
+        await videoSender.replaceTrack(screenVideoTrack);
+      } else {
+        pc.addTrack(screenVideoTrack, displayStream);
+      }
+
+      if (screenAudioTrack) {
+        const audioSenders = senders.filter((s) => s.track && s.track.kind === "audio");
+        const alreadyAdded = audioSenders.some((s) => s.track?.id === screenAudioTrack.id);
+        if (!alreadyAdded) {
+          pc.addTrack(screenAudioTrack, displayStream);
+        }
+      }
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendBroadcastSignal({
+        type: "direct_call_offer",
+        uid: myProf.uid,
+        targetUid: currentAct.partnerUid,
+        callId: currentAct.callId,
+        sdp: JSON.stringify(offer),
+      });
+
+      screenVideoTrack.onended = () => {
+        if (screenStreamRef.current) {
+          screenStreamRef.current.getTracks().forEach((t) => t.stop());
+          screenStreamRef.current = null;
+        }
+        setIsScreenSharing(false);
+
+        const currentPc = peerConnectionRef.current;
+        if (currentPc && activeCallRef.current) {
+          const currentSenders = currentPc.getSenders();
+          const vSender = currentSenders.find((s) => s.track && s.track.kind === "video");
+          const localCam = localStreamRef.current?.getVideoTracks()[0];
+          if (vSender) {
+            vSender.replaceTrack(localCam && activeCallRef.current.isCameraOn ? localCam : null).catch(() => {});
+          }
+          currentPc.createOffer().then((off) => {
+            currentPc.setLocalDescription(off);
+            sendBroadcastSignal({
+              type: "direct_call_offer",
+              uid: myProf.uid,
+              targetUid: activeCallRef.current!.partnerUid,
+              callId: activeCallRef.current!.callId,
+              sdp: JSON.stringify(off),
+            });
+          }).catch(() => {});
+        }
+      };
+    } catch (err) {
+      console.error("Error starting screen share in direct call:", err);
+      setIsScreenSharing(false);
+    }
+  }, [getMyProfile]);
+
   // Action: Start Group Call (General Voice)
   const startGroupCall = useCallback(() => {
     setIsCallMenuOpen(false);
@@ -1084,6 +1212,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeCall,
         localStream,
         remoteStream,
+        isScreenSharing,
         isVideoSwitchRequested,
         isVideoSwitchPending,
         voiceUserCount,
@@ -1098,6 +1227,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         endActiveCall,
         toggleMute,
         toggleDeafen,
+        toggleScreenShare,
         requestSwitchToVideo,
         respondToVideoSwitch,
         toggleCamera,

@@ -14,6 +14,9 @@ import {
   ShieldCheck,
   Loader2,
   HelpCircle,
+  MonitorUp,
+  MonitorOff,
+  ScreenShareOff,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -23,6 +26,7 @@ export default function ActiveCallModal() {
     outgoingCall,
     localStream,
     remoteStream,
+    isScreenSharing,
     isVideoSwitchRequested,
     isVideoSwitchPending,
     endActiveCall,
@@ -30,6 +34,7 @@ export default function ActiveCallModal() {
     toggleMute,
     toggleDeafen,
     toggleCamera,
+    toggleScreenShare,
     requestSwitchToVideo,
     respondToVideoSwitch,
   } = useCall();
@@ -250,12 +255,36 @@ export default function ActiveCallModal() {
           </div>
         </div>
 
-        {/* Call Main Stage (Video or Audio Visualizer) */}
+        {/* Call Main Stage (Video, Screen Share, or Audio Visualizer) */}
         <div className="relative flex-1 bg-neutral-950 flex items-center justify-center overflow-hidden min-h-[320px] sm:min-h-[400px]">
-          {activeCall.callType === "video" ? (
-            // Video Call View
+          {isScreenSharing ? (
+            // Local Screen Sharing status box (prevents hall-of-mirrors / mirror loop)
+            <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
+                <MonitorUp size={32} />
+              </div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
+                <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
+                  LIVE
+                </span>
+              </div>
+              <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
+                Your screen is live for {activeCall.partnerName} in high definition.
+              </p>
+              <button
+                type="button"
+                onClick={toggleScreenShare}
+                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
+              >
+                <ScreenShareOff size={14} />
+                <span>Stop Sharing</span>
+              </button>
+            </div>
+          ) : activeCall.callType === "video" || (remoteStream && remoteStream.getVideoTracks().length > 0) ? (
+            // Video or Remote Screen Share View
             <div className="relative w-full h-full flex items-center justify-center bg-black">
-              {/* Remote Video */}
+              {/* Remote Video / Shared Screen */}
               <video
                 ref={(el) => {
                   remoteVideoRef.current = el;
@@ -271,31 +300,33 @@ export default function ActiveCallModal() {
                 className="w-full h-full object-contain max-h-[500px]"
               />
 
-              {/* Local Video Thumbnail (Picture in Picture) */}
-              <div className="absolute bottom-4 right-4 w-32 sm:w-44 aspect-video rounded-xl overflow-hidden border-2 border-white/20 bg-neutral-900 shadow-2xl z-10">
-                <video
-                  ref={(el) => {
-                    localVideoRef.current = el;
-                    if (el && localStream) {
-                      if (el.srcObject !== localStream) {
-                        el.srcObject = localStream;
+              {/* Local Camera Video Thumbnail (Picture in Picture) */}
+              {activeCall.callType === "video" && (
+                <div className="absolute bottom-4 right-4 w-32 sm:w-44 aspect-video rounded-xl overflow-hidden border-2 border-white/20 bg-neutral-900 shadow-2xl z-10">
+                  <video
+                    ref={(el) => {
+                      localVideoRef.current = el;
+                      if (el && localStream) {
+                        if (el.srcObject !== localStream) {
+                          el.srcObject = localStream;
+                        }
+                        el.play().catch(() => {});
                       }
-                      el.play().catch(() => {});
-                    }
-                  }}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover mirror"
-                  style={{ transform: "scaleX(-1)" }}
-                />
-                {!activeCall.isCameraOn && (
-                  <div className="absolute inset-0 bg-neutral-900/90 flex flex-col items-center justify-center text-neutral-400 text-[10px]">
-                    <VideoOff size={14} className="mb-1" />
-                    <span>Camera Off</span>
-                  </div>
-                )}
-              </div>
+                    }}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover mirror"
+                    style={{ transform: "scaleX(-1)" }}
+                  />
+                  {!activeCall.isCameraOn && (
+                    <div className="absolute inset-0 bg-neutral-900/90 flex flex-col items-center justify-center text-neutral-400 text-[10px]">
+                      <VideoOff size={14} className="mb-1" />
+                      <span>Camera Off</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             // Audio Call View (Rich Avatar & Voice Wave)
@@ -444,6 +475,22 @@ export default function ActiveCallModal() {
               <span>{activeCall.isCameraOn ? "Camera On" : "Camera Off"}</span>
             </button>
           )}
+
+          {/* Screen Share Button */}
+          <button
+            id="call-toggle-screenshare-btn"
+            type="button"
+            onClick={toggleScreenShare}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+              isScreenSharing
+                ? "bg-indigo-500/30 border-indigo-500/50 text-indigo-300 hover:bg-indigo-500/40"
+                : "bg-neutral-800/80 border-white/10 text-white hover:bg-neutral-700/80 hover:border-indigo-400/40"
+            }`}
+            title={isScreenSharing ? "Stop sharing screen" : "Share screen with caller"}
+          >
+            {isScreenSharing ? <MonitorOff size={15} className="text-indigo-400" /> : <MonitorUp size={15} className="text-indigo-400" />}
+            <span>{isScreenSharing ? "Stop Sharing" : "Share Screen"}</span>
+          </button>
 
           {/* Deafen / Sound Toggle */}
           <button
