@@ -7,6 +7,7 @@ import Header from "./components/Header";
 import GameGrid from "./components/GameGrid";
 import GamePlayer from "./components/GamePlayer";
 import Chat from "./components/Chat";
+import AiAssistant from "./components/AiAssistant";
 import BackgroundEditor, { DEFAULT_BACKGROUND, AppBackground } from "./components/BackgroundEditor";
 import SettingsModal from "./components/SettingsModal";
 import LoadingScreen from "./components/LoadingScreen";
@@ -401,6 +402,24 @@ function AppContent() {
             onVoiceSessionStarted={() => setAutoJoinVoice(false)}
             persistent
           />
+        </motion.div>
+
+        {/* AI Assistant View (ChatGPT, Grok & Claude Style) */}
+        <motion.div
+          animate={{
+            opacity: currentView === "assistant" ? 1 : 0,
+            y: currentView === "assistant" ? 0 : 16,
+            scale: currentView === "assistant" ? 1 : 0.99,
+          }}
+          initial={{ opacity: 0, y: 16, scale: 0.99 }}
+          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          style={{ 
+            pointerEvents: currentView === "assistant" ? "auto" : "none",
+            transform: "translateZ(0)"
+          }}
+          className={`flex-1 w-full flex flex-col min-h-0 ${currentView === "assistant" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
+        >
+          <AiAssistant />
         </motion.div>
       </main>
 

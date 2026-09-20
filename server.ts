@@ -3014,7 +3014,7 @@ Respond strictly in valid JSON:
   }): Promise<{ text: string; model: string; provider: string }> {
     const {
       messages = [],
-      model = "groq/compound",
+      model = "openai/gpt-oss-120b",
       systemPrompt = "You are a helpful, clear, and friendly AI assistant. Give articulate, well-structured answers using clean Markdown. Format code snippets with proper language tags.",
       temperature = 0.7,
       customKey = ""
@@ -3024,7 +3024,68 @@ Respond strictly in valid JSON:
       ? customKey.trim()
       : GROQ_API_KEY;
 
-    // Priority 1: Gemini Engine (Primary choice in AI Studio)
+    // Priority 1: Groq Engine if clientKey is available (User wants Groq with their key & free unlimited models)
+    if (clientKey) {
+      const isGeminiSpecific = model && model.startsWith("gemini");
+      if (!isGeminiSpecific) {
+        const targetModels = Array.from(new Set([
+          model && model !== "auto" && !model.includes("openrouter") ? model : "openai/gpt-oss-120b",
+          "openai/gpt-oss-120b",
+          "qwen/qwen3.8-27b",
+          "openai/gpt-oss-20b",
+          "minimaxai/minimax-m2.7"
+        ].filter(Boolean)));
+
+        const payloadMessages = [
+          { role: "system", content: systemPrompt },
+          ...messages.map((m: any) => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+          }))
+        ];
+
+        for (const targetModel of targetModels) {
+          try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 10000);
+
+            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              signal: controller.signal,
+              headers: {
+                "Authorization": `Bearer ${clientKey}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                model: targetModel,
+                messages: payloadMessages,
+                temperature: Math.min(1.0, Math.max(0.1, temperature))
+              })
+            });
+            clearTimeout(timeout);
+
+            if (response.ok) {
+              const data: any = await response.json();
+              const text = data?.choices?.[0]?.message?.content;
+              if (text) {
+                return {
+                  text,
+                  model: data?.model || targetModel,
+                  provider: "groq"
+                };
+              }
+            } else {
+              const errBody = await response.text();
+              console.warn(`Groq model ${targetModel} returned non-OK ${response.status}:`, errBody);
+            }
+          } catch (e: any) {
+            console.warn(`Groq model ${targetModel} attempt failed:`, e?.message);
+          }
+        }
+      }
+    }
+
+    // Priority 2: Gemini Engine (Backup/Fallback or if Gemini model specifically requested)
     try {
       const gemini = getGeminiClient();
       if (gemini && Date.now() >= quotaExhaustedCooldown) {
@@ -3064,62 +3125,6 @@ Respond strictly in valid JSON:
       }
     } catch (geminiException) {
       console.warn("Gemini engine error:", geminiException);
-    }
-
-    // Priority 2: Groq Cascade (Ultra-fast LLM inference via Groq LPU)
-    if (clientKey) {
-      const targetModels = Array.from(new Set([
-        model && model !== "auto" && !model.includes("openrouter") ? model : "openai/gpt-oss-120b",
-        "openai/gpt-oss-120b",
-        "groq/compound",
-        "qwen/qwen3.8-27b",
-        "openai/gpt-oss-20b",
-        "groq/compound-mini"
-      ].filter(Boolean)));
-
-      const payloadMessages = [
-        { role: "system", content: systemPrompt },
-        ...messages.map((m: any) => ({
-          role: m.role === "assistant" ? "assistant" : "user",
-          content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
-        }))
-      ];
-
-      for (const targetModel of targetModels) {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 10000);
-
-          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            signal: controller.signal,
-            headers: {
-              "Authorization": `Bearer ${clientKey}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              model: targetModel,
-              messages: payloadMessages,
-              temperature: Math.min(1.0, Math.max(0.1, temperature))
-            })
-          });
-          clearTimeout(timeout);
-
-          if (response.ok) {
-            const data: any = await response.json();
-            const text = data?.choices?.[0]?.message?.content;
-            if (text) {
-              return {
-                text,
-                model: data?.model || targetModel,
-                provider: "groq"
-              };
-            }
-          }
-        } catch (e: any) {
-          console.warn(`Groq model ${targetModel} attempt failed:`, e?.message);
-        }
-      }
     }
 
     // Priority 3: Intelligent Offline Assistant (Zero rate limit guarantee)

@@ -148,6 +148,26 @@ const Header = memo(function Header({
               <span>Chat</span>
             </button>
 
+            {/* AI Assistant Tab */}
+            <button
+              id="nav-assistant-btn"
+              type="button"
+              onClick={onAssistantClick}
+              style={{
+                backgroundColor: isAssistant ? "var(--theme-accent)" : "transparent",
+                borderColor: isAssistant ? "var(--theme-border)" : "transparent",
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all duration-150 cursor-pointer ${
+                isAssistant
+                  ? "text-white shadow-md ring-1 ring-white/15"
+                  : "text-neutral-400 hover:text-white hover:bg-white/5"
+              }`}
+              title="AI Assistant (ChatGPT, Grok & Claude Style)"
+            >
+              <Sparkles size={14} className={isAssistant ? "text-indigo-400" : "text-indigo-400/80"} />
+              <span>AI Assistant</span>
+            </button>
+
             {/* Direct Calling & Group Voice Tab */}
             <div className="relative">
               <button
