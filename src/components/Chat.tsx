@@ -41,11 +41,17 @@ export default function Chat({
   onClose,
   onOpenVoiceChat,
   persistent = false,
+  initialTab = "chat",
+  autoJoinVoice = false,
+  onVoiceSessionStarted,
 }: {
   isOpen?: boolean;
   onClose?: () => void;
   onOpenVoiceChat?: () => void;
   persistent?: boolean;
+  initialTab?: "chat" | "voice" | "profile";
+  autoJoinVoice?: boolean;
+  onVoiceSessionStarted?: () => void;
 }) {
   const [profile, setProfile] = useState<ChatProfile | null>(() => {
     try {
@@ -90,13 +96,29 @@ export default function Chat({
     return null;
   });
 
-  const [activeTab, setActiveTab] = useState<"chat" | "voice" | "profile">("chat");
-  const [isInVoiceSession, setIsInVoiceSession] = useState(false);
+  const [activeTab, setActiveTab] = useState<"chat" | "voice" | "profile">(initialTab || "chat");
+  const [isInVoiceSession, setIsInVoiceSession] = useState(autoJoinVoice);
   const [activeChannel, setActiveChannel] = useState<string>("general");
   const [channelSearch, setChannelSearch] = useState<string>("");
   const [showMembersSidebar, setShowMembersSidebar] = useState<boolean>(true);
   const [notification, setNotification] = useState<ChatMessage | null>(null);
   const messageSoundRef = useRef<HTMLAudioElement | null>(null);
+
+  // Sync tab when initialTab changes
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
+  // Handle immediate joining to General Voice
+  useEffect(() => {
+    if (autoJoinVoice) {
+      setActiveTab("voice");
+      setIsInVoiceSession(true);
+      onVoiceSessionStarted?.();
+    }
+  }, [autoJoinVoice, onVoiceSessionStarted]);
 
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
   const [rawVoiceUsers, setRawVoiceUsers] = useState<

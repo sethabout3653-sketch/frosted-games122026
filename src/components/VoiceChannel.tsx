@@ -579,14 +579,14 @@ export default function VoiceChannel({
     return list;
   }, [isScreenSharing, isVideoOn, profile.uid, profile.username, activeParticipants, trackTrigger]);
 
-  // Acquire studio microphone stream with hardware/browser noise suppression, acoustic echo cancellation, and auto gain
+  // Acquire studio microphone stream with top-grade noise suppression & acoustic echo cancellation without compression
   const acquireMicrophoneStream = useCallback(async (): Promise<MediaStream> => {
     try {
       const constraints: MediaStreamConstraints = {
         audio: {
           echoCancellation: { ideal: true },
           noiseSuppression: { ideal: true },
-          autoGainControl: { ideal: true },
+          autoGainControl: false, // Disables AGC compression so any noise and dynamic range is preserved
           channelCount: { ideal: 1 },
           sampleRate: { ideal: 48000 },
           sampleSize: { ideal: 16 },
@@ -595,8 +595,8 @@ export default function VoiceChannel({
             echoCancellationType: "system",
             googEchoCancellation: true,
             googExperimentalEchoCancellation: true,
-            googAutoGainControl: true,
-            googExperimentalAutoGainControl: true,
+            googAutoGainControl: false, // No auto gain compression
+            googExperimentalAutoGainControl: false,
             googNoiseSuppression: true,
             googExperimentalNoiseSuppression: true,
             googHighpassFilter: true,
@@ -614,7 +614,7 @@ export default function VoiceChannel({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true,
+          autoGainControl: false,
         },
         video: false,
       });
@@ -671,34 +671,18 @@ export default function VoiceChannel({
         airEQ.frequency.value = 8000;
         airEQ.gain.value = -1.0;
 
-        // 4. Studio Dynamics Compressor: Smoothly balance whispers and loud vocal peaks
-        const compressor = ctx.createDynamicsCompressor();
-        compressor.threshold.value = -22;
-        compressor.knee.value = 10;
-        compressor.ratio.value = 3.2;
-        compressor.attack.value = 0.003;
-        compressor.release.value = 0.12;
+        // No dynamic compressor - dynamic range is 100% uncompressed to allow any noise naturally
 
-        // 5. Brickwall Safety Limiter: Guarantee 0dBFS clipping protection
-        const limiter = ctx.createDynamicsCompressor();
-        limiter.threshold.value = -1.0;
-        limiter.knee.value = 0;
-        limiter.ratio.value = 20;
-        limiter.attack.value = 0.001;
-        limiter.release.value = 0.05;
-
-        // 6. Analyser for real-time Voice & Sound Activity Detection (VAD)
+        // 4. Analyser for real-time Voice & Sound Activity Detection (VAD)
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
         analyser.smoothingTimeConstant = 0.2;
 
-        // Connect source through the studio DSP chain
+        // Connect source through the uncompressed studio DSP chain
         source.connect(highpass);
         highpass.connect(presenceEQ);
         presenceEQ.connect(airEQ);
-        airEQ.connect(compressor);
-        compressor.connect(limiter);
-        limiter.connect(analyser);
+        airEQ.connect(analyser);
         analyserRef.current = analyser;
 
         // Mixed destination node that combines microphone and screen share audio
@@ -710,7 +694,7 @@ export default function VoiceChannel({
         micGain.gain.value = isMutedRef.current ? 0 : 1.0;
         gainNodeRef.current = micGain;
 
-        limiter.connect(micGain);
+        airEQ.connect(micGain);
         micGain.connect(mixedDest);
 
         // Monitor real-time volume levels & speech/sound activity for local user and remote participants

@@ -420,3 +420,32 @@ export function closeLuminGame(): void {
     }
   });
 }
+
+/**
+ * Automatic background LuminSDK MPK asset extractor.
+ * Automatically extracts package textures, icons, and sprite assets in the background.
+ */
+export async function autoExtractLuminAssets(fileOrUrl: File | string): Promise<string[]> {
+  try {
+    const formData = new FormData();
+    if (typeof fileOrUrl === "string") {
+      // If it's a remote URL, fetch the blob and extract
+      const res = await fetch(fileOrUrl);
+      if (!res.ok) return [];
+      const blob = await res.blob();
+      formData.append("file", blob, "package.mpk");
+    } else {
+      formData.append("file", fileOrUrl);
+    }
+    const res = await fetch("/api/extract-mpk-images", {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.images || []).map((img: { url: string }) => img.url);
+  } catch {
+    return [];
+  }
+}
+

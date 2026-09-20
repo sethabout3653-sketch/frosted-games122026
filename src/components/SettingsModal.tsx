@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   X,
   Check,
@@ -11,12 +11,22 @@ import {
   Type,
   ChevronDown,
   Eye,
-  Gamepad2,
-  FolderDown,
-  Copy,
-  ArrowUpCircle,
-  Loader2,
+  Music,
+  Play,
+  Volume2,
+  Radio,
+  Upload,
+  Trash2,
 } from "lucide-react";
+import {
+  getAllRingtones,
+  getSavedRingtone,
+  setSavedRingtone,
+  previewRingtone,
+  saveUploadedRingtone,
+  deleteUploadedRingtone,
+  RingtoneDefinition,
+} from "../lib/ringtone-synthesizer";
 import {
   TAB_CLOAKS,
   TabCloak,
@@ -40,16 +50,20 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
   const [isCustomOpen, setIsCustomOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
 
-  // Lumin SDK MPK Extractor states
-  const [isExtractorOpen, setIsExtractorOpen] = useState(false);
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [extractedImages, setExtractedImages] = useState<Array<{ originalPath: string; filename: string; url: string }>>([]);
-  const [copySuccess, setCopySuccess] = useState<Record<string, boolean>>({});
-  const [extractorError, setExtractorError] = useState<string | null>(null);
+  // Call Ringtone state
+  const [ringtones, setRingtones] = useState<RingtoneDefinition[]>(() => getAllRingtones());
+  const [currentRingtone, setCurrentRingtone] = useState<string>(() => getSavedRingtone());
+  const [previewingRingtone, setPreviewingRingtone] = useState<string | null>(null);
+  const [isUploadingRingtone, setIsUploadingRingtone] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const previewStopRef = useRef<(() => void) | null>(null);
+  const previewTimeoutRef = useRef<any>(null);
 
   // Sync state when modal opens
   useEffect(() => {
     if (isOpen) {
+      setRingtones(getAllRingtones());
+      setCurrentRingtone(getSavedRingtone());
       const current = getSavedTabCloak();
       setActiveCloak(current);
       if (current.id === "custom") {
@@ -57,8 +71,122 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
         setCustomIconUrl(current.icon);
         setIsCustomOpen(true);
       }
+    } else {
+      if (previewStopRef.current) {
+        previewStopRef.current();
+        previewStopRef.current = null;
+      }
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+        previewTimeoutRef.current = null;
+      }
+      setPreviewingRingtone(null);
     }
   }, [isOpen]);
+
+  // Listen for ringtone list updates from storage
+  useEffect(() => {
+    const handleListUpdate = () => {
+      setRingtones(getAllRingtones());
+      setCurrentRingtone(getSavedRingtone());
+    };
+    window.addEventListener("ringtone_list_updated", handleListUpdate);
+    return () => window.removeEventListener("ringtone_list_updated", handleListUpdate);
+  }, []);
+
+  const handleSelectRingtone = (id: string) => {
+    setCurrentRingtone(id);
+    setSavedRingtone(id);
+    // When clicking a ringtone, stop any active preview but DO NOT start a new one automatically
+    if (previewStopRef.current) {
+      previewStopRef.current();
+      previewStopRef.current = null;
+    }
+    if (previewTimeoutRef.current) {
+      clearTimeout(previewTimeoutRef.current);
+      previewTimeoutRef.current = null;
+    }
+    setPreviewingRingtone(null);
+  };
+
+  const handleTogglePreview = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    // Clear any existing 4s auto-stop timeout
+    if (previewTimeoutRef.current) {
+      clearTimeout(previewTimeoutRef.current);
+      previewTimeoutRef.current = null;
+    }
+
+    if (previewingRingtone === id) {
+      if (previewStopRef.current) {
+        previewStopRef.current();
+        previewStopRef.current = null;
+      }
+      setPreviewingRingtone(null);
+    } else {
+      if (previewStopRef.current) {
+        previewStopRef.current();
+        previewStopRef.current = null;
+      }
+      setPreviewingRingtone(id);
+      const stop = previewRingtone(id);
+      previewStopRef.current = stop;
+
+      // Auto-stop preview after 4 seconds as per user request
+      previewTimeoutRef.current = setTimeout(() => {
+        if (previewStopRef.current === stop) {
+          stop();
+          previewStopRef.current = null;
+          setPreviewingRingtone(null);
+          previewTimeoutRef.current = null;
+        }
+      }, 4000);
+    }
+  };
+
+  const handleUploadRingtone = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingRingtone(true);
+    setUploadError(null);
+
+    try {
+      const newRt = await saveUploadedRingtone(file);
+      setRingtones(getAllRingtones());
+      setCurrentRingtone(newRt.id);
+      setSavedRingtone(newRt.id);
+      // Stop preview when uploading, no auto-play for newly uploaded ringtone either
+      if (previewStopRef.current) {
+        previewStopRef.current();
+        previewStopRef.current = null;
+      }
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+        previewTimeoutRef.current = null;
+      }
+      setPreviewingRingtone(null);
+    } catch (err: any) {
+      console.error("Upload ringtone error:", err);
+      setUploadError(err.message || "Failed to upload audio file");
+    } finally {
+      setIsUploadingRingtone(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleDeleteRingtone = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (previewingRingtone === id && previewStopRef.current) {
+      previewStopRef.current();
+      previewStopRef.current = null;
+      setPreviewingRingtone(null);
+    }
+    deleteUploadedRingtone(id);
+    setRingtones(getAllRingtones());
+    setCurrentRingtone(getSavedRingtone());
+  };
 
   // Handle ESC key to close
   useEffect(() => {
@@ -100,50 +228,6 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
     setActiveCloak(def);
     setCustomTitle("");
     setCustomIconUrl("");
-  };
-
-  const handleMpkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsExtracting(true);
-    setExtractorError(null);
-    setExtractedImages([]);
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const response = await fetch("/api/extract-mpk-images", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || "Failed to extract images");
-      }
-
-      const data = await response.json();
-      if (data.success) {
-        setExtractedImages(data.images || []);
-      } else {
-        throw new Error(data.error || "Failed to unpack MPK file");
-      }
-    } catch (err: any) {
-      console.error("Error extracting MPK images:", err);
-      setExtractorError(err.message || "An unexpected error occurred while processing the package.");
-    } finally {
-      setIsExtracting(false);
-    }
-  };
-
-  const handleCopyUrl = (url: string) => {
-    navigator.clipboard.writeText(window.location.origin + url);
-    setCopySuccess((prev) => ({ ...prev, [url]: true }));
-    setTimeout(() => {
-      setCopySuccess((prev) => ({ ...prev, [url]: false }));
-    }, 2000);
   };
 
   const filteredCloaks = TAB_CLOAKS.filter((c) => {
@@ -274,6 +358,126 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
                     <span>Tune Colors</span>
                   </button>
                 )}
+              </div>
+
+              {/* Ringtone & Calling Audio Preferences */}
+              <div
+                style={{
+                  backgroundColor: "var(--theme-surface)",
+                  borderColor: "var(--theme-border-subtle)",
+                }}
+                className="rounded-2xl border p-4 sm:p-5 space-y-4 shadow-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Music size={16} className="text-[var(--theme-text-accent)]" />
+                    <h3 className="text-sm font-bold text-white tracking-wide">
+                      Incoming Call Ringtone
+                    </h3>
+                  </div>
+                </div>
+
+                <p className="text-xs text-neutral-300 leading-relaxed">
+                  Choose your ringtone for incoming calls, or upload your own MP3 audio file.
+                </p>
+
+                {/* Upload Button & Error Display */}
+                <div className="space-y-2">
+                  <label
+                    style={{
+                      borderColor: "var(--theme-border)",
+                      backgroundColor: "var(--theme-darkest)",
+                    }}
+                    className="flex items-center justify-center gap-2.5 p-3 rounded-xl border border-dashed hover:border-[var(--theme-border-strong)] transition-all cursor-pointer group text-center"
+                  >
+                    <Upload size={14} className="text-[var(--theme-text-accent)] group-hover:scale-110 transition-transform" />
+                    <span className="text-xs font-semibold text-white">
+                      {isUploadingRingtone ? "Saving Custom MP3..." : "Upload MP3 Ringtone"}
+                    </span>
+                    <span className="text-[10px] text-neutral-400">
+                      (Saved to your device)
+                    </span>
+                    <input
+                      type="file"
+                      accept="audio/*,.mp3,.wav,.ogg,.m4a"
+                      onChange={handleUploadRingtone}
+                      disabled={isUploadingRingtone}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {uploadError && (
+                    <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-xl">
+                      {uploadError}
+                    </p>
+                  )}
+                </div>
+
+                {/* Ringtone List */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  {ringtones.map((rt) => {
+                    const isSelected = currentRingtone === rt.id;
+                    const isPlaying = previewingRingtone === rt.id;
+
+                    return (
+                      <div
+                        key={rt.id}
+                        onClick={() => handleSelectRingtone(rt.id)}
+                        style={{
+                          backgroundColor: isSelected ? "var(--theme-accent)" : "var(--theme-darkest)",
+                          borderColor: isSelected
+                            ? "var(--theme-border-strong)"
+                            : "var(--theme-border)",
+                        }}
+                        className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-2.5 group hover:border-[var(--theme-border-strong)] ${
+                          isSelected ? "shadow-md ring-1 ring-white/20" : ""
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-white group-hover:text-[var(--theme-text-accent)] transition-colors truncate">
+                              {rt.name}
+                            </span>
+                            {isSelected && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                            )}
+                          </div>
+                          <p className="text-[10px] text-neutral-400 mt-0.5 truncate leading-tight">
+                            {rt.description}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Delete custom ringtone button */}
+                          {rt.isCustom && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteRingtone(rt.id, e)}
+                              className="p-1.5 rounded-lg border border-white/5 bg-white/5 text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/30 transition-all cursor-pointer"
+                              title="Delete this uploaded ringtone"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+
+                          {/* Preview Play/Stop button */}
+                          <button
+                            type="button"
+                            onClick={(e) => handleTogglePreview(rt.id, e)}
+                            className={`p-2 rounded-lg border transition-all shrink-0 cursor-pointer ${
+                              isPlaying
+                                ? "bg-emerald-500/20 border-emerald-400 text-emerald-300 animate-pulse"
+                                : "bg-white/5 border-white/10 text-neutral-400 hover:text-white group-hover:bg-white/10"
+                            }`}
+                            title={isPlaying ? "Stop preview" : `Preview ${rt.name}`}
+                          >
+                            {isPlaying ? <Volume2 size={13} /> : <Play size={13} />}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Tab Cloak & Stealth Section */}
@@ -547,141 +751,6 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
                         </button>
                       </div>
                     </motion.form>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              {/* Lumin SDK MPK Assets Extractor Card */}
-              <div
-                style={{
-                  backgroundColor: "var(--theme-surface)",
-                  borderColor: "var(--theme-border-subtle)",
-                }}
-                className="rounded-2xl border p-4 sm:p-5 space-y-4 transition-colors duration-200"
-              >
-                <button
-                  onClick={() => setIsExtractorOpen(!isExtractorOpen)}
-                  className="w-full flex items-center justify-between text-left cursor-pointer"
-                >
-                  <div className="flex items-center gap-2">
-                    <Gamepad2 size={16} className="text-[var(--theme-text-accent)]" />
-                    <div>
-                      <span className="text-sm font-semibold text-white block">
-                        LuminSDK Game Assets Extractor
-                      </span>
-                      <span className="text-xs text-[var(--theme-text-muted)]">
-                        Unpack built Magic Leap .mpk packages to extract raw game images & textures
-                      </span>
-                    </div>
-                  </div>
-                  <ChevronDown
-                    size={16}
-                    className={`text-neutral-400 transition-transform duration-200 ${
-                      isExtractorOpen ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-
-                <AnimatePresence>
-                  {isExtractorOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="mt-4 space-y-4 pt-4 border-t overflow-hidden"
-                      style={{ borderColor: "var(--theme-border-subtle)" }}
-                    >
-                      <div className="text-xs text-neutral-300 leading-relaxed">
-                        <p>
-                          Lumin application packages (<code className="bg-black/40 px-1 py-0.5 rounded text-[var(--theme-text-accent)] text-[10px]">.mpk</code>) are zip-compressed files containing the application binary and content assets. Upload an MPK or game asset zip file here to unpack it, search for internal image assets, and copy their public URLs instantly.
-                        </p>
-                      </div>
-
-                      {/* File upload zone */}
-                      <div className="relative">
-                        <label
-                          style={{
-                            borderColor: "var(--theme-border)",
-                            backgroundColor: "var(--theme-darkest)",
-                          }}
-                          className="flex flex-col items-center justify-center border border-dashed rounded-xl p-6 cursor-pointer hover:border-[var(--theme-border-strong)] transition-colors text-center group"
-                        >
-                          <input
-                            type="file"
-                            accept=".mpk,.zip"
-                            onChange={handleMpkUpload}
-                            disabled={isExtracting}
-                            className="hidden"
-                          />
-                          {isExtracting ? (
-                            <div className="flex flex-col items-center gap-2">
-                              <Loader2 className="w-8 h-8 text-[var(--theme-text-accent)] animate-spin" />
-                              <span className="text-xs font-medium text-white">Unpacking and scanning packages...</span>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col items-center gap-2">
-                              <ArrowUpCircle className="w-8 h-8 text-neutral-400 group-hover:text-[var(--theme-text-accent)] transition-colors" />
-                              <span className="text-xs font-semibold text-white">Upload .mpk or game .zip</span>
-                              <span className="text-[10px] text-neutral-500">Max size unlimited • Auto-extract textures</span>
-                            </div>
-                          )}
-                        </label>
-                      </div>
-
-                      {/* Error State */}
-                      {extractorError && (
-                        <div className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl">
-                          {extractorError}
-                        </div>
-                      )}
-
-                      {/* Extracted Images Grid */}
-                      {extractedImages.length > 0 && (
-                        <div className="space-y-2">
-                          <h4 className="text-xs font-bold text-white flex items-center justify-between">
-                            <span>Extracted Assets ({extractedImages.length})</span>
-                            <span className="text-[10px] text-[var(--theme-text-muted)] font-normal">Click an image to copy URL</span>
-                          </h4>
-
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-64 overflow-y-auto p-1 bg-black/20 rounded-xl border border-white/5">
-                            {extractedImages.map((img, i) => (
-                              <div
-                                key={i}
-                                style={{
-                                  backgroundColor: "var(--theme-darkest)",
-                                  borderColor: "var(--theme-border)",
-                                }}
-                                className="group relative rounded-lg border overflow-hidden p-1.5 flex flex-col gap-1.5 hover:border-[var(--theme-border-strong)] transition-all cursor-pointer"
-                                onClick={() => handleCopyUrl(img.url)}
-                                title="Click to copy image URL to clipboard"
-                              >
-                                <div className="aspect-square w-full rounded-md bg-neutral-900 overflow-hidden flex items-center justify-center relative">
-                                  <img
-                                    src={img.url}
-                                    alt={img.filename}
-                                    className="w-full h-full object-contain hover:scale-105 transition-transform"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                  {copySuccess[img.url] && (
-                                    <div className="absolute inset-0 bg-emerald-500/90 backdrop-blur-sm flex flex-col items-center justify-center text-white p-1 text-center">
-                                      <Check className="w-5 h-5 animate-bounce mb-0.5" />
-                                      <span className="text-[10px] font-bold">Copied!</span>
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="text-[9px] truncate text-neutral-300 font-medium px-0.5" title={img.filename}>
-                                  {img.filename}
-                                </div>
-                                <div className="text-[8px] truncate text-neutral-500 px-0.5" title={img.originalPath}>
-                                  {img.originalPath}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </motion.div>
                   )}
                 </AnimatePresence>
               </div>

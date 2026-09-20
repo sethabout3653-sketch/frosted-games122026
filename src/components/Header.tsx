@@ -1,6 +1,8 @@
 import React, { memo } from "react";
-import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2 } from "lucide-react";
+import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone } from "lucide-react";
 import { formatTagLabel } from "../utils";
+import { useCall } from "../context/CallContext";
+import CallMenuDropdown from "./CallMenuDropdown";
 
 interface HeaderProps {
   searchQuery: string;
@@ -29,6 +31,8 @@ const Header = memo(function Header({
   onOpenSettings,
   onOpenTheme,
 }: HeaderProps) {
+  const { isCallMenuOpen, setIsCallMenuOpen, onlineUsers } = useCall();
+
   const handleLogoClick = () => {
     setSearchQuery("");
     setSelectedTag("all");
@@ -143,6 +147,39 @@ const Header = memo(function Header({
               <MessageSquare size={14} className={isChat ? "text-[var(--theme-text-accent)]" : ""} />
               <span>Chat</span>
             </button>
+
+            {/* Direct Calling & Group Voice Tab */}
+            <div className="relative">
+              <button
+                id="nav-call-btn"
+                type="button"
+                onClick={() => setIsCallMenuOpen(!isCallMenuOpen)}
+                style={{
+                  backgroundColor: isCallMenuOpen ? "var(--theme-accent)" : "transparent",
+                  borderColor: isCallMenuOpen ? "var(--theme-border)" : "transparent",
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all duration-150 cursor-pointer ${
+                  isCallMenuOpen
+                    ? "text-white shadow-md ring-1 ring-white/15"
+                    : "text-neutral-400 hover:text-white hover:bg-white/5"
+                }`}
+                title="Call People (Direct 1-on-1 or Group Channel)"
+              >
+                <Phone size={13} className={isCallMenuOpen || onlineUsers.length > 0 ? "text-emerald-400" : ""} />
+                <span>Call</span>
+                {onlineUsers.length > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    {onlineUsers.length}
+                  </span>
+                )}
+              </button>
+
+              <CallMenuDropdown
+                isOpen={isCallMenuOpen}
+                onClose={() => setIsCallMenuOpen(false)}
+                onOpenSettings={onOpenSettings}
+              />
+            </div>
           </nav>
         </div>
 

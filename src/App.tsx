@@ -14,6 +14,9 @@ import { applyTabCloak, getSavedTabCloak } from "./tabCloaks";
 import { useActivityTracker } from "./lib/activity-tracker";
 import { applyTheme, getSavedTheme } from "./utils/theme";
 import localZones from "./zones.json";
+import { CallProvider, useCall } from "./context/CallContext";
+import IncomingCallNotification from "./components/IncomingCallNotification";
+import ActiveCallModal from "./components/ActiveCallModal";
 
 const SOUNDBOARD_GAME: Game = {
   id: "soundboard",
@@ -66,8 +69,20 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
   };
 }
 
-export default function App() {
+function AppContent() {
   const [currentView, setCurrentView] = useState<"home" | "game" | "chat" | "assistant">("home");
+  const [chatInitialTab, setChatInitialTab] = useState<"chat" | "voice" | "profile">("chat");
+  const [autoJoinVoice, setAutoJoinVoice] = useState(false);
+  const { setOnOpenGroupVoice } = useCall();
+
+  useEffect(() => {
+    setOnOpenGroupVoice(() => {
+      setCurrentView("chat");
+      setChatInitialTab("voice");
+      setAutoJoinVoice(true);
+    });
+  }, [setOnOpenGroupVoice]);
+
   const [showStartup, setShowStartup] = useState(true);
   // Core games list state seeded synchronously with ALL catalog and Lumin games combined,
   // guaranteeing that on Vercel, offline, or slower networks, all 1,600+ games are present immediately.
@@ -368,7 +383,13 @@ export default function App() {
           <Chat
             isOpen={currentView === "chat"}
             onClose={handleBackToHub}
-            onOpenVoiceChat={() => setCurrentView("chat")}
+            onOpenVoiceChat={() => {
+              setCurrentView("chat");
+              setChatInitialTab("voice");
+            }}
+            initialTab={chatInitialTab}
+            autoJoinVoice={autoJoinVoice}
+            onVoiceSessionStarted={() => setAutoJoinVoice(false)}
             persistent
           />
         </motion.div>
@@ -407,8 +428,20 @@ export default function App() {
       setIsThemeOpen(true);
     }}
   />
+
+  {/* Real-time P2P Call Modals & In-App Top Right Notification */}
+  <IncomingCallNotification />
+  <ActiveCallModal />
   
   </div>
   </>
+  );
+}
+
+export default function App() {
+  return (
+    <CallProvider>
+      <AppContent />
+    </CallProvider>
   );
 }

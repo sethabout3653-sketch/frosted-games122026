@@ -14,8 +14,6 @@ import { checkTextModeration } from "./src/utils/moderation";
 import dbDataHandler, { addLocalSubscriber, memoryStore, notifyLocalSubscribers } from "./api/db/data";
 import dbStreamHandler from "./api/db/stream";
 import { getLibSQLClient, initSQLite } from "./src/db/sqlite";
-import { adminDb } from "./src/lib/firebase-admin";
-import { queueFirebaseSync } from "./src/lib/firebase-sync-queue";
 
 import { createPool, db } from "./src/db/index";
 import { records, webrtcSignals } from "./src/db/schema";
