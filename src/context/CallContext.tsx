@@ -459,7 +459,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         case "direct_call_accepted": {
           const currentOut = outgoingCallRef.current;
-          if (currentOut && currentOut.callId === sig.callId) {
+          const isMatch =
+            currentOut &&
+            (!sig.callId ||
+              currentOut.callId === sig.callId ||
+              currentOut.targetUid === sig.uid ||
+              currentOut.targetUid.split("_tab_")[0] === (sig.uid || "").split("_tab_")[0]);
+
+          if (isMatch && currentOut) {
             if (ringbackStopRef.current) {
               ringbackStopRef.current();
               ringbackStopRef.current = null;
@@ -471,18 +478,20 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
               pc = createDirectPeerConnection(currentOut.targetUid, currentOut.callId);
             }
 
-            if (pc && localStreamRef.current) {
+            if (pc) {
               try {
-                // Add all local tracks to PeerConnection
-                const currentSenders = pc.getSenders();
-                localStreamRef.current.getTracks().forEach((track) => {
-                  const alreadyAdded = currentSenders.some(
-                    (s) => s.track && s.track.kind === track.kind
-                  );
-                  if (!alreadyAdded) {
-                    pc!.addTrack(track, localStreamRef.current!);
-                  }
-                });
+                // Ensure local stream and tracks are attached
+                if (localStreamRef.current) {
+                  const currentSenders = pc.getSenders();
+                  localStreamRef.current.getTracks().forEach((track) => {
+                    const alreadyAdded = currentSenders.some(
+                      (s) => s.track && s.track.kind === track.kind
+                    );
+                    if (!alreadyAdded) {
+                      pc!.addTrack(track, localStreamRef.current!);
+                    }
+                  });
+                }
 
                 const offer = await pc.createOffer({
                   offerToReceiveAudio: true,
@@ -528,11 +537,19 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         case "direct_call_offer": {
           // Accept offer if this is the active/incoming call session
+          const activePartner = activeCallRef.current?.partnerUid || incomingCallRef.current?.callerUid;
+          const isPartnerMatch =
+            activePartner &&
+            (activePartner === sig.uid ||
+              activePartner.split("_tab_")[0] === (sig.uid || "").split("_tab_")[0] ||
+              (sig.uid || "").startsWith(activePartner));
+
           const isValidCall =
-            sig.callId &&
-            (currentCallIdRef.current === sig.callId ||
-              activeCallRef.current?.callId === sig.callId ||
-              incomingCallRef.current?.callId === sig.callId);
+            !sig.callId ||
+            currentCallIdRef.current === sig.callId ||
+            activeCallRef.current?.callId === sig.callId ||
+            incomingCallRef.current?.callId === sig.callId ||
+            Boolean(isPartnerMatch);
 
           if (isValidCall && sig.sdp) {
             let pc = peerConnectionRef.current;
