@@ -585,8 +585,16 @@ export const storageEngine = {
 const webrtcListeners = new Set<(sig: any) => void>();
 
 export function sendBroadcastSignal(payload: any) {
+  let tabId = "";
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      tabId = sessionStorage.getItem("frosted_tab_id") || "";
+    }
+  } catch (e) {}
+
   const sig = {
     ...payload,
+    tabId: payload.tabId || tabId,
     id: payload.id || `sig_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     timestamp: payload.timestamp || Date.now(),
   };
@@ -612,10 +620,31 @@ export function subscribeBroadcastSignals(
   const processedSignals = new Set<string>();
   wsClient.setUserUid(myUid);
 
+  let myTabId = "";
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      myTabId = sessionStorage.getItem("frosted_tab_id") || "";
+    }
+  } catch (e) {}
+
   const handleSignal = (sig: any) => {
     if (!sig || !sig.id) return;
-    if (sig.uid === myUid) return; // ignore own signals
-    if (sig.targetUid !== "all" && sig.targetUid !== myUid) return; // not for me
+    // Ignore signal only if it came from THIS exact tab instance
+    if (myTabId && sig.tabId && sig.tabId === myTabId) return;
+
+    // Check target UID
+    if (sig.targetUid && sig.targetUid !== "all") {
+      const targetBase = sig.targetUid.split("_tab_")[0];
+      const myBase = myUid.split("_tab_")[0];
+      const isForMe =
+        sig.targetUid === myUid ||
+        sig.targetUid.startsWith(myUid) ||
+        myUid.startsWith(sig.targetUid) ||
+        (targetBase && myBase && targetBase === myBase);
+
+      if (!isForMe) return;
+    }
+
     if (processedSignals.has(sig.id)) return;
     processedSignals.add(sig.id);
     onSignal(sig);

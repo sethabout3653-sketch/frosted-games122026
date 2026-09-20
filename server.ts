@@ -1008,21 +1008,36 @@ const PORT = 3000;
       timestamp: Date.now(),
     });
 
-    const targetUid = signal?.targetUid;
+    const targetUid = (signal?.targetUid || "").trim();
 
     wsClients.forEach((client) => {
       if (client === excludeWs) return;
       if (client.readyState === WebSocket.OPEN) {
-        // Direct routing: if targetUid is specific, prioritize matching client
-        if (targetUid && targetUid !== "all") {
-          if (client.uid === targetUid) {
-            try {
-              client.send(payload);
-            } catch (e) {
-              wsClients.delete(client);
-            }
+        // Broadcast if target is "all" or omitted
+        if (!targetUid || targetUid === "all") {
+          try {
+            client.send(payload);
+          } catch (e) {
+            wsClients.delete(client);
           }
-        } else {
+          return;
+        }
+
+        // Check matching client UID
+        const clientUid = (client.uid || "").trim();
+        const baseTarget = targetUid.split("_tab_")[0];
+        const baseClient = clientUid.split("_tab_")[0];
+
+        // Send if client UID is not yet registered (as fallback so signal isn't lost),
+        // OR exact match, OR prefix match, OR base UID match
+        const isMatch =
+          !clientUid ||
+          clientUid === targetUid ||
+          clientUid.startsWith(targetUid) ||
+          targetUid.startsWith(clientUid) ||
+          (baseTarget && baseClient && baseTarget === baseClient);
+
+        if (isMatch) {
           try {
             client.send(payload);
           } catch (e) {
@@ -1375,16 +1390,18 @@ const PORT = 3000;
 
   app.get("/api/webrtc/signals", async (req, res) => {
     try {
-      const targetUid = req.query.uid as string;
+      const targetUid = (req.query.uid as string || "").trim();
       const since = parseInt(req.query.since as string, 10) || (Date.now() - 15000);
       if (!targetUid) {
         return res.json({ signals: [] });
       }
 
+      const baseUid = targetUid.split("_tab_")[0];
+
       const db = await getDb();
       const rows = await db.all(
-        "SELECT payload FROM webrtc_signals WHERE (target_uid = ? OR target_uid = 'all') AND timestamp > ? AND uid != ?",
-        [targetUid, since, targetUid]
+        "SELECT payload FROM webrtc_signals WHERE (target_uid = ? OR target_uid = 'all' OR target_uid LIKE ? OR target_uid LIKE ?) AND timestamp > ?",
+        [targetUid, `${baseUid}%`, `%${baseUid}`, since]
       );
       
       const signals = rows.map((r: any) => {

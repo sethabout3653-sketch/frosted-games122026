@@ -278,9 +278,23 @@ export class WebSocketClient {
     // Handle real-time WebRTC peer-to-peer signals
     if (msg.type === "webrtc_signal" && msg.payload) {
       const sig = msg.payload;
-      // Filter out messages sent by ourselves if uid is set
-      if (this.myUid && sig.uid === this.myUid) return;
-      if (this.myUid && sig.targetUid && sig.targetUid !== "all" && sig.targetUid !== this.myUid) return;
+      const myTabId = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("frosted_tab_id") : null;
+
+      // Ignore signals from THIS exact tab
+      if (myTabId && sig.tabId && sig.tabId === myTabId) return;
+
+      // Target matching: accept if broadcast ("all"), exact UID, base UID match, or target matching myUid
+      if (this.myUid && sig.targetUid && sig.targetUid !== "all") {
+        const targetBase = sig.targetUid.split("_tab_")[0];
+        const myBase = this.myUid.split("_tab_")[0];
+        const isTargetedToMe =
+          sig.targetUid === this.myUid ||
+          sig.targetUid.startsWith(this.myUid) ||
+          this.myUid.startsWith(sig.targetUid) ||
+          (targetBase && myBase && targetBase === myBase);
+
+        if (!isTargetedToMe) return;
+      }
 
       this.signalListeners.forEach((cb) => {
         try { cb(sig); } catch (e) {}

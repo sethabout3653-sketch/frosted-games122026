@@ -318,7 +318,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+        if (pc.connectionState === "failed") {
           playCallTone("declined");
           cleanupCall();
         }
@@ -353,7 +353,20 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const myProf = getSavedProfile();
       // Ensure signal is strictly for this user (1-on-1 direct targeting)
-      if (sig.targetUid !== myProf.uid) return;
+      const target = sig.targetUid || "";
+      const myUid = myProf.uid || "";
+      const myBase = myUid.split("_tab_")[0];
+      const targetBase = target.split("_tab_")[0];
+
+      const isTargetedToMe =
+        !target ||
+        target === "all" ||
+        target === myUid ||
+        target.startsWith(myUid) ||
+        myUid.startsWith(target) ||
+        (targetBase && myBase && targetBase === myBase);
+
+      if (!isTargetedToMe) return;
 
       switch (sig.type) {
         case "direct_call_invite": {
@@ -604,10 +617,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Switch to Video Request from Partner:
         case "switch_video_request": {
-          if (
-            activeCallRef.current &&
-            activeCallRef.current.callId === sig.callId
-          ) {
+          const cur = activeCallRef.current;
+          const isMatch =
+            cur &&
+            (cur.callId === sig.callId ||
+              cur.partnerUid === sig.uid ||
+              cur.partnerUid.split("_tab_")[0] === sig.uid.split("_tab_")[0] ||
+              sig.uid.startsWith(cur.partnerUid));
+
+          if (isMatch) {
             playCallTone("switch_prompt");
             setIsVideoSwitchRequested(true);
           }
@@ -615,10 +633,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         case "switch_video_response": {
-          if (
-            activeCallRef.current &&
-            activeCallRef.current.callId === sig.callId
-          ) {
+          const cur = activeCallRef.current;
+          const isMatch =
+            cur &&
+            (cur.callId === sig.callId ||
+              cur.partnerUid === sig.uid ||
+              cur.partnerUid.split("_tab_")[0] === sig.uid.split("_tab_")[0] ||
+              sig.uid.startsWith(cur.partnerUid));
+
+          if (isMatch) {
             setIsVideoSwitchPending(false);
             if (sig.accepted) {
               // Partner accepted! Turn on camera, add video track and renegotiate
@@ -660,8 +683,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   sendBroadcastSignal({
                     type: "direct_call_offer",
                     uid: myProf.uid,
-                    targetUid: activeCallRef.current.partnerUid,
-                    callId: activeCallRef.current.callId,
+                    targetUid: activeCallRef.current!.partnerUid,
+                    callId: activeCallRef.current!.callId,
                     sdp: JSON.stringify(offer),
                   });
 
@@ -833,15 +856,24 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setActiveCall(activeData);
       setIncomingCall(null);
 
-      // Send acceptance signal back to caller
-      sendBroadcastSignal({
-        type: "direct_call_accepted",
-        uid: myProf.uid,
-        targetUid: currentInc.callerUid,
-        callId: currentInc.callId,
-        callerName: myProf.username,
-        callerPhotoURL: myProf.photoURL,
-      });
+      // Send acceptance signal back to caller instantly and with 250ms backup retry
+      const sendAcceptSignal = () => {
+        sendBroadcastSignal({
+          type: "direct_call_accepted",
+          uid: myProf.uid,
+          targetUid: currentInc.callerUid,
+          callId: currentInc.callId,
+          callerName: myProf.username,
+          callerPhotoURL: myProf.photoURL,
+        });
+      };
+
+      sendAcceptSignal();
+      setTimeout(() => {
+        if (activeCallRef.current && activeCallRef.current.callId === currentInc.callId) {
+          sendAcceptSignal();
+        }
+      }, 250);
     } catch (err) {
       console.error("Failed to answer call:", err);
       alert("Could not access media devices to answer call.");
