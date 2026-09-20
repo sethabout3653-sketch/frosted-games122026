@@ -306,7 +306,12 @@ const PORT = 3000;
     } catch (e) {}
   };
 
-  // Primary file serving route with HTTP Range streaming (for video/audio) and magic byte detection
+  // API routes go here FIRST
+  app.get("/api/ping", (req, res) => {
+    res.json({ status: "ok", timestamp: Date.now() });
+  });
+
+  // Dedicated file serving route with HTTP Range streaming (for video/audio) and magic byte detection
   app.get(["/uploads/:filename", "/uploads/*"], (req, res) => {
     const rawFn = req.params.filename || req.params[0] || "";
     const fn = path.basename(rawFn);
@@ -3306,6 +3311,42 @@ Respond strictly in valid JSON:
 
       httpServer.listen(PORT, "0.0.0.0", () => {
         console.log(`Server running with WebSockets enabled on http://localhost:${PORT}`);
+
+        // Self-ping keepalive loop to prevent inactivity timeouts on Render and cloud hosts
+        const keepAliveBase =
+          process.env.RENDER_EXTERNAL_URL ||
+          process.env.APP_URL ||
+          process.env.KEEP_ALIVE_URL ||
+          "https://ais-dev-ovp2lvnduxwm4gh3dbqu3j-534577608781.us-west2.run.app";
+
+        const PING_INTERVAL_MS = 13 * 60 * 1000; // 13 minutes (safely under the 15-minute inactivity limit)
+
+        const pingServerKeepAlive = async () => {
+          const targetUrl = keepAliveBase.endsWith("/")
+            ? `${keepAliveBase}api/ping`
+            : `${keepAliveBase}/api/ping`;
+          try {
+            const res = await fetch(targetUrl, {
+              headers: { "User-Agent": "Render-KeepAlive/1.0" },
+              signal: AbortSignal.timeout(12000),
+            });
+            console.log(`[KeepAlive] Pinged ${targetUrl} - HTTP status ${res.status}`);
+          } catch {
+            try {
+              const res = await fetch(keepAliveBase, {
+                headers: { "User-Agent": "Render-KeepAlive/1.0" },
+                signal: AbortSignal.timeout(12000),
+              });
+              console.log(`[KeepAlive] Fallback pinged ${keepAliveBase} - HTTP status ${res.status}`);
+            } catch (err: any) {
+              console.warn(`[KeepAlive] Ping failed:`, err?.message || err);
+            }
+          }
+        };
+
+        // Ping after 10 seconds of startup and then continuously every 13 minutes
+        setTimeout(pingServerKeepAlive, 10000);
+        setInterval(pingServerKeepAlive, PING_INTERVAL_MS);
       });
     })();
   }

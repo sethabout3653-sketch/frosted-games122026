@@ -121,6 +121,15 @@ function AppContent() {
     return () => window.clearTimeout(safetyTimeout);
   }, []);
 
+  // Background keepalive ping to prevent server and hosting inactivity limits (every 10 minutes)
+  useEffect(() => {
+    const keepAlivePing = () => {
+      fetch("/api/ping", { cache: "no-store" }).catch(() => {});
+    };
+    const interval = window.setInterval(keepAlivePing, 10 * 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   // Manage scrolling state on document body
   useEffect(() => {
     if (currentView === "chat" || currentView === "game") {
