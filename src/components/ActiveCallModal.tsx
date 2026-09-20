@@ -255,6 +255,20 @@ export default function ActiveCallModal() {
           </div>
         </div>
 
+        {/* Hidden Audio Element for Remote Stream (ensures voice & screen audio play continuously) */}
+        <audio
+          ref={(el) => {
+            if (el && remoteStream) {
+              if (el.srcObject !== remoteStream) {
+                el.srcObject = remoteStream;
+              }
+              el.play().catch(() => {});
+            }
+          }}
+          autoPlay
+          playsInline
+        />
+
         {/* Call Main Stage (Video, Screen Share, or Audio Visualizer) */}
         <div className="relative flex-1 bg-neutral-950 flex items-center justify-center overflow-hidden min-h-[320px] sm:min-h-[400px]">
           {isScreenSharing ? (

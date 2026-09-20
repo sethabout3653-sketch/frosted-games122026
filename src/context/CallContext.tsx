@@ -315,16 +315,27 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Handle incoming remote audio/video tracks
       pc.ontrack = (event) => {
-        if (event.streams && event.streams[0]) {
-          setRemoteStream(new MediaStream(event.streams[0].getTracks()));
-        } else {
+        event.track.enabled = true;
+        setRemoteStream((prev) => {
+          const currentTracks = prev ? prev.getTracks().filter((t) => t.id !== event.track.id) : [];
+          return new MediaStream([...currentTracks, event.track]);
+        });
+
+        event.track.onunmute = () => {
           setRemoteStream((prev) => {
-            const existingTracks = prev
-              ? prev.getTracks().filter((t) => t.id !== event.track.id)
-              : [];
-            return new MediaStream([...existingTracks, event.track]);
+            if (!prev) return new MediaStream([event.track]);
+            const currentTracks = prev.getTracks().filter((t) => t.id !== event.track.id);
+            return new MediaStream([...currentTracks, event.track]);
           });
-        }
+        };
+
+        event.track.onended = () => {
+          setRemoteStream((prev) => {
+            if (!prev) return null;
+            const remaining = prev.getTracks().filter((t) => t.id !== event.track.id);
+            return remaining.length > 0 ? new MediaStream(remaining) : null;
+          });
+        };
       };
 
       pc.onconnectionstatechange = () => {
@@ -477,6 +488,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
               currentOut.targetUid.split("_tab_")[0] === (sig.uid || "").split("_tab_")[0]);
 
           if (isMatch && currentOut) {
+            if (callTimeoutRef.current) {
+              clearTimeout(callTimeoutRef.current);
+              callTimeoutRef.current = null;
+            }
             if (ringbackStopRef.current) {
               ringbackStopRef.current();
               ringbackStopRef.current = null;

@@ -416,8 +416,6 @@ export default function VoiceChannel({
             scrTrack = transceivers[2].receiver.track;
           } else if (videoTransceivers.length >= 2) {
             scrTrack = videoTransceivers[1].receiver.track;
-          } else if (videoTransceivers.length === 1) {
-            scrTrack = videoTransceivers[0].receiver.track;
           }
 
           if (scrTrack) {
@@ -1141,8 +1139,6 @@ export default function VoiceChannel({
       scrTrack = transceivers[2].receiver.track;
     } else if (videoTransceivers.length >= 2) {
       scrTrack = videoTransceivers[1].receiver.track;
-    } else if (videoTransceivers.length === 1) {
-      scrTrack = videoTransceivers[0].receiver.track;
     }
 
     if (scrTrack) {
@@ -1483,8 +1479,6 @@ export default function VoiceChannel({
               scrTrack = pc.getTransceivers()[2].receiver.track;
             } else if (videoTransceivers.length >= 2) {
               scrTrack = videoTransceivers[1].receiver.track;
-            } else if (videoTransceivers.length === 1) {
-              scrTrack = videoTransceivers[0].receiver.track;
             }
             if (scrTrack) {
               scrTrack.enabled = true;
