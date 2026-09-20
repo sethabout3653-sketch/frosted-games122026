@@ -257,7 +257,15 @@ export default function ActiveCallModal() {
             <div className="relative w-full h-full flex items-center justify-center bg-black">
               {/* Remote Video */}
               <video
-                ref={remoteVideoRef}
+                ref={(el) => {
+                  remoteVideoRef.current = el;
+                  if (el && remoteStream) {
+                    if (el.srcObject !== remoteStream) {
+                      el.srcObject = remoteStream;
+                    }
+                    el.play().catch(() => {});
+                  }
+                }}
                 autoPlay
                 playsInline
                 className="w-full h-full object-contain max-h-[500px]"
@@ -266,7 +274,15 @@ export default function ActiveCallModal() {
               {/* Local Video Thumbnail (Picture in Picture) */}
               <div className="absolute bottom-4 right-4 w-32 sm:w-44 aspect-video rounded-xl overflow-hidden border-2 border-white/20 bg-neutral-900 shadow-2xl z-10">
                 <video
-                  ref={localVideoRef}
+                  ref={(el) => {
+                    localVideoRef.current = el;
+                    if (el && localStream) {
+                      if (el.srcObject !== localStream) {
+                        el.srcObject = localStream;
+                      }
+                      el.play().catch(() => {});
+                    }
+                  }}
                   autoPlay
                   playsInline
                   muted

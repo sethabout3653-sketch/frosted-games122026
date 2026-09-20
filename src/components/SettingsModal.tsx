@@ -112,7 +112,6 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
   const handleTogglePreview = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
 
-    // Clear any existing 4s auto-stop timeout
     if (previewTimeoutRef.current) {
       clearTimeout(previewTimeoutRef.current);
       previewTimeoutRef.current = null;
@@ -130,18 +129,11 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
         previewStopRef.current = null;
       }
       setPreviewingRingtone(id);
-      const stop = previewRingtone(id);
+      const stop = previewRingtone(id, () => {
+        setPreviewingRingtone(null);
+        previewStopRef.current = null;
+      });
       previewStopRef.current = stop;
-
-      // Auto-stop preview after 4 seconds as per user request
-      previewTimeoutRef.current = setTimeout(() => {
-        if (previewStopRef.current === stop) {
-          stop();
-          previewStopRef.current = null;
-          setPreviewingRingtone(null);
-          previewTimeoutRef.current = null;
-        }
-      }, 4000);
     }
   };
 
@@ -157,7 +149,7 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
       setRingtones(getAllRingtones());
       setCurrentRingtone(newRt.id);
       setSavedRingtone(newRt.id);
-      // Stop preview when uploading, no auto-play for newly uploaded ringtone either
+      // Stop preview when uploading
       if (previewStopRef.current) {
         previewStopRef.current();
         previewStopRef.current = null;
@@ -176,14 +168,14 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
     }
   };
 
-  const handleDeleteRingtone = (id: string, e: React.MouseEvent) => {
+  const handleDeleteRingtone = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (previewingRingtone === id && previewStopRef.current) {
       previewStopRef.current();
       previewStopRef.current = null;
       setPreviewingRingtone(null);
     }
-    deleteUploadedRingtone(id);
+    await deleteUploadedRingtone(id);
     setRingtones(getAllRingtones());
     setCurrentRingtone(getSavedRingtone());
   };

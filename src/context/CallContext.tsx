@@ -56,8 +56,8 @@ interface CallContextType {
   activeCall: ActiveCallData | null;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
-  isVideoSwitchRequested: boolean; // Prompt displayed to receiver: "Do you want to switch to video call?"
-  isVideoSwitchPending: boolean; // Waiting for receiver to answer switch prompt
+  isVideoSwitchRequested: boolean;
+  isVideoSwitchPending: boolean;
   voiceUserCount: number;
   isCallMenuOpen: boolean;
   setIsCallMenuOpen: (open: boolean) => void;
@@ -88,6 +88,7 @@ export function useCall() {
 }
 
 export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [myProfile, setMyProfile] = useState(() => getSavedProfile());
   const [onlineUsers, setOnlineUsers] = useState<CallUser[]>([]);
   const [incomingCall, setIncomingCall] = useState<IncomingCallData | null>(null);
   const [outgoingCall, setOutgoingCall] = useState<OutgoingCallData | null>(null);
@@ -102,32 +103,79 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [voiceUserCount, setVoiceUserCount] = useState<number>(0);
 
   const onOpenGroupVoiceRef = useRef<(() => void) | null>(null);
-
-  const setOnOpenGroupVoice = useCallback((cb: () => void) => {
-    onOpenGroupVoiceRef.current = cb;
-  }, []);
-
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const ringtoneStopRef = useRef<(() => void) | null>(null);
   const ringbackStopRef = useRef<(() => void) | null>(null);
   const callTimeoutRef = useRef<any>(null);
-  const currentProfile = getSavedProfile();
+
+  // References to keep state accessible in async signal handlers without stale closures
+  const activeCallRef = useRef<ActiveCallData | null>(null);
+  const outgoingCallRef = useRef<OutgoingCallData | null>(null);
+  const incomingCallRef = useRef<IncomingCallData | null>(null);
+  const currentCallIdRef = useRef<string | null>(null);
+  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const onlineUsersRef = useRef<CallUser[]>([]);
+
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+
+  useEffect(() => {
+    outgoingCallRef.current = outgoingCall;
+  }, [outgoingCall]);
+
+  useEffect(() => {
+    incomingCallRef.current = incomingCall;
+  }, [incomingCall]);
+
+  useEffect(() => {
+    onlineUsersRef.current = onlineUsers;
+  }, [onlineUsers]);
+
+  // Dynamic profile sync
+  useEffect(() => {
+    const handleProfileUpdate = () => {
+      const p = getSavedProfile();
+      setMyProfile(p);
+    };
+
+    window.addEventListener("frosted_profile_updated", handleProfileUpdate);
+    window.addEventListener("storage", handleProfileUpdate);
+    return () => {
+      window.removeEventListener("frosted_profile_updated", handleProfileUpdate);
+      window.removeEventListener("storage", handleProfileUpdate);
+    };
+  }, []);
+
+  const getMyProfile = useCallback(() => {
+    const p = getSavedProfile();
+    setMyProfile(p);
+    return p;
+  }, []);
+
+  const setOnOpenGroupVoice = useCallback((cb: () => void) => {
+    onOpenGroupVoiceRef.current = cb;
+  }, []);
 
   // Track active participants in General Voice
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "voice_users"), (snapshot) => {
-      const now = Date.now();
-      let count = 0;
-      snapshot.docs.forEach((d: any) => {
-        const data = d.data();
-        const ts = toTimestampMs(data?.timestamp || data?.lastSeen);
-        if (ts > 0 && now - ts <= 30000) {
-          count++;
-        }
-      });
-      setVoiceUserCount(count);
-    }, () => {});
+    const unsub = onSnapshot(
+      collection(db, "voice_users"),
+      (snapshot) => {
+        const now = Date.now();
+        let count = 0;
+        snapshot.docs.forEach((d: any) => {
+          const data = d.data();
+          const ts = toTimestampMs(data?.timestamp || data?.lastSeen);
+          if (ts > 0 && now - ts <= 30000) {
+            count++;
+          }
+        });
+        setVoiceUserCount(count);
+      },
+      () => {}
+    );
     return () => unsub();
   }, []);
 
@@ -136,13 +184,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStreamRef.current = localStream;
   }, [localStream]);
 
-  // 1. Subscribe to online users via presence collection
+  // Subscribe to online users via presence collection
   useEffect(() => {
     const q = query(collection(db, "presence"));
     const unsub = onSnapshot(q, (snapshot) => {
       const now = Date.now();
-      const myUid = currentProfile?.uid || "";
-      const myName = (currentProfile?.username || "").trim().toLowerCase();
+      const current = getMyProfile();
+      const myUid = current?.uid || "";
+      const myName = (current?.username || "").trim().toLowerCase();
       const map = new Map<string, CallUser>();
 
       snapshot.docs.forEach((d: any) => {
@@ -150,25 +199,31 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const uname = (data.username || "").trim();
         const unameClean = uname.toLowerCase();
         if (!uname || unameClean === "anonymous" || unameClean === "guest") return;
-        if (data.uid === myUid || unameClean === myName) return; // Don't list self
+        if (data.uid === myUid || unameClean === myName) return;
 
         const ts = toTimestampMs(data.lastSeen || data.timestamp);
         if (ts > 0 && now - ts <= 35000) {
+          const userPhoto =
+            data.photoURL ||
+            `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(uname)}`;
+
           map.set(data.uid, {
             uid: data.uid,
             username: uname,
-            photoURL: data.photoURL,
+            photoURL: userPhoto,
             status: data.status || "online",
             activity: data.activity,
           });
         }
       });
 
-      setOnlineUsers(Array.from(map.values()));
+      const usersList = Array.from(map.values());
+      setOnlineUsers(usersList);
+      onlineUsersRef.current = usersList;
     });
 
     return () => unsub();
-  }, [currentProfile?.uid]);
+  }, [getMyProfile]);
 
   // Clean up all call media and state
   const cleanupCall = useCallback(() => {
@@ -191,6 +246,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         peerConnectionRef.current.onicecandidate = null;
         peerConnectionRef.current.ontrack = null;
+        peerConnectionRef.current.onconnectionstatechange = null;
         peerConnectionRef.current.close();
       } catch (e) {}
       peerConnectionRef.current = null;
@@ -199,7 +255,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       setLocalStream(null);
+      localStreamRef.current = null;
     }
+
+    pendingIceCandidatesRef.current = [];
+    currentCallIdRef.current = null;
+    activeCallRef.current = null;
+    outgoingCallRef.current = null;
+    incomingCallRef.current = null;
 
     setRemoteStream(null);
     setIncomingCall(null);
@@ -209,24 +272,30 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsVideoSwitchPending(false);
   }, []);
 
-  // 2. Initialize WebRTC PeerConnection for 1-on-1 Call
+  // Initialize WebRTC PeerConnection for 1-on-1 Call
   const createDirectPeerConnection = useCallback(
     (partnerUid: string, callId: string) => {
       if (peerConnectionRef.current) {
         try {
+          peerConnectionRef.current.onicecandidate = null;
+          peerConnectionRef.current.ontrack = null;
           peerConnectionRef.current.close();
         } catch (e) {}
       }
+
+      currentCallIdRef.current = callId;
+      pendingIceCandidatesRef.current = [];
 
       const pc = new RTCPeerConnection(ICE_SERVERS);
       peerConnectionRef.current = pc;
 
       // Handle ICE candidates
       pc.onicecandidate = (event) => {
-        if (event.candidate && currentProfile?.uid) {
+        if (event.candidate) {
+          const prof = getSavedProfile();
           sendBroadcastSignal({
             type: "direct_call_candidate",
-            uid: currentProfile.uid,
+            uid: prof.uid,
             targetUid: partnerUid,
             callId,
             candidate: JSON.stringify(event.candidate),
@@ -237,9 +306,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Handle incoming remote audio/video tracks
       pc.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
-          setRemoteStream(event.streams[0]);
+          setRemoteStream(new MediaStream(event.streams[0].getTracks()));
         } else {
-          setRemoteStream(new MediaStream([event.track]));
+          setRemoteStream((prev) => {
+            const existingTracks = prev
+              ? prev.getTracks().filter((t) => t.id !== event.track.id)
+              : [];
+            return new MediaStream([...existingTracks, event.track]);
+          });
         }
       };
 
@@ -252,26 +326,42 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return pc;
     },
-    [currentProfile?.uid, cleanupCall]
+    [cleanupCall]
   );
 
-  // 3. Listen for direct call signals targeting this user
-  useEffect(() => {
-    if (!currentProfile?.uid) return;
+  // Drain pending ICE candidates once remote description is set
+  const drainIceCandidates = useCallback(async (pc: RTCPeerConnection) => {
+    while (pendingIceCandidatesRef.current.length > 0) {
+      const candidateInit = pendingIceCandidatesRef.current.shift();
+      if (candidateInit) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidateInit));
+        } catch (e) {
+          console.warn("Error adding queued ice candidate:", e);
+        }
+      }
+    }
+  }, []);
 
-    const unsubSignals = subscribeBroadcastSignals(currentProfile.uid, async (sig) => {
+  // Listen for direct call signals targeting this user
+  useEffect(() => {
+    const prof = getSavedProfile();
+    if (!prof?.uid) return;
+
+    const unsubSignals = subscribeBroadcastSignals(prof.uid, async (sig) => {
       if (!sig || !sig.type) return;
 
+      const myProf = getSavedProfile();
       // Ensure signal is strictly for this user (1-on-1 direct targeting)
-      if (sig.targetUid !== currentProfile.uid) return;
+      if (sig.targetUid !== myProf.uid) return;
 
       switch (sig.type) {
         case "direct_call_invite": {
           // If already in an active or outgoing call, auto-decline as busy
-          if (activeCall || outgoingCall) {
+          if (activeCallRef.current || outgoingCallRef.current) {
             sendBroadcastSignal({
               type: "direct_call_declined",
-              uid: currentProfile.uid,
+              uid: myProf.uid,
               targetUid: sig.uid,
               callId: sig.callId,
               reason: "busy",
@@ -279,18 +369,37 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
           }
 
-          // Start musical, non-robotic ringtone loop in the background
+          // Resolve caller name and photo accurately
+          let callerName = (sig.callerName || "").trim();
+          if (!callerName || callerName.toLowerCase() === "friend") {
+            const match = onlineUsersRef.current.find((u) => u.uid === sig.uid);
+            callerName = match?.username || `Player_${sig.uid.slice(-4)}`;
+          }
+
+          let callerPhoto = sig.callerPhotoURL;
+          if (!callerPhoto) {
+            const match = onlineUsersRef.current.find((u) => u.uid === sig.uid);
+            callerPhoto =
+              match?.photoURL ||
+              `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(callerName)}`;
+          }
+
+          // Start musical ringtone loop in the background
           if (ringtoneStopRef.current) ringtoneStopRef.current();
           ringtoneStopRef.current = startRingtoneLoop(getSavedRingtone());
 
-          setIncomingCall({
+          const incomingData: IncomingCallData = {
             callId: sig.callId,
             callerUid: sig.uid,
-            callerName: sig.callerName || "Friend",
-            callerPhotoURL: sig.callerPhotoURL || "",
+            callerName,
+            callerPhotoURL: callerPhoto,
             callType: sig.callType || "audio",
             timestamp: Date.now(),
-          });
+          };
+
+          currentCallIdRef.current = sig.callId;
+          incomingCallRef.current = incomingData;
+          setIncomingCall(incomingData);
 
           // Auto-timeout incoming call after 30 seconds if unanswered
           if (callTimeoutRef.current) clearTimeout(callTimeoutRef.current);
@@ -299,13 +408,17 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ringtoneStopRef.current();
               ringtoneStopRef.current = null;
             }
+            incomingCallRef.current = null;
             setIncomingCall(null);
           }, 30000);
           break;
         }
 
         case "direct_call_declined": {
-          if (outgoingCall && outgoingCall.callId === sig.callId) {
+          if (
+            outgoingCallRef.current &&
+            outgoingCallRef.current.callId === sig.callId
+          ) {
             if (ringbackStopRef.current) {
               ringbackStopRef.current();
               ringbackStopRef.current = null;
@@ -317,58 +430,79 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         case "direct_call_cancelled": {
-          if (incomingCall && incomingCall.callId === sig.callId) {
+          if (
+            incomingCallRef.current &&
+            incomingCallRef.current.callId === sig.callId
+          ) {
             if (ringtoneStopRef.current) {
               ringtoneStopRef.current();
               ringtoneStopRef.current = null;
             }
+            incomingCallRef.current = null;
             setIncomingCall(null);
           }
           break;
         }
 
         case "direct_call_accepted": {
-          if (outgoingCall && outgoingCall.callId === sig.callId) {
+          const currentOut = outgoingCallRef.current;
+          if (currentOut && currentOut.callId === sig.callId) {
             if (ringbackStopRef.current) {
               ringbackStopRef.current();
               ringbackStopRef.current = null;
             }
             playCallTone("connected");
 
-            // Initiator creates and sends SDP Offer
-            const pc = peerConnectionRef.current;
+            let pc = peerConnectionRef.current;
+            if (!pc) {
+              pc = createDirectPeerConnection(currentOut.targetUid, currentOut.callId);
+            }
+
             if (pc && localStreamRef.current) {
               try {
+                // Add all local tracks to PeerConnection
+                const currentSenders = pc.getSenders();
                 localStreamRef.current.getTracks().forEach((track) => {
-                  pc.addTrack(track, localStreamRef.current!);
+                  const alreadyAdded = currentSenders.some(
+                    (s) => s.track && s.track.kind === track.kind
+                  );
+                  if (!alreadyAdded) {
+                    pc!.addTrack(track, localStreamRef.current!);
+                  }
                 });
 
                 const offer = await pc.createOffer({
                   offerToReceiveAudio: true,
-                  offerToReceiveVideo: outgoingCall.callType === "video",
+                  offerToReceiveVideo: true,
                 });
                 await pc.setLocalDescription(offer);
 
                 sendBroadcastSignal({
                   type: "direct_call_offer",
-                  uid: currentProfile.uid,
-                  targetUid: outgoingCall.targetUid,
-                  callId: outgoingCall.callId,
+                  uid: myProf.uid,
+                  targetUid: currentOut.targetUid,
+                  callId: currentOut.callId,
                   sdp: JSON.stringify(offer),
                 });
 
-                setActiveCall({
-                  callId: outgoingCall.callId,
-                  partnerUid: outgoingCall.targetUid,
-                  partnerName: outgoingCall.targetName,
-                  partnerPhotoURL: outgoingCall.targetPhotoURL,
-                  callType: outgoingCall.callType,
+                const activeData: ActiveCallData = {
+                  callId: currentOut.callId,
+                  partnerUid: currentOut.targetUid,
+                  partnerName: currentOut.targetName,
+                  partnerPhotoURL: currentOut.targetPhotoURL,
+                  callType: currentOut.callType,
                   startTime: Date.now(),
                   isMuted: false,
                   isDeafened: false,
-                  isCameraOn: outgoingCall.callType === "video",
+                  isCameraOn: currentOut.callType === "video",
                   isInitiator: true,
-                });
+                };
+
+                activeCallRef.current = activeData;
+                currentCallIdRef.current = currentOut.callId;
+                outgoingCallRef.current = null;
+
+                setActiveCall(activeData);
                 setOutgoingCall(null);
               } catch (err) {
                 console.error("Error creating direct call offer:", err);
@@ -380,41 +514,63 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         case "direct_call_offer": {
-          if (incomingCall && incomingCall.callId === sig.callId && sig.sdp) {
-            const pc = peerConnectionRef.current;
-            if (pc && localStreamRef.current) {
-              try {
+          // Accept offer if this is the active/incoming call session
+          const isValidCall =
+            sig.callId &&
+            (currentCallIdRef.current === sig.callId ||
+              activeCallRef.current?.callId === sig.callId ||
+              incomingCallRef.current?.callId === sig.callId);
+
+          if (isValidCall && sig.sdp) {
+            let pc = peerConnectionRef.current;
+            if (!pc) {
+              pc = createDirectPeerConnection(sig.uid, sig.callId);
+            }
+
+            try {
+              // Add local tracks if available
+              if (localStreamRef.current) {
+                const currentSenders = pc.getSenders();
                 localStreamRef.current.getTracks().forEach((track) => {
-                  pc.addTrack(track, localStreamRef.current!);
+                  const alreadyAdded = currentSenders.some(
+                    (s) => s.track && s.track.kind === track.kind
+                  );
+                  if (!alreadyAdded) {
+                    pc!.addTrack(track, localStreamRef.current!);
+                  }
                 });
-
-                const offerDesc = new RTCSessionDescription(JSON.parse(sig.sdp));
-                await pc.setRemoteDescription(offerDesc);
-
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-
-                sendBroadcastSignal({
-                  type: "direct_call_answer",
-                  uid: currentProfile.uid,
-                  targetUid: sig.uid,
-                  callId: sig.callId,
-                  sdp: JSON.stringify(answer),
-                });
-              } catch (err) {
-                console.error("Error answering direct call offer:", err);
-                cleanupCall();
               }
+
+              const offerDesc = new RTCSessionDescription(JSON.parse(sig.sdp));
+              await pc.setRemoteDescription(offerDesc);
+
+              // Drain any queued ICE candidates
+              await drainIceCandidates(pc);
+
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+
+              sendBroadcastSignal({
+                type: "direct_call_answer",
+                uid: myProf.uid,
+                targetUid: sig.uid,
+                callId: sig.callId,
+                sdp: JSON.stringify(answer),
+              });
+            } catch (err) {
+              console.error("Error answering direct call offer:", err);
             }
           }
           break;
         }
 
         case "direct_call_answer": {
-          if (peerConnectionRef.current && sig.sdp) {
+          const pc = peerConnectionRef.current;
+          if (pc && sig.sdp) {
             try {
               const answerDesc = new RTCSessionDescription(JSON.parse(sig.sdp));
-              await peerConnectionRef.current.setRemoteDescription(answerDesc);
+              await pc.setRemoteDescription(answerDesc);
+              await drainIceCandidates(pc);
             } catch (err) {
               console.error("Error setting remote answer:", err);
             }
@@ -423,12 +579,18 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         case "direct_call_candidate": {
-          if (peerConnectionRef.current && sig.candidate) {
+          const pc = peerConnectionRef.current;
+          if (sig.candidate) {
             try {
-              const candidate = new RTCIceCandidate(JSON.parse(sig.candidate));
-              await peerConnectionRef.current.addIceCandidate(candidate);
+              const candidate = JSON.parse(sig.candidate);
+              if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              } else {
+                // Queue until remote description is set
+                pendingIceCandidatesRef.current.push(candidate);
+              }
             } catch (err) {
-              console.error("Error adding ice candidate:", err);
+              console.error("Error handling ice candidate:", err);
             }
           }
           break;
@@ -441,9 +603,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Switch to Video Request from Partner:
-        // "when your on audio call it doesnt let you do video until they answer like when you click video it will show on audio call 'Do you want to switch to video call?' theres a yes or no button then it will switch to video and automatically turn on their camera"
         case "switch_video_request": {
-          if (activeCall && activeCall.callId === sig.callId) {
+          if (
+            activeCallRef.current &&
+            activeCallRef.current.callId === sig.callId
+          ) {
             playCallTone("switch_prompt");
             setIsVideoSwitchRequested(true);
           }
@@ -451,40 +615,69 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         case "switch_video_response": {
-          if (activeCall && activeCall.callId === sig.callId) {
+          if (
+            activeCallRef.current &&
+            activeCallRef.current.callId === sig.callId
+          ) {
             setIsVideoSwitchPending(false);
             if (sig.accepted) {
-              // Partner accepted! Turn on camera and renegotiate video
+              // Partner accepted! Turn on camera, add video track and renegotiate
               playCallTone("connected");
               try {
                 const videoStream = await navigator.mediaDevices.getUserMedia({
-                  video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+                  video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    frameRate: { ideal: 30 },
+                  },
                 });
                 const videoTrack = videoStream.getVideoTracks()[0];
-                if (videoTrack && peerConnectionRef.current && localStreamRef.current) {
+                const pc = peerConnectionRef.current;
+
+                if (videoTrack && pc && localStreamRef.current) {
+                  // Add track to local stream
                   localStreamRef.current.addTrack(videoTrack);
-                  peerConnectionRef.current.addTrack(videoTrack, localStreamRef.current);
+                  setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+
+                  // Add or replace track on peer connection
+                  const senders = pc.getSenders();
+                  const videoSender = senders.find(
+                    (s) => s.track && s.track.kind === "video"
+                  );
+                  if (videoSender) {
+                    await videoSender.replaceTrack(videoTrack);
+                  } else {
+                    pc.addTrack(videoTrack, localStreamRef.current);
+                  }
 
                   // Renegotiate offer for video
-                  const offer = await peerConnectionRef.current.createOffer();
-                  await peerConnectionRef.current.setLocalDescription(offer);
+                  const offer = await pc.createOffer({
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: true,
+                  });
+                  await pc.setLocalDescription(offer);
+
                   sendBroadcastSignal({
                     type: "direct_call_offer",
-                    uid: currentProfile.uid,
-                    targetUid: activeCall.partnerUid,
-                    callId: activeCall.callId,
+                    uid: myProf.uid,
+                    targetUid: activeCallRef.current.partnerUid,
+                    callId: activeCallRef.current.callId,
                     sdp: JSON.stringify(offer),
                   });
 
-                  setActiveCall((prev) => (prev ? { ...prev, callType: "video", isCameraOn: true } : null));
-                  setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+                  setActiveCall((prev) =>
+                    prev ? { ...prev, callType: "video", isCameraOn: true } : null
+                  );
                 }
               } catch (e) {
                 console.error("Error activating camera on switch accepted:", e);
+                alert("Could not access camera to switch to video call.");
               }
             } else {
               playCallTone("declined");
-              alert(`${activeCall.partnerName} declined to switch to video call.`);
+              alert(
+                `${activeCallRef.current?.partnerName || "User"} declined to switch to video call.`
+              );
             }
           }
           break;
@@ -493,56 +686,68 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => unsubSignals();
-  }, [currentProfile?.uid, incomingCall, outgoingCall, activeCall, cleanupCall]);
+  }, [cleanupCall, createDirectPeerConnection, drainIceCandidates]);
 
-  // 4. Action: Start 1-on-1 Direct Call (Calls ONLY this user, NOT everyone!)
+  // Action: Start 1-on-1 Direct Call
   const startDirectCall = useCallback(
     async (targetUser: CallUser, type: "audio" | "video") => {
-      if (!currentProfile?.uid) {
-        alert("Please set up your display name in Chat first to start direct calling.");
-        return;
-      }
-
+      const myProf = getMyProfile();
       cleanupCall();
       const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       try {
-        // Acquire user media with clean noise cancellation and zero compression
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: false,
           },
-          video: type === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+          video:
+            type === "video"
+              ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+              : false,
         });
+
         setLocalStream(stream);
         localStreamRef.current = stream;
 
         // Initialize PeerConnection
-        createDirectPeerConnection(targetUser.uid, callId);
+        const pc = createDirectPeerConnection(targetUser.uid, callId);
 
-        // Start musical outgoing ringback sound
+        // Add initial tracks to PC
+        stream.getTracks().forEach((track) => {
+          pc.addTrack(track, stream);
+        });
+
+        // Start outgoing ringback sound
         ringbackStopRef.current = playCallTone("calling");
 
-        setOutgoingCall({
+        const outData: OutgoingCallData = {
           callId,
           targetUid: targetUser.uid,
           targetName: targetUser.username,
-          targetPhotoURL: targetUser.photoURL || "",
+          targetPhotoURL:
+            targetUser.photoURL ||
+            `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(targetUser.username)}`,
           callType: type,
           status: "ringing",
           timestamp: Date.now(),
-        });
+        };
 
-        // Send direct signal targeted ONLY to this specific user!
+        outgoingCallRef.current = outData;
+        currentCallIdRef.current = callId;
+        setOutgoingCall(outData);
+
+        // Send direct signal targeted to this specific user
         sendBroadcastSignal({
           type: "direct_call_invite",
-          uid: currentProfile.uid,
-          targetUid: targetUser.uid, // Strictly target this user
+          uid: myProf.uid,
+          targetUid: targetUser.uid,
           callId,
-          callerName: currentProfile.username,
-          callerPhotoURL: currentProfile.photoURL || "",
+          callerName: myProf.username,
+          callerPhotoURL:
+            myProf.photoURL ||
+            `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(myProf.username)}`,
           callType: type,
         });
 
@@ -560,16 +765,18 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }, 35000);
       } catch (err: any) {
         console.error("Failed to access microphone or camera for direct call:", err);
-        alert("Could not access microphone/camera. Please grant media permissions.");
+        alert("Could not access microphone/camera. Please grant media permissions in browser.");
         cleanupCall();
       }
     },
-    [currentProfile, cleanupCall, createDirectPeerConnection]
+    [getMyProfile, cleanupCall, createDirectPeerConnection]
   );
 
-  // 5. Action: Answer Incoming Call
+  // Action: Answer Incoming Call
   const answerIncomingCall = useCallback(async () => {
-    if (!incomingCall || !currentProfile?.uid) return;
+    const currentInc = incomingCallRef.current;
+    const myProf = getMyProfile();
+    if (!currentInc || !myProf?.uid) return;
 
     if (ringtoneStopRef.current) {
       ringtoneStopRef.current();
@@ -590,45 +797,63 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           noiseSuppression: true,
           autoGainControl: false,
         },
-        video: incomingCall.callType === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+        video:
+          currentInc.callType === "video"
+            ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+            : false,
       });
+
       setLocalStream(stream);
       localStreamRef.current = stream;
 
-      createDirectPeerConnection(incomingCall.callerUid, incomingCall.callId);
+      const pc = createDirectPeerConnection(currentInc.callerUid, currentInc.callId);
 
-      setActiveCall({
-        callId: incomingCall.callId,
-        partnerUid: incomingCall.callerUid,
-        partnerName: incomingCall.callerName,
-        partnerPhotoURL: incomingCall.callerPhotoURL,
-        callType: incomingCall.callType,
+      // Add local tracks to PeerConnection immediately
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
+      });
+
+      const activeData: ActiveCallData = {
+        callId: currentInc.callId,
+        partnerUid: currentInc.callerUid,
+        partnerName: currentInc.callerName,
+        partnerPhotoURL: currentInc.callerPhotoURL,
+        callType: currentInc.callType,
         startTime: Date.now(),
         isMuted: false,
         isDeafened: false,
-        isCameraOn: incomingCall.callType === "video",
+        isCameraOn: currentInc.callType === "video",
         isInitiator: false,
-      });
+      };
 
-      // Send direct acceptance signal back to caller
+      activeCallRef.current = activeData;
+      currentCallIdRef.current = currentInc.callId;
+      incomingCallRef.current = null;
+
+      setActiveCall(activeData);
+      setIncomingCall(null);
+
+      // Send acceptance signal back to caller
       sendBroadcastSignal({
         type: "direct_call_accepted",
-        uid: currentProfile.uid,
-        targetUid: incomingCall.callerUid,
-        callId: incomingCall.callId,
+        uid: myProf.uid,
+        targetUid: currentInc.callerUid,
+        callId: currentInc.callId,
+        callerName: myProf.username,
+        callerPhotoURL: myProf.photoURL,
       });
-
-      setIncomingCall(null);
     } catch (err) {
       console.error("Failed to answer call:", err);
       alert("Could not access media devices to answer call.");
       cleanupCall();
     }
-  }, [incomingCall, currentProfile, createDirectPeerConnection, cleanupCall]);
+  }, [getMyProfile, createDirectPeerConnection, cleanupCall]);
 
-  // 6. Action: Decline Incoming Call
+  // Action: Decline Incoming Call
   const declineIncomingCall = useCallback(() => {
-    if (!incomingCall || !currentProfile?.uid) return;
+    const currentInc = incomingCallRef.current;
+    const myProf = getMyProfile();
+    if (!currentInc || !myProf?.uid) return;
 
     if (ringtoneStopRef.current) {
       ringtoneStopRef.current();
@@ -637,129 +862,163 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     sendBroadcastSignal({
       type: "direct_call_declined",
-      uid: currentProfile.uid,
-      targetUid: incomingCall.callerUid,
-      callId: incomingCall.callId,
+      uid: myProf.uid,
+      targetUid: currentInc.callerUid,
+      callId: currentInc.callId,
     });
 
+    incomingCallRef.current = null;
     setIncomingCall(null);
-  }, [incomingCall, currentProfile]);
+  }, [getMyProfile]);
 
-  // 7. Action: Cancel Outgoing Call
+  // Action: Cancel Outgoing Call
   const cancelOutgoingCall = useCallback(() => {
-    if (!outgoingCall || !currentProfile?.uid) return;
+    const currentOut = outgoingCallRef.current;
+    const myProf = getMyProfile();
+    if (!currentOut || !myProf?.uid) return;
 
     sendBroadcastSignal({
       type: "direct_call_cancelled",
-      uid: currentProfile.uid,
-      targetUid: outgoingCall.targetUid,
-      callId: outgoingCall.callId,
+      uid: myProf.uid,
+      targetUid: currentOut.targetUid,
+      callId: currentOut.callId,
     });
 
     cleanupCall();
-  }, [outgoingCall, currentProfile, cleanupCall]);
+  }, [getMyProfile, cleanupCall]);
 
-  // 8. Action: End Active Call
+  // Action: End Active Call
   const endActiveCall = useCallback(() => {
-    if (!activeCall || !currentProfile?.uid) return;
+    const currentAct = activeCallRef.current;
+    const myProf = getMyProfile();
+    if (!currentAct || !myProf?.uid) return;
 
     sendBroadcastSignal({
       type: "direct_call_ended",
-      uid: currentProfile.uid,
-      targetUid: activeCall.partnerUid,
-      callId: activeCall.callId,
+      uid: myProf.uid,
+      targetUid: currentAct.partnerUid,
+      callId: currentAct.callId,
     });
 
     playCallTone("declined");
     cleanupCall();
-  }, [activeCall, currentProfile, cleanupCall]);
+  }, [getMyProfile, cleanupCall]);
 
-  // 9. Action: Switch to Video Request (during audio call)
+  // Action: Switch to Video Request (during audio call)
   const requestSwitchToVideo = useCallback(() => {
-    if (!activeCall || !currentProfile?.uid || activeCall.callType === "video") return;
+    const currentAct = activeCallRef.current;
+    const myProf = getMyProfile();
+    if (!currentAct || !myProf?.uid || currentAct.callType === "video") return;
 
     setIsVideoSwitchPending(true);
     sendBroadcastSignal({
       type: "switch_video_request",
-      uid: currentProfile.uid,
-      targetUid: activeCall.partnerUid,
-      callId: activeCall.callId,
+      uid: myProf.uid,
+      targetUid: currentAct.partnerUid,
+      callId: currentAct.callId,
     });
-  }, [activeCall, currentProfile]);
+  }, [getMyProfile]);
 
-  // 10. Action: Respond to Switch to Video Request (Yes or No)
+  // Action: Respond to Switch to Video Request (Yes or No)
   const respondToVideoSwitch = useCallback(
     async (accept: boolean) => {
-      if (!activeCall || !currentProfile?.uid) return;
+      const currentAct = activeCallRef.current;
+      const myProf = getMyProfile();
+      if (!currentAct || !myProf?.uid) return;
 
       setIsVideoSwitchRequested(false);
 
       if (!accept) {
         sendBroadcastSignal({
           type: "switch_video_response",
-          uid: currentProfile.uid,
-          targetUid: activeCall.partnerUid,
-          callId: activeCall.callId,
+          uid: myProf.uid,
+          targetUid: currentAct.partnerUid,
+          callId: currentAct.callId,
           accepted: false,
         });
         return;
       }
 
-      // Automatically turn on their camera when clicking Yes!
+      // Automatically turn on camera when clicking Yes!
       try {
         const videoStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+          },
         });
         const videoTrack = videoStream.getVideoTracks()[0];
-        if (videoTrack && peerConnectionRef.current && localStreamRef.current) {
+        const pc = peerConnectionRef.current;
+
+        if (videoTrack && pc && localStreamRef.current) {
+          // Add video track to local stream
           localStreamRef.current.addTrack(videoTrack);
-          peerConnectionRef.current.addTrack(videoTrack, localStreamRef.current);
+          setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+
+          // Replace or add video track to peer connection
+          const senders = pc.getSenders();
+          const videoSender = senders.find(
+            (s) => s.track && s.track.kind === "video"
+          );
+          if (videoSender) {
+            await videoSender.replaceTrack(videoTrack);
+          } else {
+            pc.addTrack(videoTrack, localStreamRef.current);
+          }
 
           sendBroadcastSignal({
             type: "switch_video_response",
-            uid: currentProfile.uid,
-            targetUid: activeCall.partnerUid,
-            callId: activeCall.callId,
+            uid: myProf.uid,
+            targetUid: currentAct.partnerUid,
+            callId: currentAct.callId,
             accepted: true,
           });
 
-          setActiveCall((prev) => (prev ? { ...prev, callType: "video", isCameraOn: true } : null));
-          setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+          setActiveCall((prev) =>
+            prev ? { ...prev, callType: "video", isCameraOn: true } : null
+          );
         }
       } catch (err) {
         console.error("Error activating camera on switch response:", err);
         alert("Could not access camera to switch to video call.");
       }
     },
-    [activeCall, currentProfile]
+    [getMyProfile]
   );
 
-  // 11. Mute Toggle
+  // Mute Toggle
   const toggleMute = useCallback(() => {
-    if (!localStream) return;
-    const audioTrack = localStream.getAudioTracks()[0];
+    if (!localStreamRef.current) return;
+    const audioTrack = localStreamRef.current.getAudioTracks()[0];
     if (audioTrack) {
       audioTrack.enabled = !audioTrack.enabled;
-      setActiveCall((prev) => (prev ? { ...prev, isMuted: !audioTrack.enabled } : null));
+      setActiveCall((prev) =>
+        prev ? { ...prev, isMuted: !audioTrack.enabled } : null
+      );
     }
-  }, [localStream]);
-
-  // 12. Deafen Toggle
-  const toggleDeafen = useCallback(() => {
-    setActiveCall((prev) => (prev ? { ...prev, isDeafened: !prev.isDeafened } : null));
   }, []);
 
-  // 13. Camera Toggle (when already in video call)
+  // Deafen Toggle
+  const toggleDeafen = useCallback(() => {
+    setActiveCall((prev) =>
+      prev ? { ...prev, isDeafened: !prev.isDeafened } : null
+    );
+  }, []);
+
+  // Camera Toggle (when already in video call)
   const toggleCamera = useCallback(async () => {
-    if (!localStream || !activeCall) return;
-    const videoTrack = localStream.getVideoTracks()[0];
+    if (!localStreamRef.current) return;
+    const videoTrack = localStreamRef.current.getVideoTracks()[0];
     if (videoTrack) {
       videoTrack.enabled = !videoTrack.enabled;
-      setActiveCall((prev) => (prev ? { ...prev, isCameraOn: videoTrack.enabled } : null));
+      setActiveCall((prev) =>
+        prev ? { ...prev, isCameraOn: videoTrack.enabled } : null
+      );
     }
-  }, [localStream, activeCall]);
+  }, []);
 
-  // 14. Action: Start Group Call (Separate feature to call everyone / group room)
+  // Action: Start Group Call (General Voice)
   const startGroupCall = useCallback(() => {
     setIsCallMenuOpen(false);
     if (onOpenGroupVoiceRef.current) {

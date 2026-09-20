@@ -31,11 +31,28 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
   const myProfile = getSavedProfile();
   const [searchQuery, setSearchQuery] = useState("");
 
-  const currentRingtone = useMemo(() => {
+  const [ringtoneState, setRingtoneState] = useState(() => {
     const saved = getSavedRingtone();
     const all = getAllRingtones();
     return all.find((r) => r.id === saved) || all[0];
+  });
+
+  useEffect(() => {
+    const updateRingtone = () => {
+      const saved = getSavedRingtone();
+      const all = getAllRingtones();
+      setRingtoneState(all.find((r) => r.id === saved) || all[0]);
+    };
+    window.addEventListener("ringtone_changed", updateRingtone);
+    window.addEventListener("ringtone_list_updated", updateRingtone);
+    updateRingtone();
+    return () => {
+      window.removeEventListener("ringtone_changed", updateRingtone);
+      window.removeEventListener("ringtone_list_updated", updateRingtone);
+    };
   }, [isOpen]);
+
+  const currentRingtone = ringtoneState;
 
   // Close when clicking outside
   useEffect(() => {

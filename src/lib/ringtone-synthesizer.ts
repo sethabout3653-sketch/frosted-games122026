@@ -1,5 +1,5 @@
-// Phone App Ringtone Manager with Default MP3s & Custom Upload Persistence
-// Supports default MP3 ringtones, custom MP3 uploads with localStorage persistence, and seamless looping.
+// Phone App Ringtone Manager with Static MP3s & IndexedDB Custom Upload Persistence
+// All built-in ringtones load directly from real static MP3 audio files in /public/ringtones/
 
 export interface RingtoneDefinition {
   id: string;
@@ -12,20 +12,20 @@ export interface RingtoneDefinition {
 export const DEFAULT_RINGTONES: RingtoneDefinition[] = [
   {
     id: "default_chime",
-    name: "Frosted Ringtone",
-    description: "Default chime melody",
-    url: "/ringtones/chime_default.mp3",
+    name: "Frosted Ringtone (Discord)",
+    description: "Discord incoming call ringtone",
+    url: "/ringtones/discord_sound.mp3",
   },
   {
     id: "marimba",
     name: "Classic Marimba",
-    description: "The original 7-second marimba melody",
+    description: "Iconic iPhone marimba ringtone",
     url: "/ringtones/marimba.mp3",
   },
   {
     id: "reflection",
     name: "Modern Reflection",
-    description: "The 30-second modern reflection chime",
+    description: "Modern iPhone reflection chime",
     url: "/ringtones/reflection.mp3",
   },
   {
@@ -37,13 +37,13 @@ export const DEFAULT_RINGTONES: RingtoneDefinition[] = [
   {
     id: "big_boy",
     name: "Your Phone Ringing (Big Boy)",
-    description: "Big boy come pick up your phone",
+    description: "Your phone ringing, big boy come pick up",
     url: "/ringtones/big_boy.mp3",
   },
   {
     id: "chimpanzini",
     name: "Chimpanzini Bananini",
-    description: "Chimpanzini bananini ringtone",
+    description: "Chimpanzini Bananini ringtone",
     url: "/ringtones/chimpanzini.mp3",
   },
 ];
@@ -51,124 +51,187 @@ export const DEFAULT_RINGTONES: RingtoneDefinition[] = [
 export const AVAILABLE_RINGTONES = DEFAULT_RINGTONES;
 
 const STORAGE_KEY = "frosted_call_ringtone_id";
-const UPLOADED_STORAGE_KEY = "frosted_custom_uploaded_ringtones";
+const DB_NAME = "FrostedRingtonesDB_v4";
+const STORE_NAME = "custom_ringtones";
+const DB_VERSION = 1;
 export const DEFAULT_RINGTONE = "default_chime";
 
-/**
- * Returns all custom uploaded ringtones saved in localStorage.
- */
-export function getUploadedRingtones(): RingtoneDefinition[] {
-  try {
-    const raw = localStorage.getItem(UPLOADED_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.filter((item) => item && item.id && item.url);
-      }
+// Synchronous in-memory cache populated from localStorage & IndexedDB
+let customRingtonesCache: RingtoneDefinition[] = [];
+
+// Initialize memory cache from localStorage immediately
+try {
+  const raw = localStorage.getItem("frosted_custom_uploaded_ringtones_v4");
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      customRingtonesCache = parsed.filter((item) => item && item.id && item.url);
     }
-  } catch (e) {
-    console.error("Error reading uploaded ringtones:", e);
   }
-  return [];
-}
+} catch {}
 
-/**
- * Returns all ringtones (built-in default MP3s + user's uploaded custom MP3s).
- */
-export function getAllRingtones(): RingtoneDefinition[] {
-  const uploaded = getUploadedRingtones();
-  return [...DEFAULT_RINGTONES, ...uploaded];
-}
-
-/**
- * Saves a new custom MP3 file as an uploaded ringtone.
- */
-export async function saveUploadedRingtone(file: File): Promise<RingtoneDefinition> {
+function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    if (!file.type.startsWith("audio/") && !file.name.match(/\.(mp3|wav|ogg|m4a|aac)$/i)) {
-      reject(new Error("Please select a valid audio file (.mp3, .wav, .ogg, .m4a)"));
+    if (typeof window === "undefined" || !window.indexedDB) {
+      reject(new Error("IndexedDB is not supported"));
       return;
     }
 
-    // Limit to 8MB to prevent exceeding localStorage quota
-    if (file.size > 8 * 1024 * 1024) {
-      reject(new Error("Audio file must be smaller than 8MB"));
-      return;
-    }
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const dataUrl = reader.result as string;
-        const cleanName = file.name.replace(/\.[^/.]+$/, "").trim() || "Custom Ringtone";
-        const newRingtone: RingtoneDefinition = {
-          id: `custom_ringtone_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          name: cleanName,
-          description: "Custom uploaded MP3",
-          url: dataUrl,
-          isCustom: true,
-        };
-
-        const existing = getUploadedRingtones();
-        const updated = [newRingtone, ...existing];
-        localStorage.setItem(UPLOADED_STORAGE_KEY, JSON.stringify(updated));
-
-        // Trigger an event so components can update live
-        window.dispatchEvent(new Event("ringtone_list_updated"));
-
-        resolve(newRingtone);
-      } catch (err: any) {
-        if (err?.name === "QuotaExceededError" || err?.message?.includes("quota")) {
-          reject(new Error("Browser storage full. Try a smaller MP3 or delete an older uploaded ringtone."));
-        } else {
-          reject(new Error("Failed to save ringtone to storage"));
-        }
+    request.onupgradeneeded = (event: any) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: "id" });
       }
     };
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.readAsDataURL(file);
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
   });
 }
 
-/**
- * Removes an uploaded custom ringtone from storage.
- */
-export function deleteUploadedRingtone(id: string): void {
+export async function loadCustomRingtonesFromDB(): Promise<RingtoneDefinition[]> {
   try {
-    const existing = getUploadedRingtones();
-    const filtered = existing.filter((r) => r.id !== id);
-    localStorage.setItem(UPLOADED_STORAGE_KEY, JSON.stringify(filtered));
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const transaction = db.transaction(STORE_NAME, "readonly");
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getAll();
 
-    // If active ringtone was this one, reset to default
-    if (getSavedRingtone() === id) {
-      setSavedRingtone(DEFAULT_RINGTONE);
-    }
+      request.onsuccess = () => {
+        const records = request.result || [];
+        if (records.length > 0) {
+          customRingtonesCache = records.map((rec: any) => ({
+            id: rec.id,
+            name: rec.name,
+            description: rec.description || "Custom uploaded audio",
+            url: rec.dataUrl || rec.url,
+            isCustom: true,
+          }));
+          try {
+            localStorage.setItem("frosted_custom_uploaded_ringtones_v4", JSON.stringify(customRingtonesCache));
+          } catch {}
+        }
+        resolve(customRingtonesCache);
+      };
 
-    window.dispatchEvent(new Event("ringtone_list_updated"));
-  } catch (e) {
-    console.error("Error deleting ringtone:", e);
+      request.onerror = () => resolve(customRingtonesCache);
+    });
+  } catch (err) {
+    return customRingtonesCache;
   }
 }
 
-/**
- * Returns active selected ringtone ID (defaults to first MP3).
- */
+// Auto-run in browser
+if (typeof window !== "undefined") {
+  loadCustomRingtonesFromDB().then(() => {
+    window.dispatchEvent(new Event("ringtone_list_updated"));
+  });
+}
+
+export function getUploadedRingtones(): RingtoneDefinition[] {
+  return customRingtonesCache;
+}
+
+export function getAllRingtones(): RingtoneDefinition[] {
+  return [...DEFAULT_RINGTONES, ...customRingtonesCache];
+}
+
+export async function saveUploadedRingtone(file: File): Promise<RingtoneDefinition> {
+  if (!file.type.startsWith("audio/") && !file.name.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i)) {
+    throw new Error("Please select a valid audio file (.mp3, .wav, .ogg, .m4a)");
+  }
+
+  if (file.size > 25 * 1024 * 1024) {
+    throw new Error("Audio file must be smaller than 25MB");
+  }
+
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Failed to read audio file"));
+    reader.readAsDataURL(file);
+  });
+
+  const cleanName = file.name.replace(/\.[^/.]+$/, "").trim() || "Custom Ringtone";
+  const ringtoneId = `custom_mp3_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  const newRingtone: RingtoneDefinition = {
+    id: ringtoneId,
+    name: cleanName,
+    description: `Custom MP3 (${(file.size / (1024 * 1024)).toFixed(1)} MB)`,
+    url: dataUrl,
+    isCustom: true,
+  };
+
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+      const req = store.put({
+        id: ringtoneId,
+        name: cleanName,
+        description: newRingtone.description,
+        dataUrl,
+        size: file.size,
+        type: file.type,
+        createdAt: Date.now(),
+      });
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn("IndexedDB save error, persisting to memory cache:", err);
+  }
+
+  customRingtonesCache = [newRingtone, ...customRingtonesCache.filter((r) => r.id !== ringtoneId)];
+
+  try {
+    localStorage.setItem("frosted_custom_uploaded_ringtones_v4", JSON.stringify(customRingtonesCache));
+  } catch {}
+
+  setSavedRingtone(ringtoneId);
+  window.dispatchEvent(new Event("ringtone_list_updated"));
+  return newRingtone;
+}
+
+export async function deleteUploadedRingtone(id: string): Promise<void> {
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+      const req = store.delete(id);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  } catch {}
+
+  customRingtonesCache = customRingtonesCache.filter((r) => r.id !== id);
+
+  try {
+    localStorage.setItem("frosted_custom_uploaded_ringtones_v4", JSON.stringify(customRingtonesCache));
+  } catch {}
+
+  if (getSavedRingtone() === id) {
+    setSavedRingtone(DEFAULT_RINGTONE);
+  }
+
+  window.dispatchEvent(new Event("ringtone_list_updated"));
+}
+
 export function getSavedRingtone(): string {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const all = getAllRingtones();
-      if (all.some((r) => r.id === saved)) {
-        return saved;
-      }
+    if (saved && saved.trim()) {
+      return saved;
     }
   } catch {}
   return DEFAULT_RINGTONE;
 }
 
-/**
- * Sets active selected ringtone ID.
- */
 export function setSavedRingtone(id: string): void {
   try {
     localStorage.setItem(STORAGE_KEY, id);
@@ -176,14 +239,25 @@ export function setSavedRingtone(id: string): void {
   } catch {}
 }
 
+// ----------------------------------------------------------------------------
+// Audio Playback Engine: Single Preview vs Full Looping Incoming Call
+// ----------------------------------------------------------------------------
+
 let activePreviewAudio: HTMLAudioElement | null = null;
+let activePreviewStopFn: (() => void) | null = null;
 
 /**
- * Previews a ringtone once (or while toggled on in settings).
- * Returns a cleanup function to immediately stop playback.
+ * Previews a ringtone in Settings.
+ * - Plays the actual MP3 audio once without looping.
+ * - Automatically cleans up and triggers onEnded callback when playback completes.
+ * - Can be stopped manually at any time.
  */
-export function previewRingtone(ringtoneId: string): () => void {
-  // Stop existing preview
+export function previewRingtone(ringtoneId: string, onEnded?: () => void): () => void {
+  // Stop existing preview immediately
+  if (activePreviewStopFn) {
+    activePreviewStopFn();
+    activePreviewStopFn = null;
+  }
   if (activePreviewAudio) {
     activePreviewAudio.pause();
     activePreviewAudio.currentTime = 0;
@@ -191,49 +265,66 @@ export function previewRingtone(ringtoneId: string): () => void {
   }
 
   const all = getAllRingtones();
-  const target = all.find((r) => r.id === ringtoneId) || DEFAULT_RINGTONES[0];
+  const target = all.find((r) => r.id === ringtoneId) || DEFAULT_RINGTONES.find((r) => r.id === ringtoneId) || DEFAULT_RINGTONES[0];
 
   try {
     const audio = new Audio(target.url);
-    audio.volume = 0.85;
+    audio.loop = false; // NEVER loop during preview
+    audio.volume = 0.95;
+    audio.currentTime = 0;
     activePreviewAudio = audio;
 
+    const finish = () => {
+      if (activePreviewAudio === audio) {
+        activePreviewAudio = null;
+        activePreviewStopFn = null;
+      }
+      if (onEnded) onEnded();
+    };
+
+    audio.onended = finish;
+    audio.onerror = finish;
+
     audio.play().catch((err) => {
-      console.warn("Ringtone preview play prevented by browser policy:", err);
+      console.warn("Preview playback autoplay blocked:", err);
+      finish();
     });
 
-    audio.onended = () => {
+    const stop = () => {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.onended = null;
+      audio.onerror = null;
       if (activePreviewAudio === audio) {
         activePreviewAudio = null;
+        activePreviewStopFn = null;
       }
     };
 
-    return () => {
-      audio.pause();
-      audio.currentTime = 0;
-      if (activePreviewAudio === audio) {
-        activePreviewAudio = null;
-      }
-    };
+    activePreviewStopFn = stop;
+    return stop;
   } catch (err) {
-    console.error("Failed to play preview ringtone:", err);
+    console.error("Preview playback error:", err);
+    if (onEnded) onEnded();
     return () => {};
   }
 }
 
 /**
- * Starts a continuous audio loop for incoming calls.
- * Loops gracefully until the returned stop function is called.
+ * Starts full continuous ringtone audio playback for incoming calls.
+ * - Plays the FULL MP3 track from beginning to end.
+ * - LOOPS continuously until user answers, declines, or call ends.
  */
 export function startRingtoneLoop(ringtoneId?: string): () => void {
   const id = ringtoneId || getSavedRingtone();
   const all = getAllRingtones();
-  const target = all.find((r) => r.id === id) || DEFAULT_RINGTONES[0];
+  const target = all.find((r) => r.id === id) || DEFAULT_RINGTONES.find((r) => r.id === id) || DEFAULT_RINGTONES[0];
 
   try {
     const audio = new Audio(target.url);
-    audio.loop = true;
-    audio.volume = 0.9;
+    audio.loop = true; // LOOPS continuously for incoming calls!
+    audio.volume = 0.95;
+    audio.currentTime = 0;
 
     audio.play().catch((err) => {
       console.warn("Incoming call ringtone autoplay was prevented:", err);
@@ -281,10 +372,10 @@ export function playCallTone(type: "calling" | "connected" | "declined" | "switc
         osc2.type = "sine";
         osc2.frequency.setValueAtTime(480, now);
 
-        gain.gain.setValueAtTime(0, now);
+        gain.gain.setValueAtTime(0.001, now);
         gain.gain.linearRampToValueAtTime(0.12, now + 0.05);
         gain.gain.linearRampToValueAtTime(0.12, now + 0.9);
-        gain.gain.linearRampToValueAtTime(0, now + 1.0);
+        gain.gain.linearRampToValueAtTime(0.001, now + 1.0);
 
         osc1.connect(gain);
         osc2.connect(gain);
@@ -314,7 +405,7 @@ export function playCallTone(type: "calling" | "connected" | "declined" | "switc
       osc.frequency.setValueAtTime(587.33, now);
       osc.frequency.exponentialRampToValueAtTime(880, now + 0.25);
       gain.gain.setValueAtTime(0.18, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.35);
+      gain.gain.linearRampToValueAtTime(0.001, now + 0.35);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start(now);
@@ -329,11 +420,26 @@ export function playCallTone(type: "calling" | "connected" | "declined" | "switc
       osc.frequency.setValueAtTime(480, now);
       osc.frequency.linearRampToValueAtTime(320, now + 0.3);
       gain.gain.setValueAtTime(0.15, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.35);
+      gain.gain.linearRampToValueAtTime(0.001, now + 0.35);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start(now);
       osc.stop(now + 0.35);
+    }
+
+    if (type === "switch_prompt") {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(659.25, now);
+      osc.frequency.exponentialRampToValueAtTime(987.77, now + 0.2);
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.linearRampToValueAtTime(0.001, now + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.28);
     }
 
     setTimeout(() => ctx.close().catch(() => {}), 1000);

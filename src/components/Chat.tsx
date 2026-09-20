@@ -18,6 +18,7 @@ import ProfileSetup from "./ProfileSetup";
 import ChatPanel from "./ChatPanel";
 import VoiceChannel from "./VoiceChannel";
 import { ChatProfile, ChatMessage } from "../types";
+import { saveUserProfile } from "../lib/activity-tracker";
 import {
   collection,
   query,
@@ -370,10 +371,7 @@ export default function Chat({
       photoURL: p.photoURL,
     };
     setProfile(newProfile);
-    try {
-      localStorage.setItem("frosted_chat_profile", JSON.stringify(newProfile));
-      sessionStorage.setItem("frosted_chat_profile", JSON.stringify(newProfile));
-    } catch (e) {}
+    saveUserProfile(newProfile);
     setActiveTab("chat");
 
     // Update previous messages

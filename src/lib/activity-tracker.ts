@@ -3,8 +3,11 @@ import { UserActivity, ChatProfile } from "../types";
 import { wsClient } from "./websocket-client";
 import { db, doc, setDoc, toTimestampMs } from "../supabase-adapter";
 
+const ADJECTIVES = ["Frost", "Neon", "Shadow", "Cosmic", "Pixel", "Solar", "Echo", "Vortex", "Apex", "Cyber", "Nova", "Hyper"];
+const NOUNS = ["Runner", "Knight", "Fox", "Falcon", "Ninja", "Wolf", "Pilot", "Gamer", "Ghost", "Hawk", "Spark", "Viper"];
+
 // Persistent or Session Profile Retriever
-export function getSavedProfile(): ChatProfile | null {
+export function getSavedProfile(): ChatProfile {
   try {
     const params = new URLSearchParams(window.location.search);
     const urlUser = params.get("user");
@@ -41,8 +44,46 @@ export function getSavedProfile(): ChatProfile | null {
         return profile;
       }
     }
+
+    // Auto-generate a consistent, real profile if none set yet
+    let tabId = sessionStorage.getItem("frosted_tab_id");
+    if (!tabId) {
+      tabId = Math.random().toString(36).substring(2, 6);
+      sessionStorage.setItem("frosted_tab_id", tabId);
+    }
+    const randAdj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+    const randNoun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+    const randNum = Math.floor(100 + Math.random() * 900);
+    const generatedUsername = `${randAdj}_${randNoun}_${randNum}`;
+    const generatedUid = `user_${generatedUsername.toLowerCase()}_tab_${tabId}`;
+    const generatedPhoto = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(generatedUsername)}`;
+
+    const autoProfile: ChatProfile = {
+      uid: generatedUid,
+      username: generatedUsername,
+      photoURL: generatedPhoto,
+    };
+
+    sessionStorage.setItem("frosted_chat_profile", JSON.stringify(autoProfile));
+    localStorage.setItem("frosted_chat_profile", JSON.stringify(autoProfile));
+    return autoProfile;
+  } catch (e) {
+    const fallbackName = `Player_${Math.floor(100 + Math.random() * 900)}`;
+    return {
+      uid: `user_${fallbackName.toLowerCase()}`,
+      username: fallbackName,
+      photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(fallbackName)}`,
+    };
+  }
+}
+
+export function saveUserProfile(profile: ChatProfile) {
+  try {
+    sessionStorage.setItem("frosted_chat_profile", JSON.stringify(profile));
+    localStorage.setItem("frosted_chat_profile", JSON.stringify(profile));
+    window.dispatchEvent(new CustomEvent("frosted_profile_updated", { detail: profile }));
+    broadcastPresenceUpdate();
   } catch (e) {}
-  return null;
 }
 
 // Global in-memory current user activity state
