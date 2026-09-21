@@ -9,6 +9,32 @@ import {
 } from "../lib/ringtone-synthesizer";
 import { collection, onSnapshot, query, db, toTimestampMs } from "../supabase-adapter";
 
+// Ultra Studio Quality Opus audio SDP optimizer for 1-on-1 direct calls:
+function optimizeAudioSdp(sdp: string): string {
+  const lines = sdp.split("\r\n");
+  let opusPayloadType: string | null = null;
+  for (const line of lines) {
+    const match = line.match(/^a=rtpmap:(\d+)\s+opus\/48000\/2/i);
+    if (match) {
+      opusPayloadType = match[1];
+      break;
+    }
+  }
+
+  return lines
+    .map((line) => {
+      if (
+        (opusPayloadType && line.startsWith(`a=fmtp:${opusPayloadType}`)) ||
+        (line.startsWith("a=fmtp:") && line.toLowerCase().includes("opus"))
+      ) {
+        const base = line.split(";")[0];
+        return `${base};maxaveragebitrate=510000;stereo=1;sprop-stereo=1;maxplaybackrate=48000;minptime=10;useinbandfec=1;usedtx=0;cbr=1`;
+      }
+      return line;
+    })
+    .join("\r\n");
+}
+
 export interface CallUser {
   uid: string;
   username: string;
@@ -527,14 +553,32 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   offerToReceiveAudio: true,
                   offerToReceiveVideo: true,
                 });
-                await pc.setLocalDescription(offer);
+                const optOfferSdp = optimizeAudioSdp(offer.sdp || "");
+                await pc.setLocalDescription({ type: "offer", sdp: optOfferSdp });
+
+                // Optimize senders bitrate
+                pc.getSenders().forEach((s) => {
+                  try {
+                    const params = s.getParameters();
+                    if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+                    if (s.track?.kind === "video") {
+                      params.encodings[0].maxBitrate = 5000000;
+                      params.encodings[0].priority = "high";
+                      params.encodings[0].networkPriority = "high";
+                    } else if (s.track?.kind === "audio") {
+                      params.encodings[0].maxBitrate = 510000;
+                      params.encodings[0].priority = "high";
+                    }
+                    s.setParameters(params).catch(() => {});
+                  } catch {}
+                });
 
                 sendBroadcastSignal({
                   type: "direct_call_offer",
                   uid: myProf.uid,
                   targetUid: currentOut.targetUid,
                   callId: currentOut.callId,
-                  sdp: JSON.stringify(offer),
+                  sdp: JSON.stringify({ type: "offer", sdp: optOfferSdp }),
                 });
 
                 const activeData: ActiveCallData = {
@@ -608,14 +652,32 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
               await drainIceCandidates(pc);
 
               const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
+              const optAnswerSdp = optimizeAudioSdp(answer.sdp || "");
+              await pc.setLocalDescription({ type: "answer", sdp: optAnswerSdp });
+
+              // Optimize senders bitrate
+              pc.getSenders().forEach((s) => {
+                try {
+                  const params = s.getParameters();
+                  if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+                  if (s.track?.kind === "video") {
+                    params.encodings[0].maxBitrate = 5000000;
+                    params.encodings[0].priority = "high";
+                    params.encodings[0].networkPriority = "high";
+                  } else if (s.track?.kind === "audio") {
+                    params.encodings[0].maxBitrate = 510000;
+                    params.encodings[0].priority = "high";
+                  }
+                  s.setParameters(params).catch(() => {});
+                } catch {}
+              });
 
               sendBroadcastSignal({
                 type: "direct_call_answer",
                 uid: myProf.uid,
                 targetUid: sig.uid,
                 callId: sig.callId,
-                sdp: JSON.stringify(answer),
+                sdp: JSON.stringify({ type: "answer", sdp: optAnswerSdp }),
               });
             } catch (err) {
               console.error("Error answering direct call offer:", err);
@@ -694,14 +756,26 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
               // Partner accepted! Turn on camera, add video track and renegotiate
               playCallTone("connected");
               try {
-                const videoStream = await navigator.mediaDevices.getUserMedia({
-                  video: {
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                    frameRate: { ideal: 30 },
-                  },
-                });
+                let videoStream: MediaStream;
+                try {
+                  videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                      width: { ideal: 1920, min: 1280 },
+                      height: { ideal: 1080, min: 720 },
+                      frameRate: { ideal: 60, min: 30 },
+                    },
+                  });
+                } catch {
+                  videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+                  });
+                }
                 const videoTrack = videoStream.getVideoTracks()[0];
+                if (videoTrack) {
+                  try {
+                    (videoTrack as any).contentHint = "motion";
+                  } catch {}
+                }
                 const pc = peerConnectionRef.current;
 
                 if (videoTrack && pc && localStreamRef.current) {
@@ -716,6 +790,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   );
                   if (videoSender) {
                     await videoSender.replaceTrack(videoTrack);
+                    try {
+                      const params = videoSender.getParameters();
+                      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+                      params.encodings[0].maxBitrate = 5000000;
+                      params.encodings[0].priority = "high";
+                      params.encodings[0].networkPriority = "high";
+                      await videoSender.setParameters(params).catch(() => {});
+                    } catch {}
                   } else {
                     pc.addTrack(videoTrack, localStreamRef.current);
                   }
@@ -725,14 +807,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     offerToReceiveAudio: true,
                     offerToReceiveVideo: true,
                   });
-                  await pc.setLocalDescription(offer);
+                  const optOfferSdp = optimizeAudioSdp(offer.sdp || "");
+                  await pc.setLocalDescription({ type: "offer", sdp: optOfferSdp });
 
                   sendBroadcastSignal({
                     type: "direct_call_offer",
                     uid: myProf.uid,
                     targetUid: activeCallRef.current!.partnerUid,
                     callId: activeCallRef.current!.callId,
-                    sdp: JSON.stringify(offer),
+                    sdp: JSON.stringify({ type: "offer", sdp: optOfferSdp }),
                   });
 
                   setActiveCall((prev) =>
@@ -766,17 +849,39 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: false,
-          },
-          video:
-            type === "video"
-              ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
-              : false,
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: { ideal: true },
+              noiseSuppression: { ideal: true },
+              autoGainControl: { ideal: true },
+              channelCount: { ideal: 2, min: 1 },
+              sampleRate: { ideal: 48000, min: 44100 },
+              sampleSize: { ideal: 16 },
+            },
+            video:
+              type === "video"
+                ? {
+                    width: { ideal: 1920, min: 1280 },
+                    height: { ideal: 1080, min: 720 },
+                    frameRate: { ideal: 60, min: 30 },
+                  }
+                : false,
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            video:
+              type === "video"
+                ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+                : false,
+          });
+        }
 
         setLocalStream(stream);
         localStreamRef.current = stream;
@@ -861,17 +966,39 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     playCallTone("connected");
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: false,
-        },
-        video:
-          currentInc.callType === "video"
-            ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
-            : false,
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: { ideal: true },
+            noiseSuppression: { ideal: true },
+            autoGainControl: { ideal: true },
+            channelCount: { ideal: 2, min: 1 },
+            sampleRate: { ideal: 48000, min: 44100 },
+            sampleSize: { ideal: 16 },
+          },
+          video:
+            currentInc.callType === "video"
+              ? {
+                  width: { ideal: 1920, min: 1280 },
+                  height: { ideal: 1080, min: 720 },
+                  frameRate: { ideal: 60, min: 30 },
+                }
+              : false,
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video:
+            currentInc.callType === "video"
+              ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+              : false,
+        });
+      }
 
       setLocalStream(stream);
       localStreamRef.current = stream;
@@ -1020,14 +1147,30 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Automatically turn on camera when clicking Yes!
       try {
-        const videoStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30 },
-          },
-        });
+        let videoStream: MediaStream;
+        try {
+          videoStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1920, min: 1280 },
+              height: { ideal: 1080, min: 720 },
+              frameRate: { ideal: 60, min: 30 },
+            },
+          });
+        } catch {
+          videoStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 30 },
+            },
+          });
+        }
         const videoTrack = videoStream.getVideoTracks()[0];
+        if (videoTrack) {
+          try {
+            (videoTrack as any).contentHint = "motion";
+          } catch {}
+        }
         const pc = peerConnectionRef.current;
 
         if (videoTrack && pc && localStreamRef.current) {
@@ -1042,6 +1185,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
           if (videoSender) {
             await videoSender.replaceTrack(videoTrack);
+            try {
+              const params = videoSender.getParameters();
+              if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+              params.encodings[0].maxBitrate = 5000000;
+              params.encodings[0].priority = "high";
+              params.encodings[0].networkPriority = "high";
+              await videoSender.setParameters(params).catch(() => {});
+            } catch {}
           } else {
             pc.addTrack(videoTrack, localStreamRef.current);
           }
@@ -1129,13 +1280,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+        const optOfferSdp = optimizeAudioSdp(offer.sdp || "");
+        await pc.setLocalDescription({ type: "offer", sdp: optOfferSdp });
         sendBroadcastSignal({
           type: "direct_call_offer",
           uid: myProf.uid,
           targetUid: currentAct.partnerUid,
           callId: currentAct.callId,
-          sdp: JSON.stringify(offer),
+          sdp: JSON.stringify({ type: "offer", sdp: optOfferSdp }),
         });
       } catch (err) {
         console.error("Error finalizing offer after stopping screen share:", err);
@@ -1153,9 +1305,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 },
+          width: { ideal: 1920, max: 1920 },
+          height: { ideal: 1080, max: 1080 },
+          frameRate: { ideal: 60, max: 60 },
         },
         audio: {
           suppressLocalAudioPlayback: false,
@@ -1180,6 +1332,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (videoSender) {
         await videoSender.replaceTrack(screenVideoTrack);
+        try {
+          const params = videoSender.getParameters();
+          if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+          params.encodings[0].maxBitrate = 5000000;
+          params.encodings[0].priority = "high";
+          params.encodings[0].networkPriority = "high";
+          await videoSender.setParameters(params).catch(() => {});
+        } catch {}
       } else {
         pc.addTrack(screenVideoTrack, displayStream);
       }
@@ -1193,13 +1353,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+      const optOfferSdp = optimizeAudioSdp(offer.sdp || "");
+      await pc.setLocalDescription({ type: "offer", sdp: optOfferSdp });
       sendBroadcastSignal({
         type: "direct_call_offer",
         uid: myProf.uid,
         targetUid: currentAct.partnerUid,
         callId: currentAct.callId,
-        sdp: JSON.stringify(offer),
+        sdp: JSON.stringify({ type: "offer", sdp: optOfferSdp }),
       });
 
       screenVideoTrack.onended = () => {

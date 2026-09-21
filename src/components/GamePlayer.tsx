@@ -10,7 +10,10 @@ import {
   ExternalLink,
   RotateCcw,
   Gamepad2,
+  Heart,
 } from "lucide-react";
+import { useFavorites } from "../lib/favorites";
+import GameReactionsBar from "./GameReactionsBar";
 
 interface GamePlayerProps {
   game: Game;
@@ -20,6 +23,8 @@ interface GamePlayerProps {
 type FitMode = "contain" | "fill" | "16-9" | "4-3";
 
 export default function GamePlayer({ game, onBack }: GamePlayerProps) {
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const favorited = isFavorite(game.id);
   const [gameUrl, setGameUrl] = useState<string>("");
   const [rawGameUrl, setRawGameUrl] = useState<string>("");
   const [usingDirectUrl, setUsingDirectUrl] = useState(false);
@@ -402,7 +407,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
           <div className="h-5 w-[1px] bg-white/10 hidden sm:block"></div>
 
           <div>
-            <h1 className="text-sm md:text-base font-extrabold text-white truncate max-w-[150px] sm:max-w-[280px] md:max-w-[400px]">
+            <h1 className="text-sm md:text-base font-extrabold text-white truncate max-w-[150px] sm:max-w-[240px] md:max-w-[320px]">
               {game.name}
             </h1>
             <p className="text-[10px] text-neutral-300 font-medium flex items-center gap-1.5">
@@ -418,10 +423,38 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
               ) : null}
             </p>
           </div>
+
+          {/* Favorite Button */}
+          <button
+            id="player-favorite-btn"
+            type="button"
+            onClick={() => toggleFavorite(game.id)}
+            className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-semibold transition-all duration-150 cursor-pointer ${
+              favorited
+                ? "bg-rose-500/20 border-rose-500/50 text-rose-300 hover:bg-rose-500/30"
+                : "bg-white/[0.05] border-white/5 text-neutral-300 hover:bg-white/[0.1] hover:text-white"
+            }`}
+            title={favorited ? "Favorited (Click to remove)" : "Add to Favorites"}
+          >
+            <Heart
+              size={13}
+              className={`transition-transform duration-200 ${
+                favorited ? "fill-rose-400 text-rose-400 scale-110" : ""
+              }`}
+            />
+            <span className="hidden sm:inline font-medium">
+              {favorited ? "Favorited" : "Favorite"}
+            </span>
+          </button>
         </div>
 
-  <div className="ml-auto flex items-center gap-2">
-  {rawGameUrl && (
+        {/* Center/Right Reactions & Actions */}
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          <GameReactionsBar gameId={game.id} gameName={game.name} />
+
+          <div className="h-5 w-[1px] bg-white/10 hidden md:block"></div>
+
+          {rawGameUrl && (
             <button id="player-external-btn" onClick={handleOpenInNewTab} className="flex h-8 items-center justify-center rounded-lg border border-white/5 bg-white/[0.05] px-2 text-xs font-semibold text-neutral-200 transition-all hover:bg-white/[0.1] hover:text-white" title="Open game in a new tab">
               <ExternalLink size={14} />
             </button>

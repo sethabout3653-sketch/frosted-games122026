@@ -41,11 +41,50 @@ import {
   AlertTriangle,
   Ban,
   Upload,
+  SmilePlus,
+  Sparkles,
+  Smile,
 } from "lucide-react";
 
 import GiphyPicker from "./GiphyPicker";
 import MediaAttachment from "./MediaAttachment";
 import { detectMediaType, formatFileSize } from "../utils/mediaUtils";
+
+const CHAT_QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "💀", "🚀"];
+
+const CHAT_EMOJI_CATEGORIES = [
+  {
+    name: "Gaming & Hype",
+    emojis: ["🎮", "🕹️", "👾", "🏆", "🔥", "⚡", "👑", "🎯", "🎲", "🚀", "💯", "🛡️"],
+  },
+  {
+    name: "Emotions & Faces",
+    emojis: ["❤️", "😂", "💀", "😭", "🤯", "😎", "🥳", "🥺", "😍", "🤩", "🤔", "😴"],
+  },
+  {
+    name: "Gestures & Badges",
+    emojis: ["👍", "👎", "👏", "🙌", "👀", "🫡", "🗿", "💩", "🎉", "✨", "🤝", "💪"],
+  },
+  {
+    name: "Vibes & Cozy",
+    emojis: ["❄️", "☕", "🌟", "🍕", "🍔", "🌙", "🍀", "💎", "⭐", "🎵", "🍦", "🍿"],
+  },
+];
+
+const POPULAR_TEXT_REACTIONS = [
+  "W",
+  "10/10",
+  "L",
+  "Fr",
+  "Cap",
+  "Based",
+  "Goated",
+  "Skill issue",
+  "GG",
+  "Real",
+  "Facts",
+  "Cinema",
+];
 
 interface ChatPanelProps {
   profile: ChatProfile;
@@ -207,6 +246,25 @@ export default function ChatPanel({
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Reaction picker menu state
+  const [activeReactionMenuMsgId, setActiveReactionMenuMsgId] = useState<string | null>(null);
+  const [customReactionInput, setCustomReactionInput] = useState("");
+  const reactionPopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleReactionClickOutside(e: MouseEvent) {
+      if (reactionPopoverRef.current && !reactionPopoverRef.current.contains(e.target as Node)) {
+        setActiveReactionMenuMsgId(null);
+      }
+    }
+    if (activeReactionMenuMsgId) {
+      document.addEventListener("mousedown", handleReactionClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleReactionClickOutside);
+    };
+  }, [activeReactionMenuMsgId]);
 
   const updateTypingStatus = async (typing: boolean) => {
     if (!profile) return;
@@ -631,12 +689,14 @@ export default function ChatPanel({
     }
   };
 
-  const handleReactMessage = async (msgId: string, emoji: string) => {
+  const handleReactMessage = async (msgId: string, emojiOrText: string) => {
+    const cleanKey = emojiOrText.trim().slice(0, 30);
+    if (!cleanKey) return;
     const msg = messages.find((m) => m.id === msgId);
     if (!msg) return;
 
     const currentReactions = msg.reactions || {};
-    const users = currentReactions[emoji] || [];
+    const users = currentReactions[cleanKey] || [];
     const hasReacted = users.includes(profile.uid);
 
     let newUsers;
@@ -648,20 +708,22 @@ export default function ChatPanel({
 
     const newReactions = { ...currentReactions };
     if (newUsers.length > 0) {
-      newReactions[emoji] = newUsers;
+      newReactions[cleanKey] = newUsers;
     } else {
-      delete newReactions[emoji];
+      delete newReactions[cleanKey];
     }
 
     // Optimistic update
-    setMessages((prev) =>
-      prev.map((m) => {
+    setMessages((prev) => {
+      const updated = prev.map((m) => {
         if (m.id === msgId) {
           return { ...m, reactions: newReactions };
         }
         return m;
-      })
-    );
+      });
+      saveCachedMessages(updated);
+      return updated;
+    });
 
     try {
       await updateDoc(doc(db, "messages", msgId), { reactions: newReactions });
@@ -1450,51 +1512,196 @@ export default function ChatPanel({
                   {msg.attachment && renderAttachment(msg)}
 
                   {/* Reactions Display */}
-                  {msg.reactions && Object.keys(msg.reactions).length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {Object.entries(msg.reactions).map(([emoji, users]) => {
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    {msg.reactions && Object.keys(msg.reactions).length > 0 &&
+                      Object.entries(msg.reactions).map(([reactionKey, users]) => {
                         const userList = Array.isArray(users) ? (users as string[]) : [];
+                        const isReactedByMe = userList.includes(profile.uid);
+                        const isCustomText = reactionKey.length > 2 || !/\p{Extended_Pictographic}/u.test(reactionKey);
+
                         return (
                           <button
-                            key={emoji}
-                            onClick={() => handleReactMessage(msg.id, emoji)}
-                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium border ${
-                              userList.includes(profile.uid)
-                                ? "bg-indigo-600/30 border-indigo-500/40 text-indigo-200"
-                                : "bg-[#080f33] border-indigo-900/40 text-indigo-300 hover:bg-[#0e1b56]"
-                            } transition-colors duration-150 cursor-pointer active:scale-95`}
+                            key={reactionKey}
+                            id={`chat-msg-reaction-${reactionKey}`}
+                            type="button"
+                            onClick={() => handleReactMessage(msg.id, reactionKey)}
+                            className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-semibold border transition-all duration-150 cursor-pointer active:scale-95 ${
+                              isReactedByMe
+                                ? "bg-indigo-600/30 border-indigo-400/60 text-indigo-100 shadow-sm shadow-indigo-950/50"
+                                : "bg-[#080f33]/80 border-indigo-900/50 text-indigo-300 hover:bg-[#0e1b56] hover:text-white"
+                            }`}
+                            title={`Reactions: ${userList.length} (${isReactedByMe ? "You reacted. Click to remove" : "Click to react"})`}
                           >
-                            <span>{emoji}</span>
-                            <span>{userList.length}</span>
+                            {isCustomText ? (
+                              <span className="font-bold text-[11px] tracking-tight text-amber-300/90 font-mono">
+                                {reactionKey}
+                              </span>
+                            ) : (
+                              <span className="text-xs leading-none">{reactionKey}</span>
+                            )}
+                            <span className="text-[10px] font-mono opacity-80">{userList.length}</span>
                           </button>
                         );
                       })}
-                    </div>
-                  )}
+
+                    {/* Quick Add Reaction Button on Chips row */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomReactionInput("");
+                        setActiveReactionMenuMsgId(activeReactionMenuMsgId === msg.id ? null : msg.id);
+                      }}
+                      className="flex items-center justify-center h-6 w-6 rounded-lg bg-white/[0.04] hover:bg-indigo-600/20 text-neutral-400 hover:text-indigo-200 border border-white/5 hover:border-indigo-500/40 text-xs transition-all duration-150 cursor-pointer"
+                      title="Add reaction or custom text"
+                    >
+                      <Plus size={13} />
+                    </button>
+                  </div>
                 </div>
 
-                {/* Actions (Delete, React) */}
-                <div className="absolute right-2 -top-3 sm:top-2 sm:opacity-0 sm:group-hover:opacity-100 opacity-100 transition-opacity flex items-center gap-1 bg-[#080f35] border border-indigo-900/50 rounded-lg p-1 shadow-xl z-10">
-                  {["👍", "❤️", "😂"].map((emoji) => (
+                {/* Actions (Delete, React) Hover Bar */}
+                <div className="absolute right-2 -top-3.5 sm:top-2 sm:opacity-0 sm:group-hover:opacity-100 opacity-100 transition-opacity flex items-center gap-0.5 bg-[#080f35]/95 backdrop-blur-md border border-indigo-900/60 rounded-xl p-1 shadow-2xl z-10">
+                  {CHAT_QUICK_REACTIONS.map((emoji) => (
                     <button
                       key={emoji}
+                      type="button"
                       onClick={() => handleReactMessage(msg.id, emoji)}
-                      className="p-1.5 hover:bg-[#0e1b56] rounded text-sm transition-colors duration-150 cursor-pointer active:scale-90"
+                      className="p-1 hover:bg-[#0e1b56] rounded-lg text-sm transition-colors duration-150 cursor-pointer active:scale-90"
                       title={`React with ${emoji}`}
                     >
                       {emoji}
                     </button>
                   ))}
-                  {true && (
-                    <button
-                      onClick={() => handleDeleteMessage(msg.id)}
-                      className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-[#0e1b56] rounded transition-colors duration-150 cursor-pointer ml-1 border-l border-indigo-950/60 active:scale-90"
-                      title="Delete Message"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
+
+                  {/* More Reactions & Custom Text Reaction Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomReactionInput("");
+                      setActiveReactionMenuMsgId(activeReactionMenuMsgId === msg.id ? null : msg.id);
+                    }}
+                    className={`p-1.5 rounded-lg text-xs transition-all duration-150 cursor-pointer active:scale-90 flex items-center gap-1 ${
+                      activeReactionMenuMsgId === msg.id
+                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                        : "text-indigo-300 hover:text-white hover:bg-[#0e1b56]"
+                    }`}
+                    title="Add reaction or custom text reaction"
+                  >
+                    <SmilePlus size={15} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteMessage(msg.id)}
+                    className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-[#0e1b56] rounded-lg transition-colors duration-150 cursor-pointer ml-0.5 border-l border-indigo-950/60 active:scale-90"
+                    title="Delete Message"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
+
+                {/* Floating Rich Reaction & Custom Text Popover */}
+                {activeReactionMenuMsgId === msg.id && (
+                  <div
+                    ref={reactionPopoverRef}
+                    className="absolute right-2 top-8 sm:top-10 z-50 w-72 sm:w-80 rounded-2xl border border-indigo-500/30 bg-[#090e2b]/95 p-3.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150 text-left"
+                    style={{ maxHeight: "380px" }}
+                  >
+                    <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-indigo-900/50">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-200">
+                        <Sparkles size={14} className="text-amber-400" />
+                        <span>Reactions & Custom Text</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveReactionMenuMsgId(null)}
+                        className="text-neutral-400 hover:text-white p-1 rounded-md transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    {/* Custom Text Reaction Input Form */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (customReactionInput.trim()) {
+                          handleReactMessage(msg.id, customReactionInput.trim());
+                          setCustomReactionInput("");
+                          setActiveReactionMenuMsgId(null);
+                        }
+                      }}
+                      className="mb-3"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={customReactionInput}
+                          onChange={(e) => setCustomReactionInput(e.target.value)}
+                          placeholder="Type your own reaction (e.g. 10/10, W, GG)..."
+                          maxLength={30}
+                          className="flex-1 h-8 rounded-xl bg-black/50 border border-indigo-900/60 px-2.5 text-xs text-white placeholder-indigo-300/40 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!customReactionInput.trim()}
+                          className="h-8 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex-shrink-0"
+                        >
+                          React
+                        </button>
+                      </div>
+                    </form>
+
+                    {/* Popular Quick Custom Text Badges */}
+                    <div className="mb-3">
+                      <div className="text-[10px] font-bold text-indigo-300/70 uppercase tracking-wider mb-1.5">
+                        Popular Text Reactions
+                      </div>
+                      <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pr-1">
+                        {POPULAR_TEXT_REACTIONS.map((txt) => (
+                          <button
+                            key={txt}
+                            type="button"
+                            onClick={() => {
+                              handleReactMessage(msg.id, txt);
+                              setActiveReactionMenuMsgId(null);
+                            }}
+                            className="px-2 py-0.5 rounded-lg bg-indigo-950/70 hover:bg-indigo-700/60 border border-indigo-800/60 hover:border-indigo-400 text-[11px] font-bold text-amber-200 hover:text-white transition-all duration-150 cursor-pointer active:scale-95"
+                          >
+                            {txt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Categorized Emojis */}
+                    <div className="overflow-y-auto max-h-40 space-y-2.5 pr-1">
+                      {CHAT_EMOJI_CATEGORIES.map((cat) => (
+                        <div key={cat.name}>
+                          <div className="text-[10px] font-bold text-indigo-300/60 uppercase tracking-wider mb-1">
+                            {cat.name}
+                          </div>
+                          <div className="grid grid-cols-6 gap-1">
+                            {cat.emojis.map((em) => (
+                              <button
+                                key={em}
+                                type="button"
+                                onClick={() => {
+                                  handleReactMessage(msg.id, em);
+                                  setActiveReactionMenuMsgId(null);
+                                }}
+                                className="h-8 w-8 rounded-lg hover:bg-indigo-600/30 text-base flex items-center justify-center transition-all duration-150 cursor-pointer active:scale-90 hover:scale-110"
+                                title={`React with ${em}`}
+                              >
+                                {em}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

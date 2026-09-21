@@ -211,7 +211,7 @@ export function useActivityTracker({
   selectedTag,
   activeChannel,
 }: {
-  currentView: "home" | "game" | "chat" | "assistant";
+  currentView: "home" | "game" | "chat";
   selectedGame?: { name: string; cover?: string } | null;
   searchQuery?: string;
   selectedTag?: string;
@@ -236,14 +236,6 @@ export function useActivityTracker({
         type: "chatting",
         channel: activeChannel || "general",
         text: activeChannel ? `In #${activeChannel}` : "In Frosted Chat",
-      });
-      return;
-    }
-
-    if (currentView === "assistant") {
-      updateGlobalActivity({
-        type: "chatting",
-        text: "Studying with Frosted Companion",
       });
       return;
     }

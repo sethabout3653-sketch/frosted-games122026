@@ -7,7 +7,6 @@ import Header from "./components/Header";
 import GameGrid from "./components/GameGrid";
 import GamePlayer from "./components/GamePlayer";
 import Chat from "./components/Chat";
-import AiAssistant from "./components/AiAssistant";
 import BackgroundEditor, { DEFAULT_BACKGROUND, AppBackground } from "./components/BackgroundEditor";
 import SettingsModal from "./components/SettingsModal";
 import LoadingScreen from "./components/LoadingScreen";
@@ -18,6 +17,7 @@ import localZones from "./zones.json";
 import { CallProvider, useCall } from "./context/CallContext";
 import IncomingCallNotification from "./components/IncomingCallNotification";
 import ActiveCallModal from "./components/ActiveCallModal";
+import { useFavorites } from "./lib/favorites";
 
 const SOUNDBOARD_GAME: Game = {
   id: "soundboard",
@@ -71,7 +71,7 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
 }
 
 function AppContent() {
-  const [currentView, setCurrentView] = useState<"home" | "game" | "chat" | "assistant">("home");
+  const [currentView, setCurrentView] = useState<"home" | "game" | "chat">("home");
   const [chatInitialTab, setChatInitialTab] = useState<"chat" | "voice" | "profile">("chat");
   const [autoJoinVoice, setAutoJoinVoice] = useState(false);
   const { setOnOpenGroupVoice } = useCall();
@@ -240,6 +240,8 @@ function AppContent() {
     }
   }, []);
 
+  const { favoriteIds } = useFavorites();
+
   const handleSelectGame = useCallback((game: Game) => {
     if (showStartup) return;
     setSelectedGame(game);
@@ -257,24 +259,21 @@ function AppContent() {
     setCurrentView("chat");
   }, []);
 
-  const handleOpenAssistant = useCallback(() => {
-    setSelectedGame(null);
-    setCurrentView("assistant");
-    document.body.style.overflow = "";
-    document.documentElement.style.overflow = "";
-  }, []);
-
   // Ultra-fast pre-indexed filtering
   const processedGames = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase();
     const hasQuery = query.length > 0;
-    const hasTag = selectedTag !== "all";
+    const isFavorites = selectedTag === "favorites";
+    const hasTag = selectedTag !== "all" && !isFavorites;
 
-    if (!hasQuery && !hasTag) {
+    if (!hasQuery && !hasTag && !isFavorites) {
       return games;
     }
 
     return games.filter((g) => {
+      if (isFavorites && !favoriteIds.has(String(g.id))) {
+        return false;
+      }
       if (hasTag && !g.special?.includes(selectedTag)) {
         return false;
       }
@@ -283,7 +282,7 @@ function AppContent() {
       }
       return true;
     });
-  }, [games, selectedTag, deferredSearch]);
+  }, [games, selectedTag, deferredSearch, favoriteIds]);
 
   const isSoundboardActive = currentView === "game" && (selectedGame?.id === "soundboard" || selectedGame?.name?.toLowerCase().includes("soundboard"));
 
@@ -294,7 +293,7 @@ function AppContent() {
           <LoadingScreen onComplete={() => setShowStartup(false)} />
         )}
       </AnimatePresence>
-      <div id="app-root" className={`${(currentView === "game" && !isSoundboardActive) || currentView === "chat" || currentView === "assistant" ? "h-screen overflow-hidden" : "min-h-screen"} ${showStartup ? "pointer-events-none select-none" : ""} text-white antialiased font-sans flex flex-col selection:bg-white/20 selection:text-white`} style={{ background: background.type === "image" ? `url(${background.value}) center / cover fixed` : background.value }}>
+      <div id="app-root" className={`${(currentView === "game" && !isSoundboardActive) || currentView === "chat" ? "h-screen overflow-hidden" : "min-h-screen"} ${showStartup ? "pointer-events-none select-none" : ""} text-white antialiased font-sans flex flex-col selection:bg-white/20 selection:text-white`} style={{ background: background.type === "image" ? `url(${background.value}) center / cover fixed` : background.value }}>
       
       {/* Interactive Top Header Component */}
       <Header
@@ -306,7 +305,6 @@ function AppContent() {
         currentView={currentView}
         onGoHome={handleBackToHub}
         onChatClick={handleOpenChat}
-        onAssistantClick={handleOpenAssistant}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenTheme={() => setIsThemeOpen(true)}
       />
@@ -402,24 +400,6 @@ function AppContent() {
             onVoiceSessionStarted={() => setAutoJoinVoice(false)}
             persistent
           />
-        </motion.div>
-
-        {/* AI Assistant View (ChatGPT, Grok & Claude Style) */}
-        <motion.div
-          animate={{
-            opacity: currentView === "assistant" ? 1 : 0,
-            y: currentView === "assistant" ? 0 : 16,
-            scale: currentView === "assistant" ? 1 : 0.99,
-          }}
-          initial={{ opacity: 0, y: 16, scale: 0.99 }}
-          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          style={{ 
-            pointerEvents: currentView === "assistant" ? "auto" : "none",
-            transform: "translateZ(0)"
-          }}
-          className={`flex-1 w-full flex flex-col min-h-0 ${currentView === "assistant" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
-        >
-          <AiAssistant />
         </motion.div>
       </main>
 

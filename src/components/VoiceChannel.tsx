@@ -115,13 +115,13 @@ const ICE_SERVERS: RTCConfiguration = {
   rtcpMuxPolicy: "require",
 };
 
-// Studio quality Opus audio SDP optimizer:
-// - 320000 bps high-definition Opus bitrate (crystal-clear voice & screen share fidelity)
-// - Stereo enabled (stereo=1;sprop-stereo=1) for rich immersive sound
-// - maxplaybackrate=48000 for full 48kHz studio frequency spectrum
+// Ultra Studio Quality Opus audio SDP optimizer:
+// - 510000 bps maximum uncompressed Opus studio bitrate
+// - Full stereo channel audio with studio soundstage
+// - maxplaybackrate=48000 for full 48kHz frequency response
 // - minptime=10 for ultra-low latency
-// - useinbandfec=1 for forward error correction against packet loss
-// - usedtx=0 to prevent voice cutoff on soft speech
+// - useinbandfec=1 for forward error correction
+// - usedtx=0 and cbr=1 to guarantee pristine continuous vocal fidelity
 function optimizeAudioSdp(sdp: string): string {
   const lines = sdp.split("\r\n");
   let opusPayloadType: string | null = null;
@@ -140,7 +140,7 @@ function optimizeAudioSdp(sdp: string): string {
         (line.startsWith("a=fmtp:") && line.toLowerCase().includes("opus"))
       ) {
         const base = line.split(";")[0];
-        return `${base};maxaveragebitrate=320000;stereo=1;sprop-stereo=1;maxplaybackrate=48000;minptime=10;useinbandfec=1;usedtx=0`;
+        return `${base};maxaveragebitrate=510000;stereo=1;sprop-stereo=1;maxplaybackrate=48000;minptime=10;useinbandfec=1;usedtx=0;cbr=1`;
       }
       return line;
     })
@@ -431,7 +431,7 @@ export default function VoiceChannel({
     return () => clearInterval(interval);
   }, [activeScreenShare, trackTrigger]);
 
-  // Acquire microphone stream with clean acoustic echo cancellation and natural auto gain control
+  // Acquire microphone stream with studio quality 48kHz sampling, acoustic echo cancellation, and noise suppression
   const acquireMicrophoneStream = useCallback(async (): Promise<MediaStream> => {
     try {
       const constraints: MediaStreamConstraints = {
@@ -439,14 +439,15 @@ export default function VoiceChannel({
           echoCancellation: { ideal: true },
           noiseSuppression: { ideal: true },
           autoGainControl: { ideal: true },
-          channelCount: { ideal: 1 },
-          sampleRate: { ideal: 48000 },
+          channelCount: { ideal: 2, min: 1 },
+          sampleRate: { ideal: 48000, min: 44100 },
+          sampleSize: { ideal: 16 },
         },
         video: false,
       };
       return await navigator.mediaDevices.getUserMedia(constraints);
     } catch (err) {
-      console.warn("Standard mic constraints failed, using fallback:", err);
+      console.warn("Studio mic constraints failed, using standard fallback:", err);
       return await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -1916,15 +1917,28 @@ export default function VoiceChannel({
           lastSeen: Date.now(),
         }).catch(() => {});
 
-        // 1. Request camera stream from user's hardware
-        const videoStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280, min: 640 },
-            height: { ideal: 720, min: 480 },
-            frameRate: { ideal: 30, max: 30 },
-          },
-          audio: false,
-        });
+        // 1. Request camera stream from user's hardware with 1080p 60fps high fidelity
+        let videoStream: MediaStream;
+        try {
+          videoStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1920, min: 1280 },
+              height: { ideal: 1080, min: 720 },
+              frameRate: { ideal: 60, min: 30 },
+            },
+            audio: false,
+          });
+        } catch {
+          // Hardware fallback if 1080p 60fps is not supported by device webcam
+          videoStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280, min: 640 },
+              height: { ideal: 720, min: 480 },
+              frameRate: { ideal: 30 },
+            },
+            audio: false,
+          });
+        }
 
         if (!isMountedRef.current) {
           videoStream.getTracks().forEach((track) => {
@@ -1936,7 +1950,12 @@ export default function VoiceChannel({
         }
 
         const realVideoTrack = videoStream.getVideoTracks()[0];
-        realVideoTrack.enabled = true;
+        if (realVideoTrack) {
+          realVideoTrack.enabled = true;
+          try {
+            (realVideoTrack as any).contentHint = "motion";
+          } catch {}
+        }
         videoStreamRef.current = videoStream;
         setIsVideoOn(true);
         isVideoOnRef.current = true;
@@ -1967,8 +1986,9 @@ export default function VoiceChannel({
                   if (!params.encodings || params.encodings.length === 0) {
                     params.encodings = [{}];
                   }
-                  params.encodings[0].maxBitrate = 1500000;
+                  params.encodings[0].maxBitrate = 5000000;
                   params.encodings[0].priority = "high";
+                  params.encodings[0].networkPriority = "high";
                   await videoSender.setParameters(params).catch(() => {});
                 } catch (e) {}
               }

@@ -1,7 +1,8 @@
 import React, { memo } from "react";
-import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone } from "lucide-react";
+import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart } from "lucide-react";
 import { formatTagLabel } from "../utils";
 import { useCall } from "../context/CallContext";
+import { useFavorites } from "../lib/favorites";
 import CallMenuDropdown from "./CallMenuDropdown";
 
 interface HeaderProps {
@@ -10,10 +11,9 @@ interface HeaderProps {
   selectedTag: string;
   setSelectedTag: (tag: string) => void;
   tags: string[];
-  currentView?: "home" | "game" | "chat" | "assistant";
+  currentView?: "home" | "game" | "chat";
   onGoHome?: () => void;
   onChatClick?: () => void;
-  onAssistantClick?: () => void;
   onOpenSettings?: () => void;
   onOpenTheme?: () => void;
 }
@@ -27,16 +27,27 @@ const Header = memo(function Header({
   currentView = "home",
   onGoHome,
   onChatClick,
-  onAssistantClick,
   onOpenSettings,
   onOpenTheme,
 }: HeaderProps) {
   const { isCallMenuOpen, setIsCallMenuOpen, onlineUsers } = useCall();
+  const { count: favoriteCount } = useFavorites();
 
   const handleLogoClick = () => {
     setSearchQuery("");
     setSelectedTag("all");
     if (onGoHome) {
+      onGoHome();
+    }
+  };
+
+  const handleToggleFavorites = () => {
+    if (selectedTag === "favorites") {
+      setSelectedTag("all");
+    } else {
+      setSelectedTag("favorites");
+    }
+    if (onGoHome && currentView !== "home") {
       onGoHome();
     }
   };
@@ -63,7 +74,6 @@ const Header = memo(function Header({
 
   const isHome = currentView === "home" || currentView === "game";
   const isChat = currentView === "chat";
-  const isAssistant = currentView === "assistant";
 
   return (
     <header
@@ -148,26 +158,6 @@ const Header = memo(function Header({
               <span>Chat</span>
             </button>
 
-            {/* AI Assistant Tab */}
-            <button
-              id="nav-assistant-btn"
-              type="button"
-              onClick={onAssistantClick}
-              style={{
-                backgroundColor: isAssistant ? "var(--theme-accent)" : "transparent",
-                borderColor: isAssistant ? "var(--theme-border)" : "transparent",
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all duration-150 cursor-pointer ${
-                isAssistant
-                  ? "text-white shadow-md ring-1 ring-white/15"
-                  : "text-neutral-400 hover:text-white hover:bg-white/5"
-              }`}
-              title="AI Assistant (ChatGPT, Grok & Claude Style)"
-            >
-              <Sparkles size={14} className={isAssistant ? "text-indigo-400" : "text-indigo-400/80"} />
-              <span>AI Assistant</span>
-            </button>
-
             {/* Direct Calling & Group Voice Tab */}
             <div className="relative">
               <button
@@ -232,6 +222,42 @@ const Header = memo(function Header({
             )}
           </div>
 
+          {/* Quick Favorites Button */}
+          <button
+            id="header-favorites-btn"
+            type="button"
+            onClick={handleToggleFavorites}
+            style={{
+              backgroundColor: selectedTag === "favorites" ? "rgba(244, 63, 94, 0.2)" : "var(--theme-surface)",
+              borderColor: selectedTag === "favorites" ? "rgba(244, 63, 94, 0.6)" : "var(--theme-border-subtle)",
+            }}
+            className={`h-8.5 px-3 rounded-xl border text-xs font-bold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              selectedTag === "favorites"
+                ? "text-rose-300 ring-1 ring-rose-500/30 shadow-md shadow-rose-950/40"
+                : "text-neutral-300 hover:text-white hover:border-white/20"
+            }`}
+            title="Show Favorite Games"
+          >
+            <Heart
+              size={13}
+              className={`transition-transform duration-200 ${
+                selectedTag === "favorites"
+                  ? "fill-rose-400 text-rose-400 scale-110"
+                  : "text-rose-400/80"
+              }`}
+            />
+            <span className="hidden sm:inline">Favorites</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-extrabold ${
+                selectedTag === "favorites"
+                  ? "bg-rose-500 text-white"
+                  : "bg-white/10 text-neutral-300"
+              }`}
+            >
+              {favoriteCount}
+            </span>
+          </button>
+
           {/* Genre Category Dropdown */}
           <div className="hidden sm:block">
             <select
@@ -246,6 +272,9 @@ const Header = memo(function Header({
             >
               <option value="all" style={{ backgroundColor: "var(--theme-darkest)" }} className="text-white">
                 All Genres
+              </option>
+              <option value="favorites" style={{ backgroundColor: "var(--theme-darkest)" }} className="text-rose-300 font-bold">
+                ❤️ Favorites ({favoriteCount})
               </option>
               {tags.map((tag) => (
                 <option key={tag} value={tag} style={{ backgroundColor: "var(--theme-darkest)" }} className="text-white">
