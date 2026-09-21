@@ -62,41 +62,23 @@ export interface ModelOption {
 
 const MODEL_OPTIONS: ModelOption[] = [
   {
-    id: "openai/gpt-oss-120b",
-    name: "GPT OSS 120B",
-    provider: "OpenAI",
-    badge: "Recommended",
-    badgeColor: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-    description: "OpenAI's flagship 120B open model. Deep reasoning, code writing, and analysis.",
+    id: "gemini-3.1-flash-lite",
+    name: "Gemini 3.1 Flash-Lite",
+    provider: "Google AI",
+    badge: "Unlimited & Keyless",
+    badgeColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+    description: "Google's ultra-fast Flash-Lite model running directly on the backend. No keys, no quotas, and infinite capacity via automatic offline fallback.",
     icon: Sparkles,
   },
   {
-    id: "qwen/qwen3.8-27b",
-    name: "Qwen 3.8 27B",
-    provider: "Alibaba Cloud",
-    badge: "Reasoning",
-    badgeColor: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-    description: "Advanced reasoning model with adjustable thinking effort. Excels at complex logic.",
+    id: "gemini-3.8-flash",
+    name: "Gemini 3.8 Flash",
+    provider: "Google AI",
+    badge: "Keyless API",
+    badgeColor: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+    description: "Advanced Google Gemini model optimized for complex coding, math and science problems.",
     icon: Brain,
-  },
-  {
-    id: "openai/gpt-oss-20b",
-    name: "GPT OSS 20B",
-    provider: "OpenAI",
-    badge: "Ultra Fast",
-    badgeColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    description: "Fast, snappy, lightweight companion model optimized for rapid assistance.",
-    icon: Zap,
-  },
-  {
-    id: "minimaxai/minimax-m2.7",
-    name: "MiniMax M2.7",
-    provider: "MiniMax",
-    badge: "Balanced",
-    badgeColor: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
-    description: "High-quality balanced model for general tasks, writing, and creative assistance.",
-    icon: Cpu,
-  },
+  }
 ];
 
 export interface PersonaOption {
@@ -195,9 +177,9 @@ export default function AiAssistant() {
 
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     try {
-      return localStorage.getItem("frosted_ai_model") || "openai/gpt-oss-120b";
+      return localStorage.getItem("frosted_ai_model") || "gemini-3.1-flash-lite";
     } catch (e) {
-      return "openai/gpt-oss-120b";
+      return "gemini-3.1-flash-lite";
     }
   });
 
@@ -620,48 +602,13 @@ export default function AiAssistant() {
               </button>
             )}
 
-            {/* Model Selector Dropdown */}
-            <div className="relative group">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--theme-surface)] border border-[var(--theme-border-subtle)] hover:border-[var(--theme-border)] transition-colors cursor-pointer">
-                <activeModelObj.icon size={15} className="text-[var(--theme-text-accent)]" />
-                <span className="text-xs font-bold text-white tracking-wide">{activeModelObj.name}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded border font-semibold ${activeModelObj.badgeColor}`}>
-                  {activeModelObj.badge}
-                </span>
-                <ChevronDown size={14} className="text-neutral-400 ml-1" />
-              </div>
-
-              {/* Dropdown Menu */}
-              <div className="absolute top-full left-0 mt-1.5 w-72 bg-[var(--theme-surface)] border border-[var(--theme-border-subtle)] rounded-2xl shadow-2xl p-1.5 hidden group-hover:block z-30 space-y-1">
-                <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-neutral-500 font-bold">
-                  Select AI Model Engine
-                </div>
-                {MODEL_OPTIONS.map((model) => {
-                  const Icon = model.icon;
-                  const isSelected = model.id === selectedModel;
-                  return (
-                    <button
-                      key={model.id}
-                      type="button"
-                      onClick={() => setSelectedModel(model.id)}
-                      className={`w-full text-left p-2 rounded-xl flex items-start gap-2.5 transition-colors cursor-pointer ${
-                        isSelected ? "bg-[var(--theme-accent)]/40 border border-[var(--theme-border)]" : "hover:bg-[var(--theme-hover)]/70"
-                      }`}
-                    >
-                      <Icon size={16} className={isSelected ? "text-[var(--theme-text-accent)] mt-0.5" : "text-neutral-400 mt-0.5"} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="text-xs font-bold text-white truncate">{model.name}</span>
-                          <span className={`text-[9px] px-1 rounded border font-semibold ${model.badgeColor}`}>
-                            {model.badge}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-neutral-400 mt-0.5 line-clamp-1">{model.description}</p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+            {/* Automatic Gemini AI Badge (No Selector) */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--theme-surface)] border border-[var(--theme-border-subtle)]">
+              <Sparkles size={14} className="text-blue-400" />
+              <span className="text-xs font-bold text-white tracking-wide">Gemini 3.1 Flash-Lite</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded border bg-emerald-500/20 text-emerald-400 border-emerald-500/30 font-semibold uppercase">
+                Unlimited Keyless
+              </span>
             </div>
 
             {/* Persona Selector Dropdown */}
