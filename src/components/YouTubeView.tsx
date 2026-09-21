@@ -36,14 +36,10 @@ interface YouTubeViewProps {
 }
 
 const CATEGORIES = [
-  { id: "all", label: "All Latest", icon: Flame },
-  { id: "gaming", label: "Gaming", icon: Gamepad2 },
+  { id: "all", label: "Trending Music", icon: Music },
   { id: "study", label: "Study & Lofi", icon: Headphones },
-  { id: "music", label: "Music", icon: Radio },
-  { id: "tech", label: "Tech & Science", icon: Sparkles },
-  { id: "entertainment", label: "Entertainment", icon: Film },
-  { id: "favorites", label: "Saved Videos", icon: Heart },
-  { id: "history", label: "Watch History", icon: History },
+  { id: "favorites", label: "Saved Music", icon: Heart },
+  { id: "history", label: "Music History", icon: History },
 ];
 
 const CURATED_CREATORS = [
@@ -161,7 +157,6 @@ const CURATED_SHORTS: YouTubeVideo[] = [
 ];
 
 export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChange }: YouTubeViewProps) {
-  const [activeSubTab, setActiveSubTab] = useState<"videos" | "shorts" | "music">("videos");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearch = useDeferredValue(searchQuery);
@@ -189,35 +184,19 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
     refreshSavedCount();
   }, [selectedVideo]);
 
-  // Load videos based on category, search, and active sub-tab
+  // Load music videos based on category and search
   useEffect(() => {
     let isCancelled = false;
 
     if (selectedCategory === "favorites") {
-      let saved = getSavedVideos();
-      if (activeSubTab === "shorts") {
-        saved = saved.filter(v => v.isShort || v.title?.toLowerCase().includes("shorts") || v.title?.toLowerCase().includes("short"));
-      } else if (activeSubTab === "music") {
-        saved = saved.filter(v => v.isMusic || v.title?.toLowerCase().includes("music") || v.channelTitle?.toLowerCase().includes("music"));
-      } else {
-        saved = saved.filter(v => !v.isShort);
-      }
-      setVideos(saved);
+      setVideos(getSavedVideos());
       setIsLoading(false);
       return;
     }
 
     if (selectedCategory === "history") {
       const historyItems = getWatchHistory();
-      let hVideos = historyItems.map((h) => h.video);
-      if (activeSubTab === "shorts") {
-        hVideos = hVideos.filter(v => v.isShort || v.title?.toLowerCase().includes("shorts") || v.title?.toLowerCase().includes("short"));
-      } else if (activeSubTab === "music") {
-        hVideos = hVideos.filter(v => v.isMusic || v.title?.toLowerCase().includes("music") || v.channelTitle?.toLowerCase().includes("music"));
-      } else {
-        hVideos = hVideos.filter(v => !v.isShort);
-      }
-      setVideos(hVideos);
+      setVideos(historyItems.map((h) => h.video));
       setIsLoading(false);
       return;
     }
@@ -225,76 +204,23 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
     async function loadVideos() {
       setIsLoading(true);
       try {
-        let endpoint = `/api/youtube/trending?category=${selectedCategory}`;
-        
-        if (activeSubTab === "shorts") {
-          const q = deferredSearch.trim() ? `${deferredSearch.trim()} shorts` : "youtube shorts funny trending viral compilation";
-          endpoint = `/api/youtube/search?q=${encodeURIComponent(q)}`;
-        } else if (activeSubTab === "music") {
-          if (deferredSearch.trim()) {
-            endpoint = `/api/youtube/search?q=${encodeURIComponent(deferredSearch.trim() + " official music video")}`;
-          } else {
-            // If study category is selected, use study, else default music trending
-            const cat = selectedCategory === "study" || selectedCategory === "lofi" ? "study" : "music";
-            endpoint = `/api/youtube/trending?category=${cat}`;
-          }
-        } else {
-          if (deferredSearch.trim()) {
-            endpoint = `/api/youtube/search?q=${encodeURIComponent(deferredSearch.trim())}`;
-          } else {
-            endpoint = `/api/youtube/trending?category=${selectedCategory}`;
-          }
+        let endpoint = `/api/youtube/trending?category=music`;
+        if (selectedCategory === "study") {
+          endpoint = `/api/youtube/trending?category=study`;
+        }
+        if (deferredSearch.trim()) {
+          endpoint = `/api/youtube/search?q=${encodeURIComponent(deferredSearch.trim() + " official music video song")}`;
         }
 
         const res = await fetch(endpoint);
-        if (!res.ok) throw new Error("Failed to load feed");
+        if (!res.ok) throw new Error("Failed to load music feed");
         const data = await res.json();
 
         if (!isCancelled && data.videos) {
-          // Process and tag videos dynamically
-          const processed = data.videos.map((v: any) => {
-            const titleLower = (v.title || "").toLowerCase();
-            const channelLower = (v.channelTitle || "").toLowerCase();
-            const looksLikeShort = activeSubTab === "shorts" || 
-                                   titleLower.includes("shorts") || 
-                                   titleLower.includes("short") ||
-                                   (v.duration && parseInt(v.duration.split(":")[0], 10) === 0 && parseInt(v.duration.split(":")[1], 10) <= 60);
-            
-            const looksLikeMusic = activeSubTab === "music" ||
-                                   titleLower.includes("music video") ||
-                                   titleLower.includes("official audio") ||
-                                   titleLower.includes("song") ||
-                                   titleLower.includes("lyric") ||
-                                   channelLower.includes("music") ||
-                                   channelLower.includes("vevo") ||
-                                   selectedCategory === "music" ||
-                                   selectedCategory === "study";
-
-            return {
-              ...v,
-              isShort: looksLikeShort,
-              isMusic: looksLikeMusic && !looksLikeShort,
-            };
-          });
-
-          let filtered = processed;
-          if (activeSubTab === "shorts") {
-            // Keep all returned videos to ensure plenty of shorts content without restrictive filters!
-            // Just ensure they are marked as shorts.
-            filtered = processed.map((v: any) => ({ ...v, isShort: true }));
-
-            // Prepend curated shorts if there's no search query and user is browsing Trending Shorts
-            if (!deferredSearch.trim() && selectedCategory === "all") {
-              const existingIds = new Set(filtered.map((f: any) => f.id));
-              const uniqueCurated = CURATED_SHORTS.filter(c => !existingIds.has(c.id));
-              filtered = [...uniqueCurated, ...filtered];
-            }
-          }
-
-          setVideos(filtered);
+          setVideos(data.videos);
         }
       } catch (e) {
-        console.error("Failed to load YouTube videos:", e);
+        console.error("Failed to load music:", e);
       } finally {
         if (!isCancelled) setIsLoading(false);
       }
@@ -305,7 +231,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
     return () => {
       isCancelled = true;
     };
-  }, [selectedCategory, deferredSearch, activeSubTab]);
+  }, [selectedCategory, deferredSearch]);
 
   const handleSelectChannel = async (channelId: string, channelName: string) => {
     setIsLoading(true);
@@ -445,13 +371,13 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
     <div className="w-full min-h-[calc(100vh-120px)] p-3 sm:p-6 space-y-6 max-w-7xl mx-auto">
       {/* Top Search & Navigation Bar */}
       <div className="flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap pb-3 border-b border-white/5">
-        {/* Left: YouTube Branding */}
+        {/* Left: Frosted Music Branding */}
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-xl bg-red-600 flex items-center justify-center text-white shadow-md shadow-red-950/40">
-            <Tv size={18} />
+          <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-[var(--theme-indigo-600)] to-[var(--theme-indigo-900)] flex items-center justify-center text-white shadow-md shadow-black/40">
+            <Music size={18} />
           </div>
           <span className="text-lg font-bold tracking-tight text-white font-sans">
-            YouTube
+            Frosted Music
           </span>
         </div>
 
@@ -477,7 +403,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
                     const parsedVideo: YouTubeVideo = {
                       id: extractedId,
                       title: `Pasted YouTube Video (${extractedId})`,
-                      channelTitle: "YouTube Embed Player",
+                      channelTitle: "YT Music",
                       thumbnail: `https://i.ytimg.com/vi/${extractedId}/hqdefault.jpg`,
                     };
                     setSelectedVideo(parsedVideo);
@@ -485,7 +411,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
                   }
                 }
               }}
-              placeholder={`Search in ${activeSubTab === "shorts" ? "Shorts" : activeSubTab === "music" ? "Music" : "Videos"}...`}
+              placeholder="Search music, artists, albums..."
               className="w-full h-10 pl-10 pr-10 rounded-full bg-[#121212] border border-[#303030] text-sm text-white placeholder-neutral-400 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all"
             />
             {searchQuery && (
@@ -501,106 +427,33 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
         </div>
       </div>
 
-      {/* Main Sub-Tabs Segmented Controller */}
-      <div className="flex p-1 bg-[#121212]/90 border border-white/5 rounded-xl max-w-lg mx-auto sm:mx-0">
-        <button
-          type="button"
-          onClick={() => {
-            setActiveSubTab("videos");
-            setSelectedCategory("all");
-            setSearchQuery("");
-          }}
-          className={`flex-1 py-2 px-3 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
-            activeSubTab === "videos"
-              ? "bg-[#272727] text-white shadow-sm"
-              : "text-neutral-400 hover:text-white hover:bg-white/5"
-          }`}
-        >
-          <Tv size={15} />
-          <span>Youtube Videos</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setActiveSubTab("shorts");
-            setSelectedCategory("all");
-            setSearchQuery("");
-          }}
-          className={`flex-1 py-2 px-3 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
-            activeSubTab === "shorts"
-              ? "bg-red-600 text-white shadow-sm"
-              : "text-neutral-400 hover:text-white hover:bg-white/5"
-          }`}
-        >
-          <Compass size={15} />
-          <span>Youtube Shorts</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setActiveSubTab("music");
-            setSelectedCategory("all");
-            setSearchQuery("");
-          }}
-          className={`flex-1 py-2 px-3 text-xs sm:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
-            activeSubTab === "music"
-              ? "bg-amber-600 text-white shadow-sm"
-              : "text-neutral-400 hover:text-white hover:bg-white/5"
-          }`}
-        >
-          <Music size={15} />
-          <span>Youtube Music</span>
-        </button>
-      </div>
-
       {/* Category Filter Pills Bar */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-        {(() => {
-          const subTabCategories = (() => {
-            if (activeSubTab === "shorts") {
-              return [
-                { id: "all", label: "Trending Shorts", icon: Compass },
-                { id: "favorites", label: "Saved Shorts", icon: Heart },
-                { id: "history", label: "Watch History", icon: History },
-              ];
-            }
-            if (activeSubTab === "music") {
-              return [
-                { id: "all", label: "Trending Music", icon: Music },
-                { id: "study", label: "Study & Lofi", icon: Headphones },
-                { id: "favorites", label: "Saved Music", icon: Heart },
-                { id: "history", label: "Watch History", icon: History },
-              ];
-            }
-            return CATEGORIES;
-          })();
-
-          return subTabCategories.map((cat) => {
-            const isSelected = selectedCategory === cat.id && !searchQuery;
-            return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => {
-                  setSelectedCategory(cat.id);
-                  setSearchQuery("");
-                }}
-                className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                  isSelected
-                    ? "bg-white text-black"
-                    : "bg-[#272727] hover:bg-[#383838] text-white"
-                }`}
-              >
-                <span>{cat.label}</span>
-                {cat.id === "favorites" && savedCount > 0 && (
-                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isSelected ? "bg-black/10 text-black" : "bg-white/20 text-white"}`}>
-                    {savedCount}
-                  </span>
-                )}
-              </button>
-            );
-          });
-        })()}
+        {CATEGORIES.map((cat) => {
+          const isSelected = selectedCategory === cat.id && !searchQuery;
+          return (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => {
+                setSelectedCategory(cat.id);
+                setSearchQuery("");
+              }}
+              className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                isSelected
+                  ? "bg-white text-black"
+                  : "bg-[#272727] hover:bg-[#383838] text-white"
+              }`}
+            >
+              <span>{cat.label}</span>
+              {cat.id === "favorites" && savedCount > 0 && (
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isSelected ? "bg-black/10 text-black" : "bg-white/20 text-white"}`}>
+                  {savedCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Main Video Feed Grid */}
@@ -622,16 +475,12 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
         )}
 
         {isLoading ? (
-          <div className={`grid gap-x-4 gap-y-6 ${
-            activeSubTab === "shorts"
-              ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
-              : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-          }`}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6">
             {Array.from({ length: 10 }).map((_, i) => (
               <div key={i} className="space-y-3 animate-pulse">
-                <div className={`rounded-xl bg-[#272727] ${activeSubTab === "shorts" ? "aspect-[9/16]" : "aspect-video"}`} />
+                <div className="rounded-xl bg-[#272727] aspect-video" />
                 <div className="flex gap-3">
-                  {activeSubTab !== "shorts" && <div className="w-9 h-9 rounded-full bg-[#272727] shrink-0" />}
+                  <div className="w-9 h-9 rounded-full bg-[#272727] shrink-0" />
                   <div className="flex-1 space-y-2">
                     <div className="h-4 bg-[#272727] rounded w-5/6" />
                     <div className="h-3 bg-[#272727] rounded w-1/2" />
@@ -649,76 +498,11 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
             </p>
           </div>
         ) : (
-          <div className={`grid gap-x-4 gap-y-7 ${
-            activeSubTab === "shorts"
-              ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
-              : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-          }`}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-7">
             {videos.map((vid) => {
               const saved = isVideoSaved(vid.id);
-              const channelInitial = (vid.channelTitle || "Y")[0].toUpperCase();
+              const channelInitial = (vid.channelTitle || "M")[0].toUpperCase();
 
-              // 1. YouTube Shorts Vertical Card UI
-              if (activeSubTab === "shorts") {
-                return (
-                  <div
-                    key={vid.id}
-                    id={`yt-card-${vid.id}`}
-                    onClick={() => {
-                      setSelectedVideo(vid);
-                      window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}
-                    className="group cursor-pointer relative aspect-[9/16] rounded-2xl overflow-hidden bg-[#181818] shadow-md border border-white/5 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl"
-                  >
-                    {/* Thumbnail */}
-                    <img
-                      src={vid.thumbnail}
-                      alt={vid.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      referrerPolicy="no-referrer"
-                      loading="lazy"
-                    />
-
-                    {/* Gradient Overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent flex flex-col justify-end p-3 sm:p-4 space-y-1.5 pointer-events-none">
-                      {/* Play Badge */}
-                      <div className="absolute top-3 left-3 h-7 w-7 rounded-full bg-red-600/90 flex items-center justify-center text-white shadow-md">
-                        <Play size={12} className="fill-white ml-0.5" />
-                      </div>
-
-                      <h3 className="text-xs sm:text-sm font-bold text-white line-clamp-2 leading-snug drop-shadow-md">
-                        {vid.title}
-                      </h3>
-                      
-                      <div className="flex items-center gap-1 text-[10px] text-neutral-300 font-semibold drop-shadow-md truncate">
-                        <span className="truncate">{vid.channelTitle}</span>
-                      </div>
-
-                      {vid.views && (
-                        <span className="text-[10px] text-neutral-400 font-medium drop-shadow-sm">
-                          {vid.views}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Quick Save Bookmark */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleToggleFavoriteCard(e, vid)}
-                      className={`absolute top-3 right-3 h-7 w-7 rounded-full flex items-center justify-center transition-all cursor-pointer z-10 ${
-                        saved
-                          ? "bg-red-600 text-white shadow-md"
-                          : "bg-black/60 text-white/80 hover:bg-black/90 hover:text-white"
-                      }`}
-                      title={saved ? "Saved" : "Save short"}
-                    >
-                      <Heart size={13} className={saved ? "fill-white" : ""} />
-                    </button>
-                  </div>
-                );
-              }
-
-              // 2. Standard Videos / Music Card UI
               return (
                 <div
                   key={vid.id}
@@ -741,20 +525,16 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
 
                     {/* Play Hover Overlay */}
                     <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <div className={`h-10 w-10 rounded-full text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform ${
-                        activeSubTab === "music" ? "bg-amber-600" : "bg-red-600"
-                      }`}>
+                      <div className="h-10 w-10 rounded-full bg-[var(--theme-indigo-600)] text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
                         <Play size={18} className="fill-white ml-0.5" />
                       </div>
                     </div>
 
                     {/* Music specific tag */}
-                    {activeSubTab === "music" && (
-                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-amber-600/90 text-white font-bold text-[9px] tracking-wider uppercase flex items-center gap-1 z-10 shadow-sm">
-                        <Music size={9} />
-                        <span>Music</span>
-                      </div>
-                    )}
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-[var(--theme-indigo-600)]/90 text-white font-bold text-[9px] tracking-wider uppercase flex items-center gap-1 z-10 shadow-sm">
+                      <Music size={9} />
+                      <span>Music</span>
+                    </div>
 
                     {/* Duration Badge */}
                     {vid.duration && (
@@ -769,10 +549,10 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
                       onClick={(e) => handleToggleFavoriteCard(e, vid)}
                       className={`absolute top-2 right-2 h-7 w-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                         saved
-                          ? (activeSubTab === "music" ? "bg-amber-600" : "bg-red-600") + " text-white shadow-md"
+                          ? "bg-[var(--theme-indigo-600)] text-white shadow-md"
                           : "bg-black/60 text-white/80 hover:bg-black/90 hover:text-white"
                       }`}
-                      title={saved ? "Saved" : "Save video"}
+                      title={saved ? "Saved" : "Save track"}
                     >
                       <Heart size={13} className={saved ? "fill-white" : ""} />
                     </button>

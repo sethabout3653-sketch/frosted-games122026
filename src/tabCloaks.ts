@@ -128,8 +128,8 @@ export const TAB_CLOAKS: TabCloak[] = [
   },
   {
     id: "youtube",
-    name: "YouTube",
-    title: "YouTube",
+    name: "Music",
+    title: "YT Music - Music for everyone",
     category: "entertainment",
     iconUrl: "/cloaks/youtube.ico",
   },

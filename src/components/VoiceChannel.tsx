@@ -28,7 +28,6 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-import { playJoinSound, playLeaveSound } from "../lib/sounds";
 import {
   collection,
   doc,
@@ -754,10 +753,16 @@ export default function VoiceChannel({
       const joined = [...remoteIds].some((uid) => !previousIds.has(uid));
       const left = [...previousIds].some((uid) => !remoteIds.has(uid));
       if (joined) {
-        playJoinSound();
+        joinSoundRef.current ||= new Audio("/audio/discord-join.mp3");
+        joinSoundRef.current.currentTime = 0;
+        joinSoundRef.current.volume = 0.82;
+        joinSoundRef.current.play().catch(() => {});
       }
       if (left) {
-        playLeaveSound();
+        leaveSoundRef.current ||= new Audio("/audio/LockChime.wav");
+        leaveSoundRef.current.currentTime = 0;
+        leaveSoundRef.current.volume = 1;
+        leaveSoundRef.current.play().catch(() => {});
       }
     }
     previousParticipantIdsRef.current = remoteIds;
@@ -2395,7 +2400,12 @@ export default function VoiceChannel({
     // 2. Play leave sound ONLY if we had joined voice and are now leaving (never duplicate)
     if (hasJoinedVoiceRef.current) {
       hasJoinedVoiceRef.current = false;
-      playLeaveSound();
+      try {
+        leaveSoundRef.current ||= new Audio("/audio/LockChime.wav");
+        leaveSoundRef.current.currentTime = 0;
+        leaveSoundRef.current.volume = 1;
+        leaveSoundRef.current.play().catch(() => {});
+      } catch {}
     }
 
     // 3. Immediately stop local media tracks and release hardware

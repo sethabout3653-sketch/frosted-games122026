@@ -212,7 +212,7 @@ export function useActivityTracker({
   activeChannel,
   activeVideoTitle,
 }: {
-  currentView: "home" | "game" | "chat" | "youtube" | "music";
+  currentView: "home" | "game" | "chat" | "youtube";
   selectedGame?: { name: string; cover?: string } | null;
   searchQuery?: string;
   selectedTag?: string;
@@ -226,8 +226,8 @@ export function useActivityTracker({
     if (currentView === "youtube") {
       updateGlobalActivity({
         type: "playing",
-        gameName: activeVideoTitle ? `YouTube: ${activeVideoTitle}` : "YouTube",
-        text: activeVideoTitle ? `Watching: ${activeVideoTitle}` : "Watching YouTube",
+        gameName: activeVideoTitle ? `YT Music: ${activeVideoTitle}` : "YT Music",
+        text: activeVideoTitle ? `Listening to: ${activeVideoTitle}` : "Listening to YT Music",
       });
       return;
     }

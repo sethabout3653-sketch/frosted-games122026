@@ -133,12 +133,6 @@ export default function YouTubePlayer({
               </h2>
               <p className="text-xs text-neutral-400 font-normal">Official Channel</p>
             </div>
-            <button
-              type="button"
-              className="ml-2 px-4 py-2 rounded-full bg-white hover:bg-neutral-200 text-black text-xs font-bold transition-colors cursor-pointer"
-            >
-              Subscribe
-            </button>
           </div>
 
           {/* Save Action */}

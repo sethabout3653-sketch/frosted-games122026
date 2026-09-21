@@ -7,6 +7,7 @@ import Header from "./components/Header";
 import GameGrid from "./components/GameGrid";
 import GamePlayer from "./components/GamePlayer";
 import Chat from "./components/Chat";
+import YouTubeView from "./components/YouTubeView";
 import BackgroundEditor, { DEFAULT_BACKGROUND, AppBackground } from "./components/BackgroundEditor";
 import SettingsModal from "./components/SettingsModal";
 import LoadingScreen from "./components/LoadingScreen";
@@ -71,9 +72,10 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
 }
 
 function AppContent() {
-  const [currentView, setCurrentView] = useState<"home" | "game" | "chat">("home");
+  const [currentView, setCurrentView] = useState<"home" | "game" | "chat" | "youtube">("home");
   const [chatInitialTab, setChatInitialTab] = useState<"chat" | "voice" | "profile">("chat");
   const [autoJoinVoice, setAutoJoinVoice] = useState(false);
+  const [activeVideoTitle, setActiveVideoTitle] = useState<string | null>(null);
   const { setOnOpenGroupVoice } = useCall();
 
   useEffect(() => {
@@ -157,6 +159,7 @@ function AppContent() {
     selectedGame,
     searchQuery: deferredSearch,
     selectedTag,
+    activeVideoTitle,
   });
 
   const handleSearchChange = useCallback((query: string) => {
@@ -259,6 +262,10 @@ function AppContent() {
     setCurrentView("chat");
   }, []);
 
+  const handleOpenYouTube = useCallback(() => {
+    setCurrentView("youtube");
+  }, []);
+
   // Ultra-fast pre-indexed filtering
   const processedGames = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase();
@@ -305,6 +312,7 @@ function AppContent() {
         currentView={currentView}
         onGoHome={handleBackToHub}
         onChatClick={handleOpenChat}
+        onYouTubeClick={handleOpenYouTube}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenTheme={() => setIsThemeOpen(true)}
       />
@@ -372,6 +380,28 @@ function AppContent() {
           </section>
         </motion.div>
 
+        {/* YouTube Browser & Player View */}
+        <motion.div
+          animate={{
+            opacity: currentView === "youtube" ? 1 : 0,
+            y: currentView === "youtube" ? 0 : 16,
+            scale: currentView === "youtube" ? 1 : 0.99,
+          }}
+          initial={{ opacity: 0, y: 16, scale: 0.99 }}
+          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          style={{
+            pointerEvents: currentView === "youtube" ? "auto" : "none",
+            transform: "translateZ(0)",
+          }}
+          className={`w-full flex-1 flex flex-col ${currentView === "youtube" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
+        >
+          <YouTubeView
+            isActive={currentView === "youtube"}
+            onBackToHome={handleBackToHub}
+            onActiveVideoChange={setActiveVideoTitle}
+          />
+        </motion.div>
+
         {/* Discord Chat View */}
         <motion.div 
           animate={{
@@ -402,8 +432,8 @@ function AppContent() {
         </motion.div>
       </main>
 
-      {/* Footer Branding Area (Home view) */}
-      {currentView === "home" && (
+      {/* Footer Branding Area (Home & YouTube view) */}
+      {(currentView === "home" || currentView === "youtube") && (
         <footer id="app-footer" className="border-t border-[var(--theme-border-subtle)] bg-[var(--theme-darkest)]/90 px-4 py-6 md:px-8 text-center text-xs text-[var(--theme-text-muted)] backdrop-blur-md transition-colors duration-200">
           <div className="mx-auto max-w-7xl flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="font-medium text-neutral-300">

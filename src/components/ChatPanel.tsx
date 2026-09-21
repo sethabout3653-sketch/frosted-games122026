@@ -288,8 +288,7 @@ export default function ChatPanel({
   useEffect(() => {
     if (!profile?.uid) return;
     const unsub = onSnapshot(doc(db, "moderation_actions", profile.uid), (docSnap: any) => {
-      const exists = typeof docSnap.exists === "function" ? docSnap.exists() : !!docSnap.exists;
-      if (exists) {
+      if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.type === "ban") {
           if (data.banUntil === -1 || Date.now() < data.banUntil) {
@@ -719,12 +718,8 @@ export default function ChatPanel({
   };
 
   const handleDeleteMessage = async (msgId: string) => {
-    const msg = messages.find((m) => m.id === msgId);
-    const isOwner = msg && msg.uid === profile.uid;
-    const isMod = isUserModerator(profile.username, profile.uid);
-
-    if (!isMod && !isOwner) {
-      alert("You can only delete your own messages.");
+    if (!isUserModerator(profile.username, profile.uid)) {
+      alert("Only moderators can delete messages.");
       return;
     }
     setMessages((prev) => {
@@ -1645,16 +1640,14 @@ export default function ChatPanel({
                     <SmilePlus size={15} />
                   </button>
 
-                  {(msg.uid === profile.uid || isUserModerator(profile.username, profile.uid)) && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteMessage(msg.id)}
-                      className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-[#0e1b56] rounded-lg transition-colors duration-150 cursor-pointer ml-0.5 border-l border-indigo-950/60 active:scale-90"
-                      title="Delete Message"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteMessage(msg.id)}
+                    className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-[#0e1b56] rounded-lg transition-colors duration-150 cursor-pointer ml-0.5 border-l border-indigo-950/60 active:scale-90"
+                    title="Delete Message"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
 
                 {/* Floating Rich Reaction & Custom Text Popover */}
