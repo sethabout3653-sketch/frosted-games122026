@@ -251,7 +251,39 @@ class UniversalDatabaseManager {
   public async fetchCollection(collection: string): Promise<any[]> {
     const map = this.loadLocalCache(collection);
 
-    // 1. Try Vercel Serverless REST Data API (/api/db/data)
+    // 1. Try pure WebSocket collection snapshot fetching (extremely fast, zero HTTP overhead)
+    if (wsClient.isConnected()) {
+      try {
+        const items = await wsClient.fetchCollection(collection);
+        if (items && items.length > 0) {
+          // Sync local map with retrieved items
+          if (collection === "messages") {
+            const serverKeys = new Set(items.map((it) => it.id));
+            Array.from(map.keys()).forEach((key) => {
+              if (!serverKeys.has(key)) {
+                map.delete(key);
+              }
+            });
+          }
+          items.forEach((item: any) => {
+            const id = item.id;
+            if (id) {
+              map.set(id, { ...item });
+            }
+          });
+          this.persistLocalCache(collection);
+          this.notifyListeners(collection);
+          
+          const list: any[] = [];
+          map.forEach((v) => list.push(v));
+          return list;
+        }
+      } catch (wsErr) {
+        console.warn(`[UniversalDB] WebSocket snapshot fetch failed for ${collection}, falling back to REST:`, wsErr);
+      }
+    }
+
+    // 2. Try Vercel Serverless REST Data API (/api/db/data)
     try {
       const res = await fetch(`/api/db/data?collection=${encodeURIComponent(collection)}`, {
         cache: "no-store",
@@ -279,7 +311,7 @@ class UniversalDatabaseManager {
         }
       }
     } catch (e) {
-      // 2. Fallback to /api/cassandra/data if present
+      // 3. Fallback to /api/cassandra/data if present
       try {
         const res2 = await fetch(`/api/cassandra/data?collection=${encodeURIComponent(collection)}`);
         if (res2.ok) {
@@ -421,46 +453,33 @@ class UniversalDatabaseManager {
     // 1. Optimistic zero-latency update locally
     this.applyChange(op, collection, id, payload, true);
 
-    // 2. Instant real-time broadcast via WebSocket
+    // 2. Instant real-time broadcast via WebSocket (primary fast pathway)
     try {
       wsClient.sendChange(op, collection, id, payload);
     } catch (e) {}
 
-    // 3. Persist to Vercel Serverless REST Data Endpoint (/api/db/data)
-    const writePromises: Promise<any>[] = [];
+    // 3. Persist to backing endpoints fully in the background asynchronously so the UI is 100% pure zero-lag
+    const bodyObj = {
+      op,
+      collection,
+      id,
+      data: payload,
+      timestamp,
+    };
 
-    const dbDataPromise = fetch("/api/db/data", {
+    fetch("/api/db/data", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        op,
-        collection,
-        id,
-        data: payload,
-        timestamp,
-      }),
+      body: JSON.stringify(bodyObj),
       keepalive: true,
     }).catch(() => {});
-    writePromises.push(dbDataPromise);
 
-    // 4. Also persist to /api/cassandra/write for dual storage resilience
-    const cassandraPromise = fetch("/api/cassandra/write", {
+    fetch("/api/cassandra/write", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        op,
-        collection,
-        id,
-        data: payload,
-      }),
+      body: JSON.stringify(bodyObj),
       keepalive: true,
     }).catch(() => {});
-    writePromises.push(cassandraPromise);
-
-    await Promise.race([
-      Promise.all(writePromises),
-      new Promise((res) => setTimeout(res, 200)), // Don't block UI for slow networks
-    ]);
   }
 }
 

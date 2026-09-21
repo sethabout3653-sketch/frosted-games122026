@@ -17,6 +17,7 @@ import {
 import ProfileSetup from "./ProfileSetup";
 import ChatPanel from "./ChatPanel";
 import VoiceChannel from "./VoiceChannel";
+import { playMessageSound } from "../lib/sounds";
 import { ChatProfile, ChatMessage } from "../types";
 import { saveUserProfile } from "../lib/activity-tracker";
 import {
@@ -327,12 +328,7 @@ export default function Chat({
                 msg.photoURL === currentProfile.photoURL));
 
           if (!isMe) {
-            try {
-              messageSoundRef.current ||= new Audio("/audio/discord_sound.mp3");
-              messageSoundRef.current.currentTime = 0;
-              messageSoundRef.current.volume = 0.8;
-              messageSoundRef.current.play().catch(() => {});
-            } catch (e) {}
+            playMessageSound();
 
             if (!isOpenRef.current) {
               if (notificationTimeoutRef.current) {

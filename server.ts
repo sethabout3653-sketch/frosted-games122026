@@ -1088,6 +1088,21 @@ const PORT = 3000;
           return;
         }
 
+        // 3.5 Fetch Collection Snapshot over WebSockets (0ms RAM-cached query)
+        if (msg.type === "fetch_collection" && msg.collection) {
+          const col = msg.collection;
+          const colDataObj = memoryStore[col] || {};
+          const colDataArray = Object.values(colDataObj);
+          
+          ws.send(JSON.stringify({
+            type: "collection_snapshot",
+            collection: col,
+            requestId: msg.requestId,
+            data: colDataArray
+          }));
+          return;
+        }
+
         // 4. Instant Mutation / Database Write over WebSocket
         if (msg.type === "change" && msg.collection && msg.id) {
           const { op, collection: col, id, data } = msg;

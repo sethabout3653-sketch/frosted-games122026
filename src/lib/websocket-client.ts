@@ -57,6 +57,7 @@ export class WebSocketClient {
 
   // Outgoing message buffer for offline / reconnect periods
   private sendQueue: string[] = [];
+  private pendingFetches = new Map<string, (data: any[]) => void>();
 
   private constructor() {
     // Only connect in browser environments
@@ -236,6 +237,15 @@ export class WebSocketClient {
 
   private handleIncomingMessage(msg: any) {
     if (!msg || typeof msg !== "object") return;
+
+    if (msg.type === "collection_snapshot" && msg.collection) {
+      const cb = this.pendingFetches.get(msg.requestId);
+      if (cb) {
+        cb(msg.data || []);
+        this.pendingFetches.delete(msg.requestId);
+      }
+      return;
+    }
 
     if (msg.type === "pong") {
       this.lastPongReceived = Date.now();
@@ -426,6 +436,39 @@ export class WebSocketClient {
     return this.sendRaw({
       type: "ai_chat",
       ...payload,
+    });
+  }
+
+  /**
+   * Fetch a full collection from SQLite/memoryStore via pure WebSocket snapshot message
+   */
+  public fetchCollection(collectionName: string): Promise<any[]> {
+    return new Promise((resolve) => {
+      const requestId = "req_" + Math.random().toString(36).substring(2, 11);
+      
+      const timeout = setTimeout(() => {
+        if (this.pendingFetches.has(requestId)) {
+          this.pendingFetches.delete(requestId);
+          resolve([]);
+        }
+      }, 5000);
+
+      this.pendingFetches.set(requestId, (data) => {
+        clearTimeout(timeout);
+        resolve(data);
+      });
+
+      const sent = this.sendRaw({
+        type: "fetch_collection",
+        collection: collectionName,
+        requestId,
+      });
+
+      if (!sent) {
+        this.pendingFetches.delete(requestId);
+        clearTimeout(timeout);
+        resolve([]);
+      }
     });
   }
 

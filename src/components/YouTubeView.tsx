@@ -279,23 +279,9 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
 
           let filtered = processed;
           if (activeSubTab === "shorts") {
-            // Filter strictly for videos under 2:00 duration or containing shorts keyword
-            filtered = processed.filter((v: any) => {
-              const dur = v.duration || "";
-              const titleLower = (v.title || "").toLowerCase();
-              if (titleLower.includes("compilation") || titleLower.includes("longest") || titleLower.includes("marathon") || titleLower.includes("full episode") || titleLower.includes("best of") || titleLower.includes("history of")) {
-                return false;
-              }
-              const parts = dur.split(":");
-              if (parts.length === 2) {
-                const mins = parseInt(parts[0], 10);
-                const secs = parseInt(parts[1], 10);
-                if (mins === 0 || (mins === 1 && secs <= 30)) {
-                  return true;
-                }
-              }
-              return titleLower.includes("shorts") || titleLower.includes("short");
-            });
+            // Keep all returned videos to ensure plenty of shorts content without restrictive filters!
+            // Just ensure they are marked as shorts.
+            filtered = processed.map((v: any) => ({ ...v, isShort: true }));
 
             // Prepend curated shorts if there's no search query and user is browsing Trending Shorts
             if (!deferredSearch.trim() && selectedCategory === "all") {
