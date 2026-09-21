@@ -11,6 +11,8 @@ import {
   Type,
   ChevronDown,
   Eye,
+  EyeOff,
+  Key,
   Music,
   Play,
   Volume2,
@@ -50,6 +52,17 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
   const [isCustomOpen, setIsCustomOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
 
+  // Gemini API Key state
+  const [geminiApiKey, setGeminiApiKey] = useState(() => {
+    try {
+      return localStorage.getItem("frosted_gemini_api_key") || "";
+    } catch (e) {
+      return "";
+    }
+  });
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [isApiKeySaved, setIsApiKeySaved] = useState(false);
+
   // Call Ringtone state
   const [ringtones, setRingtones] = useState<RingtoneDefinition[]>(() => getAllRingtones());
   const [currentRingtone, setCurrentRingtone] = useState<string>(() => getSavedRingtone());
@@ -66,6 +79,10 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
       setCurrentRingtone(getSavedRingtone());
       const current = getSavedTabCloak();
       setActiveCloak(current);
+      setIsApiKeySaved(false);
+      try {
+        setGeminiApiKey(localStorage.getItem("frosted_gemini_api_key") || "");
+      } catch (e) {}
       if (current.id === "custom") {
         setCustomTitle(current.title);
         setCustomIconUrl(current.icon);
@@ -745,6 +762,72 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
                     </motion.form>
                   )}
                 </AnimatePresence>
+              </div>
+
+              {/* Gemini API Key Configuration */}
+              <div
+                style={{
+                  backgroundColor: "var(--theme-surface)",
+                  borderColor: "var(--theme-border-subtle)",
+                }}
+                className="rounded-2xl border p-4 sm:p-5 space-y-4 shadow-sm"
+              >
+                <div className="flex items-center gap-2">
+                  <Key size={16} className="text-[var(--theme-text-accent)]" />
+                  <h3 className="text-sm font-bold text-white tracking-wide">
+                    Gemini AI Configuration
+                  </h3>
+                </div>
+
+                <p className="text-xs text-neutral-300 leading-relaxed">
+                  Provide your own <strong>Gemini API Key</strong> to ensure 100% private, direct access to the live AI model on external environments like Render. If no key is configured, the application falls back to a built-in offline generative model.
+                </p>
+
+                <div className="flex flex-col sm:flex-row items-stretch gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      value={geminiApiKey}
+                      onChange={(e) => {
+                        setGeminiApiKey(e.target.value);
+                        setIsApiKeySaved(false);
+                      }}
+                      placeholder="AIzaSy..."
+                      style={{
+                        backgroundColor: "var(--theme-darkest)",
+                        borderColor: "var(--theme-border)",
+                      }}
+                      className="w-full h-10 pl-3 pr-10 rounded-xl border text-xs text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-[var(--theme-border-strong)] transition-all duration-150"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                    >
+                      {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        localStorage.setItem("frosted_gemini_api_key", geminiApiKey.trim());
+                        setIsApiKeySaved(true);
+                      } catch (e) {
+                        console.error(e);
+                      }
+                    }}
+                    style={{
+                      backgroundColor: "var(--theme-accent)",
+                      borderColor: "var(--theme-border)",
+                    }}
+                    className="h-10 px-4 rounded-xl border text-white font-semibold text-xs transition-all duration-150 shadow-sm cursor-pointer hover:brightness-110 active:scale-95 flex items-center justify-center gap-2 shrink-0"
+                  >
+                    {isApiKeySaved ? <Check size={14} className="text-emerald-400" /> : null}
+                    <span>{isApiKeySaved ? "Saved Key!" : "Save Key"}</span>
+                  </button>
+                </div>
               </div>
             </div>
 

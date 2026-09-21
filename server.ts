@@ -2032,20 +2032,19 @@ const PORT = 3000;
   let geminiClientInstance: GoogleGenAI | null = null;
   let quotaExhaustedCooldown = 0;
 
-  function getGeminiClient(): GoogleGenAI | null {
-    const apiKey = process.env.GEMINI_API_KEY;
+  function getGeminiClient(customKey?: string): GoogleGenAI | null {
+    const apiKey = (typeof customKey === "string" && customKey.trim().length > 0)
+      ? customKey.trim()
+      : process.env.GEMINI_API_KEY;
     if (!apiKey) return null;
-    if (!geminiClientInstance) {
-      geminiClientInstance = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
+    return new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
         },
-      });
-    }
-    return geminiClientInstance;
+      },
+    });
   }
 
   // 🛡️ Core Groq & Gemini Safety Engine with High-Speed Inference Routing
@@ -3176,7 +3175,7 @@ This topic encompasses key academic principles and applications. In practice, ma
 
     // Google Gemini Engine
     try {
-      const gemini = getGeminiClient();
+      const gemini = getGeminiClient(customKey);
       if (gemini && Date.now() >= quotaExhaustedCooldown) {
         const candidateModels = ["gemini-3.1-flash-lite", "gemini-3.8-flash"];
         const formattedHistory = messages.map((m: any) => {

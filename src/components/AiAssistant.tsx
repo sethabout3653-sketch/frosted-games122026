@@ -319,6 +319,7 @@ export default function AiAssistant() {
           model: selectedModel,
           systemPrompt,
           temperature: 0.7,
+          customKey: localStorage.getItem("frosted_gemini_api_key") || "",
         }),
       });
 
