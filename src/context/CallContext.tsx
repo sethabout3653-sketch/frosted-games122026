@@ -73,6 +73,8 @@ interface CallContextType {
   toggleMute: () => void;
   toggleDeafen: () => void;
   toggleScreenShare: () => Promise<void>;
+  stopScreenShare: () => Promise<void>;
+  startScreenShare: () => Promise<void>;
   requestSwitchToVideo: () => void;
   respondToVideoSwitch: (accept: boolean) => Promise<void>;
   toggleCamera: () => Promise<void>;
@@ -1095,29 +1097,37 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Screen Share Toggle for 1-on-1 Direct Calls
-  const toggleScreenShare = useCallback(async () => {
+  // Stop Screen Share for 1-on-1 Direct Calls
+  const stopScreenShare = useCallback(async () => {
+    if (screenStreamRef.current) {
+      try {
+        screenStreamRef.current.getTracks().forEach((t) => {
+          try {
+            t.stop();
+          } catch {}
+        });
+      } catch {}
+      screenStreamRef.current = null;
+    }
+    setScreenStream(null);
+    setIsScreenSharing(false);
+
     const pc = peerConnectionRef.current;
     const currentAct = activeCallRef.current;
     const myProf = getMyProfile();
-    if (!currentAct || !myProf?.uid || !pc) return;
 
-    if (screenStreamRef.current) {
-      // STOP screen share
-      screenStreamRef.current.getTracks().forEach((t) => t.stop());
-      screenStreamRef.current = null;
-      setScreenStream(null);
-      setIsScreenSharing(false);
-
-      const senders = pc.getSenders();
-      const videoSender = senders.find((s) => s.track && s.track.kind === "video");
-      const localCameraTrack = localStreamRef.current?.getVideoTracks()[0];
-
-      if (videoSender) {
-        await videoSender.replaceTrack(localCameraTrack && activeCallRef.current?.isCameraOn ? localCameraTrack : null);
-      }
-
+    if (pc && currentAct && myProf?.uid) {
       try {
+        const senders = pc.getSenders();
+        const videoSender = senders.find((s) => s.track && s.track.kind === "video");
+        const localCameraTrack = localStreamRef.current?.getVideoTracks()[0];
+
+        if (videoSender) {
+          await videoSender.replaceTrack(
+            localCameraTrack && activeCallRef.current?.isCameraOn ? localCameraTrack : null
+          ).catch(() => {});
+        }
+
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         sendBroadcastSignal({
@@ -1128,12 +1138,18 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           sdp: JSON.stringify(offer),
         });
       } catch (err) {
-        console.error("Error creating offer after stopping screen share:", err);
+        console.error("Error finalizing offer after stopping screen share:", err);
       }
-      return;
     }
+  }, [getMyProfile]);
 
-    // START screen share
+  // Start Screen Share for 1-on-1 Direct Calls
+  const startScreenShare = useCallback(async () => {
+    const pc = peerConnectionRef.current;
+    const currentAct = activeCallRef.current;
+    const myProf = getMyProfile();
+    if (!currentAct || !myProf?.uid || !pc) return;
+
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
@@ -1142,7 +1158,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           frameRate: { ideal: 30 },
         },
         audio: {
-          suppressLocalAudioPlayback: true, // Crucial: prevent local audio playback
+          suppressLocalAudioPlayback: true,
           echoCancellation: true,
           noiseSuppression: true,
         } as any,
@@ -1183,39 +1199,23 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       screenVideoTrack.onended = () => {
-        if (screenStreamRef.current) {
-          screenStreamRef.current.getTracks().forEach((t) => t.stop());
-          screenStreamRef.current = null;
-        }
-        setScreenStream(null);
-        setIsScreenSharing(false);
-
-        const currentPc = peerConnectionRef.current;
-        if (currentPc && activeCallRef.current) {
-          const currentSenders = currentPc.getSenders();
-          const vSender = currentSenders.find((s) => s.track && s.track.kind === "video");
-          const localCam = localStreamRef.current?.getVideoTracks()[0];
-          if (vSender) {
-            vSender.replaceTrack(localCam && activeCallRef.current.isCameraOn ? localCam : null).catch(() => {});
-          }
-          currentPc.createOffer().then((off) => {
-            currentPc.setLocalDescription(off);
-            sendBroadcastSignal({
-              type: "direct_call_offer",
-              uid: myProf.uid,
-              targetUid: activeCallRef.current!.partnerUid,
-              callId: activeCallRef.current!.callId,
-              sdp: JSON.stringify(off),
-            });
-          }).catch(() => {});
-        }
+        stopScreenShare();
       };
     } catch (err) {
       console.error("Error starting screen share in direct call:", err);
       setScreenStream(null);
       setIsScreenSharing(false);
     }
-  }, [getMyProfile]);
+  }, [getMyProfile, stopScreenShare]);
+
+  // Screen Share Toggle for 1-on-1 Direct Calls
+  const toggleScreenShare = useCallback(async () => {
+    if (isScreenSharing || screenStreamRef.current) {
+      await stopScreenShare();
+    } else {
+      await startScreenShare();
+    }
+  }, [isScreenSharing, stopScreenShare, startScreenShare]);
 
   // Action: Start Group Call (General Voice)
   const startGroupCall = useCallback(() => {
@@ -1251,6 +1251,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toggleMute,
         toggleDeafen,
         toggleScreenShare,
+        stopScreenShare,
+        startScreenShare,
         requestSwitchToVideo,
         respondToVideoSwitch,
         toggleCamera,

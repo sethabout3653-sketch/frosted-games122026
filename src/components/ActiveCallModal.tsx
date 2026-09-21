@@ -37,6 +37,7 @@ export default function ActiveCallModal() {
     toggleDeafen,
     toggleCamera,
     toggleScreenShare,
+    stopScreenShare,
     requestSwitchToVideo,
     respondToVideoSwitch,
   } = useCall();
@@ -109,6 +110,38 @@ export default function ActiveCallModal() {
       }
     }
   }, [isFullscreen, isScreenSharing, screenStream, remoteStream, localStream]);
+
+  // Exit fullscreen helper
+  const exitFullscreenMode = useCallback(async () => {
+    setIsFullscreen(false);
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+        setIsNativeFullscreen(false);
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  // Safe stop screen share that cleanly leaves fullscreen presentation
+  const handleStopScreenShare = useCallback(async () => {
+    if (isFullscreen) {
+      await exitFullscreenMode();
+    }
+    await stopScreenShare();
+  }, [isFullscreen, exitFullscreenMode, stopScreenShare]);
+
+  // Auto exit fullscreen screen share when sharing ends (if not in video call)
+  useEffect(() => {
+    if (
+      isFullscreen &&
+      !isScreenSharing &&
+      (!remoteStream || (activeCall?.callType !== "video" && remoteStream.getVideoTracks().length === 0))
+    ) {
+      exitFullscreenMode();
+    }
+  }, [isFullscreen, isScreenSharing, remoteStream, activeCall?.callType, exitFullscreenMode]);
 
   // Fullscreen toggle
   const toggleFullscreenMode = useCallback(async () => {
@@ -414,7 +447,7 @@ export default function ActiveCallModal() {
                   </button>
                   <button
                     type="button"
-                    onClick={toggleScreenShare}
+                    onClick={handleStopScreenShare}
                     className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
                   >
                     <ScreenShareOff size={14} />
@@ -448,7 +481,7 @@ export default function ActiveCallModal() {
                   </button>
                   <button
                     type="button"
-                    onClick={toggleScreenShare}
+                    onClick={handleStopScreenShare}
                     className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
                   >
                     <ScreenShareOff size={14} />
@@ -743,9 +776,20 @@ export default function ActiveCallModal() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-white">{activeCall.partnerName}</span>
                   {isScreenSharing ? (
-                    <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded font-bold flex items-center gap-1">
-                      <MonitorUp size={11} /> SCREEN SHARE
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded font-bold flex items-center gap-1">
+                        <MonitorUp size={11} /> SCREEN SHARE
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleStopScreenShare}
+                        className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold transition-all cursor-pointer shadow flex items-center gap-1 active:scale-95"
+                        title="Stop sharing screen"
+                      >
+                        <ScreenShareOff size={12} />
+                        <span>Stop Sharing</span>
+                      </button>
+                    </div>
                   ) : activeCall.callType === "video" ? (
                     <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded font-bold">
                       VIDEO CALL
@@ -826,7 +870,7 @@ export default function ActiveCallModal() {
                     </p>
                     <button
                       type="button"
-                      onClick={toggleScreenShare}
+                      onClick={handleStopScreenShare}
                       className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-2 active:scale-95"
                     >
                       <ScreenShareOff size={16} />
@@ -905,7 +949,7 @@ export default function ActiveCallModal() {
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggleScreenShare();
+                      handleStopScreenShare();
                     }}
                     className="ml-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition-all cursor-pointer shadow active:scale-95"
                   >
@@ -965,15 +1009,15 @@ export default function ActiveCallModal() {
                 {/* Screen Share toggle */}
                 <button
                   type="button"
-                  onClick={toggleScreenShare}
+                  onClick={isScreenSharing ? handleStopScreenShare : toggleScreenShare}
                   className={`p-3 rounded-xl transition-all cursor-pointer ${
                     isScreenSharing
-                      ? "bg-[#0e1b52] border border-indigo-600/70 text-white font-bold shadow-lg shadow-indigo-950/50"
+                      ? "bg-rose-600 hover:bg-rose-500 text-white font-bold shadow-lg shadow-rose-950/50 active:scale-95"
                       : "bg-neutral-800 text-white hover:bg-neutral-700"
                   }`}
                   title={isScreenSharing ? "Stop Screen Sharing" : "Share Screen"}
                 >
-                  {isScreenSharing ? <MonitorOff size={18} /> : <MonitorUp size={18} />}
+                  {isScreenSharing ? <ScreenShareOff size={18} /> : <MonitorUp size={18} />}
                 </button>
 
                 {/* Deafen toggle */}

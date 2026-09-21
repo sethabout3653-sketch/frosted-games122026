@@ -378,16 +378,6 @@ export default function VoiceChannel({
   const fullscreenContainerRef = useRef<HTMLDivElement | null>(null);
   const fullscreenVideoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Auto-reset fullscreen mode if active screen share ends
-  useEffect(() => {
-    if (fullscreenType === "screen") {
-      if (!activeScreenShare || (fullscreenUid && activeScreenShare.uid !== fullscreenUid)) {
-        setFullscreenUid(null);
-        setFullscreenType("camera");
-      }
-    }
-  }, [activeScreenShare, fullscreenType, fullscreenUid]);
-
   // Robust screen share stream & video element binding watcher to prevent black screen stalls
   useEffect(() => {
     if (!activeScreenShare) return;
@@ -2302,14 +2292,13 @@ export default function VoiceChannel({
       localScreenVideoRef.current.srcObject = null;
     }
 
-    // If currently viewing local screen in fullscreen, revert
-    if (fullscreenUid === profile.uid && fullscreenType === "screen") {
-      setFullscreenUid(null);
-      setFullscreenType("camera");
+    // If currently viewing screen share in fullscreen, cleanly exit fullscreen
+    if (fullscreenType === "screen" && (fullscreenUid === profile.uid || !fullscreenUid)) {
+      exitFullscreen();
     }
 
     setTrackTrigger((v) => v + 1);
-  }, [fullscreenType, fullscreenUid, getOrCreateDummyScreenTrack, profile.uid, sendSignal]);
+  }, [exitFullscreen, fullscreenType, fullscreenUid, getOrCreateDummyScreenTrack, profile.uid, sendSignal]);
 
   // Start Screen Share with Audio Support
   const startScreenShare = async () => {
@@ -3937,9 +3926,22 @@ export default function VoiceChannel({
                   {targetUsername}
                 </span>
                 {isTargetScreen ? (
-                  <span className="text-[10px] bg-[#0c1642] text-indigo-200 border border-indigo-600/60 px-2 py-0.5 rounded font-extrabold flex items-center gap-1">
-                    <MonitorUp size={11} /> SCREEN SHARE
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] bg-[#0c1642] text-indigo-200 border border-indigo-600/60 px-2 py-0.5 rounded font-extrabold flex items-center gap-1">
+                      <MonitorUp size={11} /> SCREEN SHARE
+                    </span>
+                    {isFullscreenLocal && (
+                      <button
+                        type="button"
+                        onClick={stopScreenShare}
+                        className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold transition-all cursor-pointer shadow flex items-center gap-1 active:scale-95"
+                        title="Stop sharing screen"
+                      >
+                        <ScreenShareOff size={12} />
+                        <span>Stop Sharing</span>
+                      </button>
+                    )}
+                  </div>
                 ) : targetIsVideo ? (
                   <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded font-bold">
                     CAMERA
@@ -4247,15 +4249,15 @@ export default function VoiceChannel({
 
               {/* Screen Share toggle */}
               <button
-                onClick={toggleScreenShare}
+                onClick={isScreenSharing ? stopScreenShare : toggleScreenShare}
                 className={`p-3 rounded-xl transition-all cursor-pointer ${
                   isScreenSharing
-                    ? "bg-[#0e1b52] border border-indigo-600/70 text-white font-bold shadow-lg shadow-indigo-950/50"
+                    ? "bg-rose-600 hover:bg-rose-500 text-white font-bold shadow-lg shadow-rose-950/50 active:scale-95"
                     : "bg-neutral-800 text-white hover:bg-neutral-700"
                 }`}
                 title={isScreenSharing ? "Stop Screen Sharing" : "Share Screen"}
               >
-                {isScreenSharing ? <ScreenShare size={18} /> : <MonitorUp size={18} />}
+                {isScreenSharing ? <ScreenShareOff size={18} /> : <MonitorUp size={18} />}
               </button>
 
               {/* Screen Audio volume in fullscreen */}
