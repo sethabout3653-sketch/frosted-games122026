@@ -3118,56 +3118,27 @@ export default function VoiceChannel({
                       style={{ transform: `scale(${screenZoom})` }}
                     >
                       {activeScreenShare.isLocal ? (
-                        screenStreamRef.current ? (
-                          <div className="relative w-full h-full flex items-center justify-center bg-black">
-                            <video
-                              ref={(el) => {
-                                localScreenVideoRef.current = el;
-                                if (el && screenStreamRef.current) {
-                                  if (el.srcObject !== screenStreamRef.current) {
-                                    el.srcObject = screenStreamRef.current;
-                                  }
-                                  el.muted = true;
-                                  el.defaultMuted = true;
-                                  el.volume = 0;
-                                  el.play().catch(() => {});
-                                }
-                              }}
-                              autoPlay
-                              playsInline
-                              muted
-                              className={`w-full h-full ${
-                                screenFitMode === "cover" ? "object-cover" : "object-contain"
-                              }`}
-                            />
-                            <div className="absolute top-3 right-3 z-20 flex items-center gap-2 bg-neutral-900/90 border border-indigo-500/40 px-3 py-1.5 rounded-full text-xs text-white shadow-xl backdrop-blur-md pointer-events-auto">
-                              <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                              <span className="font-semibold text-[11px]">Your Screen (Live Preview)</span>
-                            </div>
+                        <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
+                          <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
+                            <MonitorUp size={32} />
                           </div>
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
-                            <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
-                              <MonitorUp size={32} />
-                            </div>
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
-                              <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
-                                LIVE
-                              </span>
-                            </div>
-                            <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
-                              Your screen is live for all participants in high definition.
-                            </p>
-                            <button
-                              onClick={stopScreenShare}
-                              className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
-                            >
-                              <ScreenShareOff size={14} />
-                              <span>Stop Sharing</span>
-                            </button>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-base font-extrabold text-white tracking-wide">You are sharing your screen</span>
+                            <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
+                              LIVE
+                            </span>
                           </div>
-                        )
+                          <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
+                            Your screen is live for all participants in high definition.
+                          </p>
+                          <button
+                            onClick={stopScreenShare}
+                            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-2 active:scale-95"
+                          >
+                            <ScreenShareOff size={15} />
+                            <span>Stop Sharing</span>
+                          </button>
+                        </div>
                       ) : (
                         <video
                           ref={(el) => {
@@ -3198,7 +3169,7 @@ export default function VoiceChannel({
                       <div className="bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-neutral-800 flex items-center gap-2 shadow-lg">
                         <MonitorUp size={15} className="text-indigo-400 animate-pulse flex-shrink-0" />
                         <span className="text-xs font-bold text-white tracking-wide truncate max-w-[140px] sm:max-w-[220px]">
-                          {activeScreenShare.username}'s Screen
+                          {activeScreenShare.isLocal ? "Your Screen (Live)" : `${activeScreenShare.username}'s Screen`}
                         </span>
                         <span className="text-[10px] bg-[#0c1642] text-indigo-300 border border-indigo-700/60 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider">
                           LIVE
@@ -3299,56 +3270,27 @@ export default function VoiceChannel({
                       style={{ transform: `scale(${screenZoom})` }}
                     >
                       {activeScreenShare.isLocal ? (
-                        screenStreamRef.current ? (
-                          <div className="relative w-full h-full flex items-center justify-center bg-black">
-                            <video
-                              ref={(el) => {
-                                localScreenVideoRef.current = el;
-                                if (el && screenStreamRef.current) {
-                                  if (el.srcObject !== screenStreamRef.current) {
-                                    el.srcObject = screenStreamRef.current;
-                                  }
-                                  el.muted = true;
-                                  el.defaultMuted = true;
-                                  el.volume = 0;
-                                  el.play().catch(() => {});
-                                }
-                              }}
-                              autoPlay
-                              playsInline
-                              muted
-                              className={`w-full h-full ${
-                                screenFitMode === "cover" ? "object-cover" : "object-contain"
-                              }`}
-                            />
-                            <div className="absolute top-3 right-3 z-20 flex items-center gap-2 bg-neutral-900/90 border border-indigo-500/40 px-3 py-1.5 rounded-full text-xs text-white shadow-xl backdrop-blur-md pointer-events-auto">
-                              <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                              <span className="font-semibold text-[11px]">Your Screen (Live Preview)</span>
-                            </div>
+                        <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
+                          <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
+                            <MonitorUp size={32} />
                           </div>
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
-                            <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
-                              <MonitorUp size={32} />
-                            </div>
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
-                              <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
-                                LIVE
-                              </span>
-                            </div>
-                            <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
-                              Your screen is live for all participants in high definition.
-                            </p>
-                            <button
-                              onClick={stopScreenShare}
-                              className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
-                            >
-                              <ScreenShareOff size={14} />
-                              <span>Stop Sharing</span>
-                            </button>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-base font-extrabold text-white tracking-wide">You are sharing your screen</span>
+                            <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
+                              LIVE
+                            </span>
                           </div>
-                        )
+                          <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
+                            Your screen is live for all participants in high definition.
+                          </p>
+                          <button
+                            onClick={stopScreenShare}
+                            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-2 active:scale-95"
+                          >
+                            <ScreenShareOff size={15} />
+                            <span>Stop Sharing</span>
+                          </button>
+                        </div>
                       ) : (
                         <video
                           ref={(el) => {
@@ -3379,7 +3321,7 @@ export default function VoiceChannel({
                       <div className="bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-neutral-800 flex items-center gap-2 shadow-lg">
                         <MonitorUp size={15} className="text-indigo-400 animate-pulse flex-shrink-0" />
                         <span className="text-xs font-bold text-white tracking-wide truncate max-w-[140px] sm:max-w-[220px]">
-                          {activeScreenShare.username}'s Screen
+                          {activeScreenShare.isLocal ? "Your Screen (Live)" : `${activeScreenShare.username}'s Screen`}
                         </span>
                         <span className="text-[10px] bg-[#0c1642] text-indigo-300 border border-indigo-700/60 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider">
                           LIVE
