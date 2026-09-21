@@ -411,6 +411,63 @@ youtubeRouter.get("/search", async (req, res) => {
   }
 });
 
+// Live search autocomplete suggestions (e.g. for music query suggestions)
+youtubeRouter.get("/suggest", async (req, res) => {
+  const query = (req.query.q as string || "").trim();
+  if (!query) {
+    return res.json({ success: true, suggestions: [] });
+  }
+  try {
+    const url = `https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(query)}`;
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(2500),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const suggestions = Array.isArray(data[1]) ? data[1] : [];
+      return res.json({ success: true, suggestions: suggestions.slice(0, 8) });
+    }
+  } catch (e) {
+    // Non-fatal
+  }
+  return res.json({ success: true, suggestions: [] });
+});
+
+// Music Trending / Genre tracks for warm non-robotic discovery
+youtubeRouter.get("/music/trending", async (req, res) => {
+  const genre = (req.query.genre as string || "all").toLowerCase();
+  const cacheKey = `music_trending_${genre}`;
+  const cached = cacheMap.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < 10 * 60 * 1000) {
+    return res.json({ success: true, genre, videos: cached.data, cached: true });
+  }
+
+  const genreQueries: Record<string, string> = {
+    all: "top hits 2026 music official audio",
+    trending: "billboard hot 100 songs 2026 official music video",
+    lofi: "lofi hip hop radio beats to relax study to",
+    hiphop: "top rap hip hop hits 2026 official audio",
+    pop: "pop hits 2026 official video",
+    rnb: "r&b chill soul music 2026",
+    edm: "edm electronic dance festival music 2026",
+    rock: "modern rock indie alternative 2026",
+    gaming: "gaming soundtrack chill ost synthwave",
+    acoustic: "cozy acoustic coffee house songs guitar",
+    ambient: "ambient relaxing soundscapes focus deep sleep",
+  };
+
+  const searchQuery = genreQueries[genre] || `${genre} music official audio`;
+  try {
+    const videos = await scrapeYouTubeSearch(searchQuery);
+    const musicVideos = videos.map((v) => ({ ...v, isMusic: true }));
+    cacheMap.set(cacheKey, { timestamp: Date.now(), data: musicVideos });
+    return res.json({ success: true, genre, videos: musicVideos });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message, videos: [] });
+  }
+});
+
 // 3. GET /api/youtube/channel/:channelId - Channel latest uploads
 youtubeRouter.get("/channel/:channelId", async (req, res) => {
   const { channelId } = req.params;

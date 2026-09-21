@@ -18,6 +18,10 @@ import { CallProvider, useCall } from "./context/CallContext";
 import IncomingCallNotification from "./components/IncomingCallNotification";
 import ActiveCallModal from "./components/ActiveCallModal";
 import { useFavorites } from "./lib/favorites";
+import { MusicProvider } from "./context/MusicContext";
+import MusicView from "./components/MusicView";
+import MusicPlayerBar from "./components/MusicPlayerBar";
+import MusicExpandedModal from "./components/MusicExpandedModal";
 
 const SOUNDBOARD_GAME: Game = {
   id: "soundboard",
@@ -71,7 +75,7 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
 }
 
 function AppContent() {
-  const [currentView, setCurrentView] = useState<"home" | "game" | "chat">("home");
+  const [currentView, setCurrentView] = useState<"home" | "game" | "chat" | "music">("home");
   const [chatInitialTab, setChatInitialTab] = useState<"chat" | "voice" | "profile">("chat");
   const [autoJoinVoice, setAutoJoinVoice] = useState(false);
   const { setOnOpenGroupVoice } = useCall();
@@ -259,6 +263,11 @@ function AppContent() {
     setCurrentView("chat");
   }, []);
 
+  const handleOpenMusic = useCallback(() => {
+    setSelectedGame(null);
+    setCurrentView("music");
+  }, []);
+
   // Ultra-fast pre-indexed filtering
   const processedGames = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase();
@@ -305,6 +314,7 @@ function AppContent() {
         currentView={currentView}
         onGoHome={handleBackToHub}
         onChatClick={handleOpenChat}
+        onMusicClick={handleOpenMusic}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenTheme={() => setIsThemeOpen(true)}
       />
@@ -400,6 +410,24 @@ function AppContent() {
             persistent
           />
         </motion.div>
+
+        {/* YouTube Music Lounge View */}
+        <motion.div 
+          animate={{
+            opacity: currentView === "music" ? 1 : 0,
+            y: currentView === "music" ? 0 : 16,
+            scale: currentView === "music" ? 1 : 0.99,
+          }}
+          initial={{ opacity: 0, y: 16, scale: 0.99 }}
+          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          style={{ 
+            pointerEvents: currentView === "music" ? "auto" : "none",
+            transform: "translateZ(0)"
+          }}
+          className={`flex-1 w-full flex flex-col min-h-0 ${currentView === "music" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
+        >
+          <MusicView />
+        </motion.div>
       </main>
 
       {/* Footer Branding Area (Home view) */}
@@ -439,6 +467,10 @@ function AppContent() {
   {/* Real-time P2P Call Modals & In-App Top Right Notification */}
   <IncomingCallNotification />
   <ActiveCallModal />
+
+  {/* Persistent Bottom Music Player Bar & Listening Lounge */}
+  <MusicPlayerBar />
+  <MusicExpandedModal />
   
   </div>
   </>
@@ -448,7 +480,9 @@ function AppContent() {
 export default function App() {
   return (
     <CallProvider>
-      <AppContent />
+      <MusicProvider>
+        <AppContent />
+      </MusicProvider>
     </CallProvider>
   );
 }
