@@ -99,5 +99,7 @@ export interface YouTubeVideo {
   streamUrl?: string;
   streamFormats?: YouTubeStreamFormat[];
   hlsUrl?: string;
+  isShort?: boolean;
+  isMusic?: boolean;
 }
 

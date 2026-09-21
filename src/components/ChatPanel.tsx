@@ -86,6 +86,17 @@ const POPULAR_TEXT_REACTIONS = [
   "Cinema",
 ];
 
+export function isUserModerator(username: string, uid?: string): boolean {
+  const name = (username || "").trim().toLowerCase();
+  const id = (uid || "").trim().toLowerCase();
+  return (
+    name.includes("logicgatesobviously") ||
+    name.includes("sethplayz12") ||
+    id.includes("logicgatesobviously") ||
+    id.includes("sethplayz12")
+  );
+}
+
 interface ChatPanelProps {
   profile: ChatProfile;
   activeChannel?: string;
@@ -161,6 +172,13 @@ export default function ChatPanel({
   const initialCache = getCachedMessages();
   const [messages, setMessages] = useState<ChatMessage[]>(initialCache);
   const [messageLimit, setMessageLimit] = useState(50);
+
+  // Moderator Action States
+  const [activeModeration, setActiveModeration] = useState<any | null>(null);
+  const [modTargetUser, setModTargetUser] = useState<MemberUser | null>(null);
+  const [modActionType, setModActionType] = useState<"kick" | "ban">("kick");
+  const [modReason, setModReason] = useState("");
+  const [modBanDuration, setModBanDuration] = useState<number>(5 * 60 * 1000); // 5 mins
 
   const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
@@ -265,6 +283,30 @@ export default function ChatPanel({
       document.removeEventListener("mousedown", handleReactionClickOutside);
     };
   }, [activeReactionMenuMsgId]);
+
+  // Real-time moderation enforcement listener
+  useEffect(() => {
+    if (!profile?.uid) return;
+    const unsub = onSnapshot(doc(db, "moderation_actions", profile.uid), (docSnap: any) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.type === "ban") {
+          if (data.banUntil === -1 || Date.now() < data.banUntil) {
+            setActiveModeration(data);
+          } else {
+            // Ban expired, clean up
+            deleteDoc(doc(db, "moderation_actions", profile.uid)).catch(() => {});
+            setActiveModeration(null);
+          }
+        } else if (data.type === "kick") {
+          setActiveModeration(data);
+        }
+      } else {
+        setActiveModeration(null);
+      }
+    });
+    return () => unsub();
+  }, [profile?.uid]);
 
   const updateTypingStatus = async (typing: boolean) => {
     if (!profile) return;
@@ -484,8 +526,7 @@ export default function ChatPanel({
         snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as any;
           const uname = (data.username || "").trim();
-          if (!uname || uname.toLowerCase() === "anonymous" || uname.toLowerCase() === "guest") {
-            deleteDoc(doc(db, "presence", docSnap.id)).catch(() => {});
+          if (!uname) {
             return;
           }
           users.push({
@@ -677,6 +718,10 @@ export default function ChatPanel({
   };
 
   const handleDeleteMessage = async (msgId: string) => {
+    if (!isUserModerator(profile.username, profile.uid)) {
+      alert("Only moderators can delete messages.");
+      return;
+    }
     setMessages((prev) => {
       const updated = prev.filter((m) => m.id !== msgId);
       saveCachedMessages(updated);
@@ -738,6 +783,11 @@ export default function ChatPanel({
 
     // /clear or /delete-all command to instantly wipe all messages
     if (currentText === "/clear" || currentText === "/clearall" || currentText === "/delete-all") {
+      if (!isUserModerator(profile.username, profile.uid)) {
+        showModerationAlert("Permission Denied", "Only moderators can run clearance commands.");
+        setText("");
+        return;
+      }
       setText("");
       setMessages([]);
       saveCachedMessages([]);
@@ -2019,17 +2069,37 @@ export default function ChatPanel({
 
                       {/* Username & Status Label & Activity */}
                       <div className="flex-1 min-w-0 flex flex-col">
-                        <div className="flex items-center justify-between gap-1.5">
-                          <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="flex items-center justify-between gap-1.5 w-full">
+                          <div className="flex items-center gap-1 min-w-0">
                             <span className="text-xs font-bold text-neutral-200 truncate">
                               {user.username}
                             </span>
+                            {isUserModerator(user.username, user.uid) && (
+                              <span className="bg-red-950/80 text-red-400 border border-red-800/60 text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider flex-shrink-0" title="Community Moderator">
+                                MOD
+                              </span>
+                            )}
                             {isCurrentUser && (
                               <span className="bg-[#0a1236] text-indigo-300 border border-indigo-700/80 text-[9px] font-bold px-1 py-0.2 rounded uppercase tracking-wider flex-shrink-0">
                                 YOU
                               </span>
                             )}
                           </div>
+
+                          {/* Kick/Ban button for mods to manage others */}
+                          {isUserModerator(profile.username, profile.uid) && !isCurrentUser && (
+                            <button
+                              onClick={() => {
+                                setModTargetUser(user);
+                                setModActionType("kick");
+                                setModReason("");
+                              }}
+                              className="p-1 hover:bg-red-500/20 rounded text-red-400 hover:text-red-300 transition-colors cursor-pointer active:scale-95"
+                              title="Kick or Ban User"
+                            >
+                              <ShieldAlert size={11} />
+                            </button>
+                          )}
                         </div>
 
                         {/* Real-Time Activity Badge */}
@@ -2116,6 +2186,188 @@ export default function ChatPanel({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Moderation Action Configuration Dialog for Moderators */}
+      {modTargetUser && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
+          <div className="bg-[#121420] border border-white/10 rounded-2xl p-5 max-w-sm w-full text-left space-y-4 shadow-2xl text-white">
+            <div className="flex items-center justify-between border-b border-indigo-900/40 pb-2">
+              <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <ShieldAlert size={16} className="text-red-400" />
+                <span>Moderator Action</span>
+              </h3>
+              <button
+                onClick={() => setModTargetUser(null)}
+                className="text-neutral-400 hover:text-white cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="text-xs space-y-1 text-neutral-300">
+              <p>
+                Target User: <span className="text-white font-bold">{modTargetUser.username}</span>
+              </p>
+              <p className="text-neutral-500">UID: {modTargetUser.uid}</p>
+            </div>
+
+            {/* Action Type Tabs */}
+            <div className="grid grid-cols-2 gap-2 bg-[#090e2b] p-1 rounded-xl border border-indigo-950">
+              <button
+                type="button"
+                onClick={() => setModActionType("kick")}
+                className={`py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                  modActionType === "kick"
+                    ? "bg-indigo-600 text-white"
+                    : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                Kick (One-time)
+              </button>
+              <button
+                type="button"
+                onClick={() => setModActionType("ban")}
+                className={`py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                  modActionType === "ban"
+                    ? "bg-red-600 text-white"
+                    : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                Ban (Timed)
+              </button>
+            </div>
+
+            {/* Reason Input */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                Reason / Message
+              </label>
+              <input
+                type="text"
+                value={modReason}
+                onChange={(e) => setModReason(e.target.value)}
+                placeholder="e.g. Please be respectful"
+                className="w-full bg-[#090e2b] text-white placeholder-neutral-500 text-xs rounded-xl border border-indigo-950 p-2.5 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            {/* Ban Duration Select */}
+            {modActionType === "ban" && (
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                  Ban Duration
+                </label>
+                <select
+                  value={modBanDuration}
+                  onChange={(e) => setModBanDuration(Number(e.target.value))}
+                  className="w-full bg-[#090e2b] text-white text-xs rounded-xl border border-indigo-950 p-2.5 focus:outline-none focus:border-indigo-500"
+                >
+                  <option value={5 * 60 * 1000}>5 Minutes</option>
+                  <option value={30 * 60 * 1000}>30 Minutes</option>
+                  <option value={2 * 60 * 60 * 1000}>2 Hours</option>
+                  <option value={24 * 60 * 60 * 1000}>24 Hours</option>
+                  <option value={-1}>Permanent</option>
+                </select>
+              </div>
+            )}
+
+            {/* Submit / Cancel Buttons */}
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setModTargetUser(null)}
+                className="flex-1 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold text-xs cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!modReason.trim()) {
+                    alert("Please provide a reason.");
+                    return;
+                  }
+                  const banUntil = modActionType === "ban"
+                    ? (modBanDuration === -1 ? -1 : Date.now() + modBanDuration)
+                    : 0;
+
+                  await setDoc(doc(db, "moderation_actions", modTargetUser.uid), {
+                    type: modActionType,
+                    targetUid: modTargetUser.uid,
+                    targetUsername: modTargetUser.username,
+                    bannedBy: profile.username,
+                    reason: modReason.trim(),
+                    banUntil,
+                    timestamp: Date.now(),
+                  });
+
+                  setModTargetUser(null);
+                  setModReason("");
+                }}
+                className={`flex-1 py-2 rounded-xl text-white font-bold text-xs cursor-pointer transition-colors ${
+                  modActionType === "ban" ? "bg-red-600 hover:bg-red-500" : "bg-indigo-600 hover:bg-indigo-500"
+                }`}
+              >
+                Apply Action
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Enforced Ban/Kick Interstitial Screens */}
+      {activeModeration && activeModeration.type === "kick" && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-[999999] flex items-center justify-center p-4">
+          <div className="bg-[#121420] border border-red-500/30 rounded-2xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl text-white animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 mx-auto">
+              <ShieldAlert size={24} />
+            </div>
+            <h3 className="text-lg font-bold text-white">You have been kicked</h3>
+            <p className="text-sm text-neutral-400">
+              Reason: <span className="text-red-400 font-semibold">{activeModeration.reason}</span>
+            </p>
+            <p className="text-xs text-neutral-500">
+              Kicked by: {activeModeration.bannedBy}
+            </p>
+            <button
+              onClick={async () => {
+                await deleteDoc(doc(db, "moderation_actions", profile.uid)).catch(() => {});
+                setActiveModeration(null);
+              }}
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors shadow-lg active:scale-95"
+            >
+              Rejoin Chat
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activeModeration && activeModeration.type === "ban" && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-lg z-[999999] flex items-center justify-center p-4">
+          <div className="bg-[#121420] border border-red-500/50 rounded-2xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl text-white animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center text-red-500 mx-auto animate-pulse">
+              <Ban size={24} />
+            </div>
+            <h3 className="text-lg font-bold text-white">You have been banned</h3>
+            <p className="text-sm text-neutral-400">
+              Reason: <span className="text-red-400 font-semibold">{activeModeration.reason}</span>
+            </p>
+            <p className="text-xs text-neutral-500">
+              Banned by: {activeModeration.bannedBy}
+            </p>
+            <p className="text-sm text-indigo-400 font-semibold">
+              {activeModeration.banUntil === -1 ? (
+                "This ban is Permanent"
+              ) : (
+                `Ban expires: ${new Date(activeModeration.banUntil).toLocaleTimeString()}`
+              )}
+            </p>
+            <p className="text-xs text-neutral-500">
+              You will be able to rejoin once the ban timer expires.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

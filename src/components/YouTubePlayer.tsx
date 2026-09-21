@@ -90,7 +90,11 @@ export default function YouTubePlayer({
       </div>
 
       {/* Video Player Canvas Container */}
-      <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 shadow-2xl group select-none transition-all duration-300 w-full aspect-video">
+      <div className={`relative rounded-2xl overflow-hidden bg-black border border-white/10 shadow-2xl group select-none transition-all duration-300 ${
+        video.isShort
+          ? "aspect-[9/16] max-w-[400px] mx-auto"
+          : "w-full aspect-video"
+      }`}>
         <iframe
           src={`https://www.youtube-nocookie.com/embed/${cleanVideoId}?autoplay=1&rel=0&modestbranding=1`}
           title={video.title}

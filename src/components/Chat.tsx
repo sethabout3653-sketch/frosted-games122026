@@ -59,7 +59,7 @@ export default function Chat({
       // Optional url query for immediate multi-user testing (e.g. ?user=Alice)
       const params = new URLSearchParams(window.location.search);
       const urlUser = params.get("user");
-      if (urlUser && urlUser.trim().toLowerCase() !== "anonymous") {
+      if (urlUser) {
         return {
           uid: "user_" + urlUser.toLowerCase().replace(/[^a-z0-9]/g, ""),
           username: urlUser.trim(),
@@ -70,7 +70,7 @@ export default function Chat({
       const sessionSaved = sessionStorage.getItem("frosted_chat_profile");
       if (sessionSaved) {
         const parsed = JSON.parse(sessionSaved);
-        if (parsed && parsed.username && parsed.username.trim().toLowerCase() !== "anonymous") {
+        if (parsed && parsed.username) {
           return parsed;
         }
       }
@@ -78,7 +78,7 @@ export default function Chat({
       const saved = localStorage.getItem("frosted_chat_profile");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.username && parsed.username.trim().toLowerCase() !== "anonymous") {
+        if (parsed && parsed.username) {
           let tabId = sessionStorage.getItem("frosted_tab_id");
           if (!tabId) {
             tabId = Math.random().toString(36).substring(2, 6);
@@ -151,7 +151,7 @@ export default function Chat({
     rawVoiceUsers.forEach(u => {
       if (!u || !u.uid) return;
       const uname = (u.username || "").trim().toLowerCase();
-      if (!uname || uname === "anonymous" || uname === "guest") return;
+      if (!uname) return;
       
       const existing = userMap.get(uname);
       if (!existing || (u.timestamp || 0) > (existing.timestamp || 0) || u.uid === profile?.uid) {
@@ -188,7 +188,7 @@ export default function Chat({
         const data = d.data();
         const uname = (data?.username || "").trim();
         const unameClean = uname.toLowerCase();
-        if (!data?.uid || !uname || unameClean === "anonymous" || unameClean === "guest") {
+        if (!data?.uid || !uname) {
           return;
         }
         const ts = toTimestampMs(data.timestamp || data.lastSeen);
@@ -206,7 +206,7 @@ export default function Chat({
         const data = d.data();
         const uname = (data?.username || "").trim();
         const unameClean = uname.toLowerCase();
-        if (!data?.uid || !uname || unameClean === "anonymous" || unameClean === "guest") {
+        if (!data?.uid || !uname) {
           return;
         }
         if (data.inVoice) {
