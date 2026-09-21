@@ -56,6 +56,7 @@ interface CallContextType {
   activeCall: ActiveCallData | null;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  screenStream: MediaStream | null;
   isScreenSharing: boolean;
   isVideoSwitchRequested: boolean;
   isVideoSwitchPending: boolean;
@@ -98,6 +99,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
 
   const [isVideoSwitchRequested, setIsVideoSwitchRequested] = useState(false);
@@ -266,6 +268,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       screenStreamRef.current.getTracks().forEach((track) => track.stop());
       screenStreamRef.current = null;
     }
+    setScreenStream(null);
     setIsScreenSharing(false);
 
     pendingIceCandidatesRef.current = [];
@@ -1103,6 +1106,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // STOP screen share
       screenStreamRef.current.getTracks().forEach((t) => t.stop());
       screenStreamRef.current = null;
+      setScreenStream(null);
       setIsScreenSharing(false);
 
       const senders = pc.getSenders();
@@ -1145,6 +1149,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       screenStreamRef.current = displayStream;
+      setScreenStream(displayStream);
       setIsScreenSharing(true);
 
       const screenVideoTrack = displayStream.getVideoTracks()[0];
@@ -1182,6 +1187,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           screenStreamRef.current.getTracks().forEach((t) => t.stop());
           screenStreamRef.current = null;
         }
+        setScreenStream(null);
         setIsScreenSharing(false);
 
         const currentPc = peerConnectionRef.current;
@@ -1206,6 +1212,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     } catch (err) {
       console.error("Error starting screen share in direct call:", err);
+      setScreenStream(null);
       setIsScreenSharing(false);
     }
   }, [getMyProfile]);
@@ -1227,6 +1234,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeCall,
         localStream,
         remoteStream,
+        screenStream,
         isScreenSharing,
         isVideoSwitchRequested,
         isVideoSwitchPending,

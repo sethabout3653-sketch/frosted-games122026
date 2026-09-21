@@ -464,8 +464,9 @@ export default function VoiceChannel({
   const toggleNativeFullscreen = useCallback(async () => {
     try {
       if (!document.fullscreenElement) {
-        if (fullscreenContainerRef.current?.requestFullscreen) {
-          await fullscreenContainerRef.current.requestFullscreen();
+        const container = fullscreenContainerRef.current || document.documentElement;
+        if (container?.requestFullscreen) {
+          await container.requestFullscreen();
           setIsNativeFullscreen(true);
         }
       } else {
@@ -475,7 +476,7 @@ export default function VoiceChannel({
         }
       }
     } catch (err) {
-      console.warn("Fullscreen toggle error:", err);
+      console.warn("Fullscreen toggle notice:", err);
     }
   }, []);
 
@@ -490,11 +491,7 @@ export default function VoiceChannel({
     };
 
     const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) {
-        setIsNativeFullscreen(false);
-      } else {
-        setIsNativeFullscreen(true);
-      }
+      setIsNativeFullscreen(!!document.fullscreenElement);
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -521,13 +518,16 @@ export default function VoiceChannel({
     if (fullscreenUid && fullscreenType === "screen") {
       const isLocal = fullscreenUid === profile.uid;
       const isStillSharing = isLocal
-        ? isScreenSharing
-        : activeParticipants.some((p) => p.uid === fullscreenUid && p.isScreenSharing);
+        ? (isScreenSharing || !!screenStreamRef.current)
+        : (activeParticipants.some((p) => p.uid === fullscreenUid && p.isScreenSharing) ||
+           !!remoteScreenSharersRef.current[fullscreenUid] ||
+           (!!remoteScreenStreamsRef.current[fullscreenUid] &&
+             remoteScreenStreamsRef.current[fullscreenUid].getVideoTracks().some((t) => t.readyState === "live")));
       if (!isStillSharing) {
         exitFullscreen();
       }
     }
-  }, [fullscreenUid, fullscreenType, isScreenSharing, activeParticipants, profile.uid, exitFullscreen]);
+  }, [fullscreenUid, fullscreenType, isScreenSharing, activeParticipants, profile.uid, exitFullscreen, trackTrigger]);
 
   // Re-bind video stream in fullscreen when track or fullscreen target updates
   useEffect(() => {
@@ -3385,27 +3385,53 @@ export default function VoiceChannel({
                       style={{ transform: `scale(${screenZoom})` }}
                     >
                       {activeScreenShare.isLocal ? (
-                        <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
-                          <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
-                            <MonitorUp size={32} />
+                        screenStreamRef.current ? (
+                          <div className="relative w-full h-full flex items-center justify-center bg-black">
+                            <video
+                              ref={(el) => {
+                                localScreenVideoRef.current = el;
+                                if (el && screenStreamRef.current) {
+                                  if (el.srcObject !== screenStreamRef.current) {
+                                    el.srcObject = screenStreamRef.current;
+                                  }
+                                  el.play().catch(() => {});
+                                }
+                              }}
+                              autoPlay
+                              playsInline
+                              muted
+                              className={`w-full h-full ${
+                                screenFitMode === "cover" ? "object-cover" : "object-contain"
+                              }`}
+                            />
+                            <div className="absolute top-3 right-3 z-20 flex items-center gap-2 bg-neutral-900/90 border border-indigo-500/40 px-3 py-1.5 rounded-full text-xs text-white shadow-xl backdrop-blur-md pointer-events-auto">
+                              <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                              <span className="font-semibold text-[11px]">Your Screen (Live Preview)</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
-                            <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
-                              LIVE
-                            </span>
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
+                            <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
+                              <MonitorUp size={32} />
+                            </div>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
+                              <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
+                                LIVE
+                              </span>
+                            </div>
+                            <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
+                              Your screen is live for all participants in high definition.
+                            </p>
+                            <button
+                              onClick={stopScreenShare}
+                              className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
+                            >
+                              <ScreenShareOff size={14} />
+                              <span>Stop Sharing</span>
+                            </button>
                           </div>
-                          <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
-                            Your screen is live for all participants in high definition.
-                          </p>
-                          <button
-                            onClick={stopScreenShare}
-                            className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
-                          >
-                            <ScreenShareOff size={14} />
-                            <span>Stop Sharing</span>
-                          </button>
-                        </div>
+                        )
                       ) : (
                         <video
                           ref={(el) => {
@@ -3551,27 +3577,53 @@ export default function VoiceChannel({
                       style={{ transform: `scale(${screenZoom})` }}
                     >
                       {activeScreenShare.isLocal ? (
-                        <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
-                          <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
-                            <MonitorUp size={32} />
+                        screenStreamRef.current ? (
+                          <div className="relative w-full h-full flex items-center justify-center bg-black">
+                            <video
+                              ref={(el) => {
+                                localScreenVideoRef.current = el;
+                                if (el && screenStreamRef.current) {
+                                  if (el.srcObject !== screenStreamRef.current) {
+                                    el.srcObject = screenStreamRef.current;
+                                  }
+                                  el.play().catch(() => {});
+                                }
+                              }}
+                              autoPlay
+                              playsInline
+                              muted
+                              className={`w-full h-full ${
+                                screenFitMode === "cover" ? "object-cover" : "object-contain"
+                              }`}
+                            />
+                            <div className="absolute top-3 right-3 z-20 flex items-center gap-2 bg-neutral-900/90 border border-indigo-500/40 px-3 py-1.5 rounded-full text-xs text-white shadow-xl backdrop-blur-md pointer-events-auto">
+                              <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                              <span className="font-semibold text-[11px]">Your Screen (Live Preview)</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
-                            <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
-                              LIVE
-                            </span>
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
+                            <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
+                              <MonitorUp size={32} />
+                            </div>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
+                              <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
+                                LIVE
+                              </span>
+                            </div>
+                            <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
+                              Your screen is live for all participants in high definition.
+                            </p>
+                            <button
+                              onClick={stopScreenShare}
+                              className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
+                            >
+                              <ScreenShareOff size={14} />
+                              <span>Stop Sharing</span>
+                            </button>
                           </div>
-                          <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
-                            Your screen is live for all participants in high definition.
-                          </p>
-                          <button
-                            onClick={stopScreenShare}
-                            className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
-                          >
-                            <ScreenShareOff size={14} />
-                            <span>Stop Sharing</span>
-                          </button>
-                        </div>
+                        )
                       ) : (
                         <video
                           ref={(el) => {
@@ -3973,8 +4025,26 @@ export default function VoiceChannel({
             onDoubleClick={() => setFullscreenFit((f) => (f === "contain" ? "cover" : "contain"))}
           >
             {isTargetScreen ? (
-              <div className="relative w-full h-full flex items-center justify-center">
-                {isFullscreenLocal ? (
+              <div className="relative w-full h-full flex items-center justify-center bg-black">
+                {screenStream ? (
+                  <video
+                    ref={(el) => {
+                      fullscreenVideoRef.current = el;
+                      if (el && screenStream) {
+                        if (el.srcObject !== screenStream) {
+                          el.srcObject = screenStream;
+                        }
+                        el.play().catch(() => {});
+                      }
+                    }}
+                    autoPlay
+                    playsInline
+                    muted={isFullscreenLocal}
+                    className={`w-full h-full max-w-full max-h-full transition-all duration-150 cursor-pointer ${
+                      fullscreenFit === "cover" ? "object-cover" : "object-contain"
+                    }`}
+                  />
+                ) : isFullscreenLocal ? (
                   <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
                     <div className="w-20 h-20 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-4 shadow-xl shadow-indigo-950/50 animate-pulse">
                       <MonitorUp size={40} />
@@ -3989,6 +4059,7 @@ export default function VoiceChannel({
                       Your screen stream is live for all participants in high definition.
                     </p>
                     <button
+                      type="button"
                       onClick={stopScreenShare}
                       className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-2 active:scale-95"
                     >
@@ -3997,23 +4068,28 @@ export default function VoiceChannel({
                     </button>
                   </div>
                 ) : (
-                  <video
-                    ref={(el) => {
-                      fullscreenVideoRef.current = el;
-                      if (el && screenStream) {
-                        if (el.srcObject !== screenStream) {
-                          el.srcObject = screenStream;
-                        }
-                        el.play().catch(() => {});
-                      }
-                    }}
-                    autoPlay
-                    playsInline
-                    muted
-                    className={`w-full h-full max-w-full max-h-full transition-all duration-150 cursor-pointer ${
-                      fullscreenFit === "cover" ? "object-cover" : "object-contain"
-                    }`}
-                  />
+                  <div className="flex flex-col items-center gap-3 text-neutral-400">
+                    <Loader2 size={32} className="animate-spin text-indigo-400" />
+                    <span className="text-sm font-medium">Connecting screen share feed...</span>
+                  </div>
+                )}
+
+                {/* Floating banner when local user is viewing their own screen in fullscreen */}
+                {isFullscreenLocal && screenStream && (
+                  <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 px-4 py-2 rounded-full bg-neutral-900/90 border border-indigo-500/40 text-xs text-white shadow-2xl backdrop-blur-md pointer-events-auto">
+                    <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                    <span className="font-semibold">You are presenting your screen</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        stopScreenShare();
+                      }}
+                      className="ml-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition-all cursor-pointer shadow active:scale-95"
+                    >
+                      Stop Sharing
+                    </button>
+                  </div>
                 )}
 
                 {/* Floating camera PiP in fullscreen mode */}
