@@ -21,6 +21,7 @@ import { getLibSQLClient, initSQLite } from "./src/db/sqlite";
 import { createPool, db } from "./src/db/index";
 import { records, webrtcSignals } from "./src/db/schema";
 import { eq, and, gt, ne, or } from "drizzle-orm";
+import { youtubeRouter } from "./server/youtube";
 
 export const app = express();
 export const httpServer = http.createServer(app);
@@ -310,6 +311,8 @@ const PORT = 3000;
   };
 
   // API routes go here FIRST
+  app.use("/api/youtube", youtubeRouter);
+
   app.get("/api/ping", (req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
   });

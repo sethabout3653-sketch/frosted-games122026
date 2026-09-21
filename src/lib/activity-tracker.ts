@@ -210,17 +210,28 @@ export function useActivityTracker({
   searchQuery,
   selectedTag,
   activeChannel,
+  activeVideoTitle,
 }: {
-  currentView: "home" | "game" | "chat";
+  currentView: "home" | "game" | "chat" | "youtube";
   selectedGame?: { name: string; cover?: string } | null;
   searchQuery?: string;
   selectedTag?: string;
   activeChannel?: string;
+  activeVideoTitle?: string | null;
 }) {
   const lastScrollTimeRef = useRef(0);
 
   // Sync state changes to global activity
   useEffect(() => {
+    if (currentView === "youtube") {
+      updateGlobalActivity({
+        type: "playing",
+        gameName: activeVideoTitle ? `YouTube: ${activeVideoTitle}` : "YouTube",
+        text: activeVideoTitle ? `Watching: ${activeVideoTitle}` : "Watching YouTube",
+      });
+      return;
+    }
+
     if (currentView === "game" && selectedGame) {
       updateGlobalActivity({
         type: "playing",
@@ -256,7 +267,7 @@ export function useActivityTracker({
       tag: selectedTag || "all",
       text: selectedTag && selectedTag !== "all" ? `Browsing ${selectedTag}` : "Browsing games",
     });
-  }, [currentView, selectedGame?.name, searchQuery, selectedTag, activeChannel]);
+  }, [currentView, selectedGame?.name, searchQuery, selectedTag, activeChannel, activeVideoTitle]);
 
   // Track window scroll when on home view
   useEffect(() => {

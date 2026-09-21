@@ -1,5 +1,5 @@
 import React, { memo } from "react";
-import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart } from "lucide-react";
+import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart, Youtube } from "lucide-react";
 import { formatTagLabel } from "../utils";
 import { useCall } from "../context/CallContext";
 import { useFavorites } from "../lib/favorites";
@@ -11,9 +11,10 @@ interface HeaderProps {
   selectedTag: string;
   setSelectedTag: (tag: string) => void;
   tags: string[];
-  currentView?: "home" | "game" | "chat";
+  currentView?: "home" | "game" | "chat" | "youtube";
   onGoHome?: () => void;
   onChatClick?: () => void;
+  onYouTubeClick?: () => void;
   onOpenSettings?: () => void;
   onOpenTheme?: () => void;
 }
@@ -27,6 +28,7 @@ const Header = memo(function Header({
   currentView = "home",
   onGoHome,
   onChatClick,
+  onYouTubeClick,
   onOpenSettings,
   onOpenTheme,
 }: HeaderProps) {
@@ -74,6 +76,7 @@ const Header = memo(function Header({
 
   const isHome = currentView === "home" || currentView === "game";
   const isChat = currentView === "chat";
+  const isYouTube = currentView === "youtube";
 
   return (
     <header
@@ -156,6 +159,26 @@ const Header = memo(function Header({
             >
               <MessageSquare size={14} className={isChat ? "text-[var(--theme-text-accent)]" : ""} />
               <span>Chat</span>
+            </button>
+
+            {/* YouTube Tab */}
+            <button
+              id="nav-youtube-btn"
+              type="button"
+              onClick={onYouTubeClick}
+              style={{
+                backgroundColor: isYouTube ? "var(--theme-accent)" : "transparent",
+                borderColor: isYouTube ? "var(--theme-border)" : "transparent",
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all duration-150 cursor-pointer ${
+                isYouTube
+                  ? "text-white shadow-md ring-1 ring-white/15"
+                  : "text-neutral-400 hover:text-white hover:bg-white/5"
+              }`}
+              title="Watch Latest YouTube Videos & Direct Streams"
+            >
+              <Youtube size={14} className={isYouTube ? "text-rose-400" : "text-rose-400/80"} />
+              <span>YouTube</span>
             </button>
 
             {/* Direct Calling & Group Voice Tab */}

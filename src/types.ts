@@ -66,3 +66,38 @@ export interface VoiceSignal {
   sdp: string;
   timestamp: number;
 }
+
+export interface YouTubeStreamFormat {
+  url: string;
+  proxyUrl?: string;
+  quality: string;
+  resolution?: string;
+  mimeType?: string;
+  container?: string;
+  fps?: number;
+  hasAudio?: boolean;
+  hasVideo?: boolean;
+  bitrate?: number;
+  itag?: number;
+  isDirectGooglevideo?: boolean;
+}
+
+export interface YouTubeVideo {
+  id: string;
+  title: string;
+  channelTitle?: string;
+  channelId?: string;
+  channelThumbnail?: string;
+  views?: string | number;
+  likes?: string | number;
+  publishedTime?: string;
+  duration?: string;
+  thumbnail: string;
+  description?: string;
+  descriptionSnippet?: string;
+  category?: string;
+  streamUrl?: string;
+  streamFormats?: YouTubeStreamFormat[];
+  hlsUrl?: string;
+}
+
