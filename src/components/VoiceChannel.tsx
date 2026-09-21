@@ -369,15 +369,6 @@ export default function VoiceChannel({
     return null;
   }, [isScreenSharing, profile.uid, profile.username, isScreenAudioOn, activeParticipants, trackTrigger]);
 
-  // Fullscreen user video state and controls
-  const [fullscreenUid, setFullscreenUid] = useState<string | null>(null);
-  const [fullscreenFit, setFullscreenFit] = useState<"contain" | "cover">("contain");
-  const [isNativeFullscreen, setIsNativeFullscreen] = useState<boolean>(false);
-  const [showFullscreenControls, setShowFullscreenControls] = useState<boolean>(true);
-  const fullscreenControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const fullscreenContainerRef = useRef<HTMLDivElement | null>(null);
-  const fullscreenVideoRef = useRef<HTMLVideoElement | null>(null);
-
   // Robust screen share stream & video element binding watcher to prevent black screen stalls
   useEffect(() => {
     if (!activeScreenShare) return;
@@ -388,6 +379,9 @@ export default function VoiceChannel({
           if (localScreenVideoRef.current.srcObject !== screenStreamRef.current) {
             localScreenVideoRef.current.srcObject = screenStreamRef.current;
           }
+          localScreenVideoRef.current.muted = true;
+          localScreenVideoRef.current.defaultMuted = true;
+          localScreenVideoRef.current.volume = 0;
           if (localScreenVideoRef.current.paused) {
             localScreenVideoRef.current.play().catch(() => {});
           }
@@ -421,16 +415,11 @@ export default function VoiceChannel({
             if (el.srcObject !== stream) {
               el.srcObject = stream;
             }
+            el.muted = true;
+            el.defaultMuted = true;
+            el.volume = 0;
             if (el.paused) {
               el.play().catch(() => {});
-            }
-          }
-          if (fullscreenVideoRef.current && fullscreenUid === sharerUid && fullscreenType === "screen") {
-            if (fullscreenVideoRef.current.srcObject !== stream) {
-              fullscreenVideoRef.current.srcObject = stream;
-            }
-            if (fullscreenVideoRef.current.paused) {
-              fullscreenVideoRef.current.play().catch(() => {});
             }
           }
         }
@@ -440,132 +429,7 @@ export default function VoiceChannel({
     bindAndPlayScreen();
     const interval = setInterval(bindAndPlayScreen, 1000);
     return () => clearInterval(interval);
-  }, [activeScreenShare, fullscreenType, fullscreenUid, trackTrigger]);
-
-  const exitFullscreen = useCallback(() => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-    setFullscreenUid(null);
-    setFullscreenType("camera");
-    setIsNativeFullscreen(false);
-  }, []);
-
-  const toggleNativeFullscreen = useCallback(async () => {
-    try {
-      if (!document.fullscreenElement) {
-        const container = fullscreenContainerRef.current || document.documentElement;
-        if (container?.requestFullscreen) {
-          await container.requestFullscreen();
-          setIsNativeFullscreen(true);
-        }
-      } else {
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-          setIsNativeFullscreen(false);
-        }
-      }
-    } catch (err) {
-      console.warn("Fullscreen toggle notice:", err);
-    }
-  }, []);
-
-  // Keyboard shortcut (Escape to exit) and native fullscreenchange listener
-  useEffect(() => {
-    if (!fullscreenUid) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        exitFullscreen();
-      }
-    };
-
-    const handleFullscreenChange = () => {
-      setIsNativeFullscreen(!!document.fullscreenElement);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
-    };
-  }, [fullscreenUid, exitFullscreen]);
-
-  // Handle controls auto-hiding when idle in fullscreen
-  const handleFullscreenMouseMove = useCallback(() => {
-    setShowFullscreenControls(true);
-    if (fullscreenControlsTimeoutRef.current) {
-      clearTimeout(fullscreenControlsTimeoutRef.current);
-    }
-    fullscreenControlsTimeoutRef.current = setTimeout(() => {
-      setShowFullscreenControls(false);
-    }, 3500);
-  }, []);
-
-  // Auto exit fullscreen screen share if presenter stops sharing
-  useEffect(() => {
-    if (fullscreenUid && fullscreenType === "screen") {
-      const isLocal = fullscreenUid === profile.uid;
-      const isStillSharing = isLocal
-        ? (isScreenSharing || !!screenStreamRef.current)
-        : (activeParticipants.some((p) => p.uid === fullscreenUid && p.isScreenSharing) ||
-           !!remoteScreenSharersRef.current[fullscreenUid] ||
-           (!!remoteScreenStreamsRef.current[fullscreenUid] &&
-             remoteScreenStreamsRef.current[fullscreenUid].getVideoTracks().some((t) => t.readyState === "live")));
-      if (!isStillSharing) {
-        exitFullscreen();
-      }
-    }
-  }, [fullscreenUid, fullscreenType, isScreenSharing, activeParticipants, profile.uid, exitFullscreen, trackTrigger]);
-
-  // Re-bind video stream in fullscreen when track or fullscreen target updates
-  useEffect(() => {
-    if (!fullscreenUid) return;
-    if (fullscreenType === "screen") {
-      const isLocal = fullscreenUid === profile.uid;
-      const stream = isLocal ? screenStreamRef.current : remoteScreenStreamsRef.current[fullscreenUid];
-      if (fullscreenVideoRef.current && stream) {
-        if (fullscreenVideoRef.current.srcObject !== stream) {
-          fullscreenVideoRef.current.srcObject = stream;
-        }
-        fullscreenVideoRef.current.play().catch(() => {});
-      }
-    } else {
-      const isLocal = fullscreenUid === profile.uid;
-      const stream = isLocal ? videoStreamRef.current : (remoteCameraStreamsRef.current[fullscreenUid] || remoteStreamsRef.current[fullscreenUid]);
-      if (fullscreenVideoRef.current && stream) {
-        if (fullscreenVideoRef.current.srcObject !== stream) {
-          fullscreenVideoRef.current.srcObject = stream;
-        }
-        fullscreenVideoRef.current.play().catch(() => {});
-      }
-    }
-  }, [fullscreenUid, fullscreenType, trackTrigger, isVideoOn, isScreenSharing, profile.uid]);
-
-  // List of active video/screen feeds (for quick switching in fullscreen)
-  const participantsWithVideo = useMemo(() => {
-    // Trigger this memo whenever trackTrigger changes as well, to catch remote streams
-    const dummy = trackTrigger; 
-    const list: { uid: string; username: string; isLocal: boolean; type: "camera" | "screen" }[] = [];
-    if (isScreenSharing) {
-      list.push({ uid: profile.uid, username: `${profile.username} (Screen)`, isLocal: true, type: "screen" });
-    }
-    activeParticipants.forEach((p) => {
-      if (p.isScreenSharing === true) {
-        list.push({ uid: p.uid, username: `${p.username} (Screen)`, isLocal: false, type: "screen" });
-      }
-    });
-    if (isVideoOn) {
-      list.push({ uid: profile.uid, username: `${profile.username} (Camera)`, isLocal: true, type: "camera" });
-    }
-    activeParticipants.forEach((p) => {
-      if (p.isVideoOn === true) {
-        list.push({ uid: p.uid, username: `${p.username} (Camera)`, isLocal: false, type: "camera" });
-      }
-    });
-    return list;
-  }, [isScreenSharing, isVideoOn, profile.uid, profile.username, activeParticipants, trackTrigger]);
+  }, [activeScreenShare, trackTrigger]);
 
   // Acquire microphone stream with clean acoustic echo cancellation and natural auto gain control
   const acquireMicrophoneStream = useCallback(async (): Promise<MediaStream> => {
@@ -1145,13 +1009,10 @@ export default function VoiceChannel({
         if (screenEl.srcObject !== scrStream) {
           screenEl.srcObject = scrStream;
         }
+        screenEl.muted = true;
+        screenEl.defaultMuted = true;
+        screenEl.volume = 0;
         screenEl.play().catch(() => {});
-      }
-      if (fullscreenVideoRef.current && fullscreenUid === partnerUid && fullscreenType === "screen") {
-        if (fullscreenVideoRef.current.srcObject !== scrStream) {
-          fullscreenVideoRef.current.srcObject = scrStream;
-        }
-        fullscreenVideoRef.current.play().catch(() => {});
       }
       scrTrack.onunmute = () => {
         const freshStream = remoteScreenStreamsRef.current[partnerUid] || new MediaStream([scrTrack!]);
@@ -1159,18 +1020,17 @@ export default function VoiceChannel({
         const el = remoteScreenVideoRefs.current[partnerUid];
         if (el) {
           el.srcObject = freshStream;
+          el.muted = true;
+          el.defaultMuted = true;
+          el.volume = 0;
           el.play().catch(() => {});
-        }
-        if (fullscreenVideoRef.current && fullscreenUid === partnerUid && fullscreenType === "screen") {
-          fullscreenVideoRef.current.srcObject = freshStream;
-          fullscreenVideoRef.current.play().catch(() => {});
         }
         setTrackTrigger((v) => v + 1);
       };
     }
 
     setTrackTrigger((v) => v + 1);
-  }, [fullscreenType, fullscreenUid]);
+  }, []);
 
   const createPeerConnection = useCallback(
     (partnerUid: string, micStream: MediaStream): RTCPeerConnection => {
@@ -1477,11 +1337,10 @@ export default function VoiceChannel({
               const screenEl = remoteScreenVideoRefs.current[partnerUid];
               if (screenEl) {
                 screenEl.srcObject = freshStream;
+                screenEl.muted = true;
+                screenEl.defaultMuted = true;
+                screenEl.volume = 0;
                 screenEl.play().catch(() => {});
-              }
-              if (fullscreenVideoRef.current && fullscreenUid === partnerUid) {
-                fullscreenVideoRef.current.srcObject = freshStream;
-                fullscreenVideoRef.current.play().catch(() => {});
               }
             }
             syncPeerTracks(partnerUid, pc);
@@ -2292,13 +2151,8 @@ export default function VoiceChannel({
       localScreenVideoRef.current.srcObject = null;
     }
 
-    // If currently viewing screen share in fullscreen, cleanly exit fullscreen
-    if (fullscreenType === "screen" && (fullscreenUid === profile.uid || !fullscreenUid)) {
-      exitFullscreen();
-    }
-
     setTrackTrigger((v) => v + 1);
-  }, [exitFullscreen, fullscreenType, fullscreenUid, getOrCreateDummyScreenTrack, profile.uid, sendSignal]);
+  }, [getOrCreateDummyScreenTrack, profile.uid, sendSignal]);
 
   // Start Screen Share with Audio Support
   const startScreenShare = async () => {
@@ -2322,7 +2176,7 @@ export default function VoiceChannel({
             channelCount: { ideal: 2 },
             sampleRate: { ideal: 48000 },
             ...({
-              suppressLocalAudioPlayback: true,
+              suppressLocalAudioPlayback: false,
               systemAudio: "include",
               selfBrowserSurface: "exclude",
               surfaceSwitching: "include",
@@ -2625,21 +2479,7 @@ export default function VoiceChannel({
 
         {/* Video or Avatar Display */}
         {anyVideoOn ? (
-          <div
-            className="relative aspect-video w-full bg-black overflow-hidden flex items-center justify-center group"
-            onDoubleClick={() => {
-              if (activeScreenShare) {
-                setFullscreenUid(activeScreenShare.uid);
-                setFullscreenType("screen");
-              } else if (activeRemoteWithVideo) {
-                setFullscreenUid(activeRemoteWithVideo.uid);
-                setFullscreenType("camera");
-              } else if (isVideoOn) {
-                setFullscreenUid(profile.uid);
-                setFullscreenType("camera");
-              }
-            }}
-          >
+          <div className="relative aspect-video w-full bg-black overflow-hidden flex items-center justify-center group">
             {activeScreenShare ? (
               <>
                 {activeScreenShare.isLocal ? (
@@ -2670,6 +2510,9 @@ export default function VoiceChannel({
                         if (el.srcObject !== stream) {
                           el.srcObject = stream;
                         }
+                        el.muted = true;
+                        el.defaultMuted = true;
+                        el.volume = 0;
                         el.play().catch(() => {});
                       }
                     }}
@@ -2687,35 +2530,9 @@ export default function VoiceChannel({
                   )}
                 </div>
 
-                {/* PiP Fullscreen Button for Screen Share */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFullscreenUid(activeScreenShare.uid);
-                    setFullscreenType("screen");
-                  }}
-                  className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/70 hover:bg-black/90 text-white/80 hover:text-white backdrop-blur-md border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow z-10"
-                  title={`Full screen ${activeScreenShare.username}'s screen`}
-                >
-                  <Maximize2 size={12} />
-                </button>
-
                 {/* Picture-in-picture camera overlay inside PiP window */}
                 {(activeRemoteWithVideo || isVideoOn) && (
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (activeRemoteWithVideo) {
-                        setFullscreenUid(activeRemoteWithVideo.uid);
-                        setFullscreenType("camera");
-                      } else {
-                        setFullscreenUid(profile.uid);
-                        setFullscreenType("camera");
-                      }
-                    }}
-                    className="absolute top-2 right-2 w-20 aspect-video rounded-md overflow-hidden border border-neutral-700 shadow-md bg-black cursor-pointer group/local"
-                    title="Click to view camera fullscreen"
-                  >
+                  <div className="absolute top-2 right-2 w-20 aspect-video rounded-md overflow-hidden border border-neutral-700 shadow-md bg-black group/local">
                     {activeRemoteWithVideo ? (
                       <video
                         ref={(el) => {
@@ -2723,6 +2540,9 @@ export default function VoiceChannel({
                           const stream = remoteStreamsRef.current[activeRemoteWithVideo.uid];
                           if (el && stream && el.srcObject !== stream) {
                             el.srcObject = stream;
+                            el.muted = true;
+                            el.defaultMuted = true;
+                            el.volume = 0;
                             el.play().catch(() => {});
                           }
                         }}
@@ -2737,6 +2557,9 @@ export default function VoiceChannel({
                           localVideoRef.current = el;
                           if (el && videoStreamRef.current && el.srcObject !== videoStreamRef.current) {
                             el.srcObject = videoStreamRef.current;
+                            el.muted = true;
+                            el.defaultMuted = true;
+                            el.volume = 0;
                             el.play().catch(() => {});
                           }
                         }}
@@ -2746,9 +2569,6 @@ export default function VoiceChannel({
                         className="w-full h-full object-cover transform -scale-x-100"
                       />
                     )}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/local:opacity-100 flex items-center justify-center transition-opacity">
-                      <Maximize2 size={10} className="text-white" />
-                    </div>
                   </div>
                 )}
               </>
@@ -2760,6 +2580,9 @@ export default function VoiceChannel({
                     const stream = remoteStreamsRef.current[activeRemoteWithVideo.uid];
                     if (el && stream && el.srcObject !== stream) {
                       el.srcObject = stream;
+                      el.muted = true;
+                      el.defaultMuted = true;
+                      el.volume = 0;
                       el.play().catch(() => {});
                     }
                   }}
@@ -2772,34 +2595,16 @@ export default function VoiceChannel({
                   {activeRemoteWithVideo.username}
                 </div>
 
-                {/* PiP Fullscreen Button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFullscreenUid(activeRemoteWithVideo.uid);
-                    setFullscreenType("camera");
-                  }}
-                  className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/70 hover:bg-black/90 text-white/80 hover:text-white backdrop-blur-md border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow z-10"
-                  title={`Full screen ${activeRemoteWithVideo.username}'s video`}
-                >
-                  <Maximize2 size={12} />
-                </button>
-
                 {isVideoOn && (
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFullscreenUid(profile.uid);
-                      setFullscreenType("camera");
-                    }}
-                    className="absolute top-2 right-2 w-20 aspect-video rounded-md overflow-hidden border border-neutral-700 shadow-md bg-black cursor-pointer group/local"
-                    title="Click to full screen your video"
-                  >
+                  <div className="absolute top-2 right-2 w-20 aspect-video rounded-md overflow-hidden border border-neutral-700 shadow-md bg-black group/local">
                     <video
                       ref={(el) => {
                         localVideoRef.current = el;
                         if (el && videoStreamRef.current && el.srcObject !== videoStreamRef.current) {
                           el.srcObject = videoStreamRef.current;
+                          el.muted = true;
+                          el.defaultMuted = true;
+                          el.volume = 0;
                           el.play().catch(() => {});
                         }
                       }}
@@ -2808,9 +2613,6 @@ export default function VoiceChannel({
                       muted
                       className="w-full h-full object-cover transform -scale-x-100"
                     />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/local:opacity-100 flex items-center justify-center transition-opacity">
-                      <Maximize2 size={10} className="text-white" />
-                    </div>
                   </div>
                 )}
               </>
@@ -2821,6 +2623,9 @@ export default function VoiceChannel({
                     localVideoRef.current = el;
                     if (el && videoStreamRef.current && el.srcObject !== videoStreamRef.current) {
                       el.srcObject = videoStreamRef.current;
+                      el.muted = true;
+                      el.defaultMuted = true;
+                      el.volume = 0;
                       el.play().catch(() => {});
                     }
                   }}
@@ -2832,19 +2637,6 @@ export default function VoiceChannel({
                 <div className="absolute bottom-2 left-2 bg-black/75 px-2 py-0.5 rounded text-[10px] font-semibold text-white">
                   You
                 </div>
-
-                {/* PiP Fullscreen Button for Local User */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFullscreenUid(profile.uid);
-                    setFullscreenType("camera");
-                  }}
-                  className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/70 hover:bg-black/90 text-white/80 hover:text-white backdrop-blur-md border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow z-10"
-                  title="Full screen your video"
-                >
-                  <Maximize2 size={12} />
-                </button>
               </>
             )}
           </div>
@@ -3051,28 +2843,7 @@ export default function VoiceChannel({
                   ? `0 0 24px ${localColor.glow}`
                   : "0 4px 14px rgba(2, 6, 23, 0.7)",
               }}
-              onDoubleClick={() => {
-                if (isVideoOn) {
-                  setFullscreenUid(profile.uid);
-                  setFullscreenType("camera");
-                }
-              }}
             >
-              {/* Fullscreen Video Button */}
-              {isVideoOn && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFullscreenUid(profile.uid);
-                    setFullscreenType("camera");
-                  }}
-                  className="absolute top-2 right-2 p-1.5 rounded-lg bg-[#030617]/85 hover:bg-[#060c24] text-indigo-200 hover:text-white backdrop-blur-md border border-indigo-900/60 shadow-lg transition-all opacity-0 group-hover:opacity-100 cursor-pointer z-30 hover:scale-105"
-                  title="Full screen your video"
-                >
-                  <Maximize2 size={compact ? 13 : 15} />
-                </button>
-              )}
-
               {/* Audio Status Badge */}
               {(isMuted || isLocalSpeaking) && (
                 <div className="absolute top-2 left-2 bg-[#030617]/90 backdrop-blur-md px-2 py-0.5 rounded-lg border border-indigo-900/60 flex items-center gap-1.5 z-20 animate-in fade-in duration-150">
@@ -3209,28 +2980,7 @@ export default function VoiceChannel({
                   ? `0 0 24px ${pColor.glow}`
                   : "0 4px 14px rgba(2, 6, 23, 0.7)",
               }}
-              onDoubleClick={() => {
-                if (isCameraShowing) {
-                  setFullscreenUid(p.uid);
-                  setFullscreenType("camera");
-                }
-              }}
             >
-              {/* Fullscreen Video Button */}
-              {isCameraShowing && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFullscreenUid(p.uid);
-                    setFullscreenType("camera");
-                  }}
-                  className="absolute top-2 right-2 p-1.5 rounded-lg bg-[#030617]/85 hover:bg-[#060c24] text-indigo-200 hover:text-white backdrop-blur-md border border-indigo-900/60 shadow-lg transition-all opacity-0 group-hover:opacity-100 cursor-pointer z-30 hover:scale-105"
-                  title={`Full screen ${p.username}'s video`}
-                >
-                  <Maximize2 size={compact ? 13 : 15} />
-                </button>
-              )}
-
               {/* Audio Status Badge */}
               {(p.isMuted || isSpeaking) && (
                 <div className="absolute top-2 left-2 bg-[#030617]/90 backdrop-blur-md px-2 py-0.5 rounded-lg border border-indigo-900/60 flex items-center gap-1.5 z-20 animate-in fade-in duration-150">
@@ -3362,13 +3112,7 @@ export default function VoiceChannel({
               {zoomLayoutMode === "side-by-side" ? (
                 <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3 overflow-hidden">
                   {/* Left / Main: Zoom Screen Share Stage */}
-                  <div
-                    className="relative flex-1 min-h-[300px] lg:min-h-0 bg-[#07080a] rounded-2xl border border-neutral-800/90 overflow-hidden shadow-2xl flex items-center justify-center group"
-                    onDoubleClick={() => {
-                      setFullscreenUid(activeScreenShare.uid);
-                      setFullscreenType("screen");
-                    }}
-                  >
+                  <div className="relative flex-1 min-h-[300px] lg:min-h-0 bg-[#07080a] rounded-2xl border border-neutral-800/90 overflow-hidden shadow-2xl flex items-center justify-center group">
                     <div
                       className="w-full h-full flex items-center justify-center overflow-hidden transition-transform duration-200"
                       style={{ transform: `scale(${screenZoom})` }}
@@ -3383,6 +3127,9 @@ export default function VoiceChannel({
                                   if (el.srcObject !== screenStreamRef.current) {
                                     el.srcObject = screenStreamRef.current;
                                   }
+                                  el.muted = true;
+                                  el.defaultMuted = true;
+                                  el.volume = 0;
                                   el.play().catch(() => {});
                                 }
                               }}
@@ -3430,6 +3177,9 @@ export default function VoiceChannel({
                               if (el.srcObject !== stream) {
                                 el.srcObject = stream;
                               }
+                              el.muted = true;
+                              el.defaultMuted = true;
+                              el.volume = 0;
                               el.play().catch(() => {});
                             }
                           }}
@@ -3467,7 +3217,7 @@ export default function VoiceChannel({
                       </div>
                     </div>
 
-                    {/* Stage Controls: Zoom, Fit, Layout Switcher & Fullscreen */}
+                    {/* Stage Controls: Zoom, Fit, Layout Switcher */}
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 z-20">
                       {/* Zoom & Fit Toolbar */}
                       <div className="flex items-center gap-1 bg-black/80 backdrop-blur-md p-1 rounded-xl border border-neutral-800 shadow-xl opacity-90 hover:opacity-100 transition-opacity">
@@ -3525,17 +3275,6 @@ export default function VoiceChannel({
                           <span className="hidden sm:inline">Stop Sharing</span>
                         </button>
                       )}
-
-                      <button
-                        onClick={() => {
-                          setFullscreenUid(activeScreenShare.uid);
-                          setFullscreenType("screen");
-                        }}
-                        className="p-2 rounded-xl bg-black/80 hover:bg-black text-white/90 hover:text-white backdrop-blur-md border border-neutral-700/60 shadow-xl transition-all cursor-pointer hover:scale-105"
-                        title="Full screen this presentation"
-                      >
-                        <Maximize2 size={15} />
-                      </button>
                     </div>
                   </div>
 
@@ -3554,13 +3293,7 @@ export default function VoiceChannel({
               ) : (
                 /* Gallery Strip Layout (Screen in center, cameras at bottom) */
                 <div className="flex-1 min-h-0 flex flex-col gap-3 overflow-hidden">
-                  <div
-                    className="relative flex-1 min-h-0 bg-[#07080a] rounded-2xl border border-neutral-800/90 overflow-hidden shadow-2xl flex items-center justify-center group"
-                    onDoubleClick={() => {
-                      setFullscreenUid(activeScreenShare.uid);
-                      setFullscreenType("screen");
-                    }}
-                  >
+                  <div className="relative flex-1 min-h-0 bg-[#07080a] rounded-2xl border border-neutral-800/90 overflow-hidden shadow-2xl flex items-center justify-center group">
                     <div
                       className="w-full h-full flex items-center justify-center overflow-hidden transition-transform duration-200"
                       style={{ transform: `scale(${screenZoom})` }}
@@ -3575,6 +3308,9 @@ export default function VoiceChannel({
                                   if (el.srcObject !== screenStreamRef.current) {
                                     el.srcObject = screenStreamRef.current;
                                   }
+                                  el.muted = true;
+                                  el.defaultMuted = true;
+                                  el.volume = 0;
                                   el.play().catch(() => {});
                                 }
                               }}
@@ -3622,6 +3358,9 @@ export default function VoiceChannel({
                               if (el.srcObject !== stream) {
                                 el.srcObject = stream;
                               }
+                              el.muted = true;
+                              el.defaultMuted = true;
+                              el.volume = 0;
                               el.play().catch(() => {});
                             }
                           }}
@@ -3717,17 +3456,6 @@ export default function VoiceChannel({
                           <span className="hidden sm:inline">Stop Sharing</span>
                         </button>
                       )}
-
-                      <button
-                        onClick={() => {
-                          setFullscreenUid(activeScreenShare.uid);
-                          setFullscreenType("screen");
-                        }}
-                        className="p-2 rounded-xl bg-black/80 hover:bg-black text-white/90 hover:text-white backdrop-blur-md border border-neutral-700/60 shadow-xl transition-all cursor-pointer hover:scale-105"
-                        title="Full screen this presentation"
-                      >
-                        <Maximize2 size={15} />
-                      </button>
                     </div>
                   </div>
 
@@ -3843,468 +3571,6 @@ export default function VoiceChannel({
       </div>
     </div>
     )}
-
-    {/* Fullscreen User Video Overlay */}
-    {fullscreenUid && (() => {
-      const isFullscreenLocal = fullscreenUid === profile.uid;
-      const fullscreenParticipant = isFullscreenLocal
-        ? null
-        : activeParticipants.find((p) => p.uid === fullscreenUid);
-
-      const targetUsername = isFullscreenLocal
-        ? `${profile.username} (You)`
-        : fullscreenParticipant?.username || "Participant";
-      const targetPhoto = isFullscreenLocal
-        ? profile.photoURL
-        : fullscreenParticipant?.photoURL;
-      const targetIsMuted = isFullscreenLocal
-        ? isMuted
-        : !!fullscreenParticipant?.isMuted;
-      const targetIsSpeaking = isFullscreenLocal
-        ? isLocalSpeaking
-        : !!remoteSpeaking[fullscreenUid] && !fullscreenParticipant?.isMuted;
-      const targetIsVideo = isFullscreenLocal
-        ? isVideoOn
-        : !!fullscreenParticipant?.isVideoOn;
-      const isTargetScreen = fullscreenType === "screen";
-      const targetHasAudio = isFullscreenLocal
-        ? isScreenAudioOn
-        : !!fullscreenParticipant?.isScreenAudioOn;
-
-      const targetColor = userColors[fullscreenUid] || {
-        hex: "#5865F2",
-        rgb: [88, 101, 242] as [number, number, number],
-        glow: "rgba(88, 101, 242, 0.45)",
-        border: "rgba(88, 101, 242, 0.85)",
-        ring: "rgba(88, 101, 242, 0.35)",
-      };
-
-      const screenStream = isFullscreenLocal
-        ? screenStreamRef.current
-        : remoteScreenStreamsRef.current[fullscreenUid];
-
-      const cameraStream = isFullscreenLocal
-        ? videoStreamRef.current
-        : (remoteCameraStreamsRef.current[fullscreenUid] || remoteStreamsRef.current[fullscreenUid]);
-
-      return (
-        <div
-          id="user-video-fullscreen-overlay"
-          ref={fullscreenContainerRef}
-          onMouseMove={handleFullscreenMouseMove}
-          className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center select-none overflow-hidden animate-in fade-in duration-200"
-        >
-          {/* Top Bar Floating Controls */}
-          <div
-            className={`absolute top-0 inset-x-0 p-4 z-40 flex items-center justify-between bg-gradient-to-b from-black/85 via-black/40 to-transparent transition-opacity duration-300 pointer-events-auto ${
-              showFullscreenControls ? "opacity-100" : "opacity-0 pointer-events-none"
-            }`}
-          >
-            {/* Participant Profile info */}
-            <div className="flex items-center gap-3 bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg">
-              <div className="relative">
-                {targetPhoto ? (
-                  <img
-                    src={targetPhoto}
-                    alt={targetUsername}
-                    className="w-7 h-7 rounded-full object-cover"
-                  />
-                ) : (
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ backgroundColor: targetColor.hex }}
-                  >
-                    {(targetUsername || "?").charAt(0).toUpperCase()}
-                  </div>
-                )}
-                {targetIsSpeaking && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-indigo-500 border border-black animate-pulse" />
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-white truncate max-w-[200px]">
-                  {targetUsername}
-                </span>
-                {isTargetScreen ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] bg-[#0c1642] text-indigo-200 border border-indigo-600/60 px-2 py-0.5 rounded font-extrabold flex items-center gap-1">
-                      <MonitorUp size={11} /> SCREEN SHARE
-                    </span>
-                    {isFullscreenLocal && (
-                      <button
-                        type="button"
-                        onClick={stopScreenShare}
-                        className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold transition-all cursor-pointer shadow flex items-center gap-1 active:scale-95"
-                        title="Stop sharing screen"
-                      >
-                        <ScreenShareOff size={12} />
-                        <span>Stop Sharing</span>
-                      </button>
-                    )}
-                  </div>
-                ) : targetIsVideo ? (
-                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded font-bold">
-                    CAMERA
-                  </span>
-                ) : null}
-                {isTargetScreen && targetHasAudio && (
-                  <span className="text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/30 px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
-                    <Volume2 size={10} /> AUDIO
-                  </span>
-                )}
-                {targetIsMuted ? (
-                  <span className="text-[10px] bg-red-500/20 text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded font-bold">
-                    MUTED
-                  </span>
-                ) : targetIsSpeaking ? (
-                  <span className="text-[10px] bg-[#0c1642] text-indigo-300 border border-indigo-700/60 px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
-                    <Radio size={10} className="animate-pulse" /> SPEAKING
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            {/* Right Side Buttons */}
-            <div className="flex items-center gap-2">
-              {/* Switcher pills for active cameras and screen shares */}
-              {participantsWithVideo.length > 1 && (
-                <div className="hidden md:flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2 py-1 rounded-full border border-white/10">
-                  <span className="text-[11px] text-neutral-400 font-medium px-1.5">Switch:</span>
-                  {participantsWithVideo.map((item) => (
-                    <button
-                      key={`${item.uid}-${item.type}`}
-                      onClick={() => {
-                        setFullscreenUid(item.uid);
-                        setFullscreenType(item.type);
-                      }}
-                      className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
-                        fullscreenUid === item.uid && fullscreenType === item.type
-                          ? "bg-white text-black font-semibold shadow"
-                          : "text-neutral-300 hover:text-white hover:bg-white/10"
-                      }`}
-                    >
-                      {item.type === "screen" && <MonitorUp size={12} />}
-                      <span>{item.username}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Video Fit button */}
-              {(targetIsVideo || isTargetScreen) && (
-                <button
-                  onClick={() => setFullscreenFit((f) => (f === "contain" ? "cover" : "contain"))}
-                  className="px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/10 text-neutral-200 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-lg"
-                  title={fullscreenFit === "contain" ? "Fill screen (crop edges)" : "Fit to screen (show full frame)"}
-                >
-                  {fullscreenFit === "contain" ? "Fill Screen" : "Fit to Screen"}
-                </button>
-              )}
-
-              {/* Browser Fullscreen button */}
-              <button
-                onClick={toggleNativeFullscreen}
-                className="p-2 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/10 text-neutral-200 hover:text-white transition-colors cursor-pointer shadow-lg"
-                title={isNativeFullscreen ? "Exit window fullscreen" : "Toggle window fullscreen"}
-              >
-                {isNativeFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-              </button>
-
-              {/* Exit button */}
-              <button
-                onClick={exitFullscreen}
-                className="p-2 rounded-full bg-black/60 hover:bg-red-500/80 backdrop-blur-md border border-white/10 text-neutral-200 hover:text-white transition-colors cursor-pointer shadow-lg"
-                title="Exit full screen (Esc)"
-              >
-                <X size={18} />
-              </button>
-            </div>
-          </div>
-
-          {/* Video or Screen or Avatar Display Area */}
-          <div
-            className="relative w-full h-full flex-1 flex items-center justify-center overflow-hidden bg-black"
-            onDoubleClick={() => setFullscreenFit((f) => (f === "contain" ? "cover" : "contain"))}
-          >
-            {isTargetScreen ? (
-              <div className="relative w-full h-full flex items-center justify-center bg-black">
-                {screenStream ? (
-                  <video
-                    ref={(el) => {
-                      fullscreenVideoRef.current = el;
-                      if (el && screenStream) {
-                        if (el.srcObject !== screenStream) {
-                          el.srcObject = screenStream;
-                        }
-                        el.play().catch(() => {});
-                      }
-                    }}
-                    autoPlay
-                    playsInline
-                    muted={isFullscreenLocal}
-                    className={`w-full h-full max-w-full max-h-full transition-all duration-150 cursor-pointer ${
-                      fullscreenFit === "cover" ? "object-cover" : "object-contain"
-                    }`}
-                  />
-                ) : isFullscreenLocal ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
-                    <div className="w-20 h-20 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-4 shadow-xl shadow-indigo-950/50 animate-pulse">
-                      <MonitorUp size={40} />
-                    </div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-base font-extrabold text-white tracking-wide">You are sharing your screen</span>
-                      <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
-                        LIVE
-                      </span>
-                    </div>
-                    <p className="text-sm text-indigo-200/80 max-w-md mb-6 leading-relaxed font-medium">
-                      Your screen stream is live for all participants in high definition.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={stopScreenShare}
-                      className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-2 active:scale-95"
-                    >
-                      <ScreenShareOff size={16} />
-                      <span>Stop Sharing</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-3 text-neutral-400">
-                    <Loader2 size={32} className="animate-spin text-indigo-400" />
-                    <span className="text-sm font-medium">Connecting screen share feed...</span>
-                  </div>
-                )}
-
-                {/* Floating banner when local user is viewing their own screen in fullscreen */}
-                {isFullscreenLocal && screenStream && (
-                  <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 px-4 py-2 rounded-full bg-neutral-900/90 border border-indigo-500/40 text-xs text-white shadow-2xl backdrop-blur-md pointer-events-auto">
-                    <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-                    <span className="font-semibold">You are presenting your screen</span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        stopScreenShare();
-                      }}
-                      className="ml-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition-all cursor-pointer shadow active:scale-95"
-                    >
-                      Stop Sharing
-                    </button>
-                  </div>
-                )}
-
-                {/* Floating camera PiP in fullscreen mode */}
-                {((isFullscreenLocal && isVideoOn) || (!isFullscreenLocal && fullscreenParticipant?.isVideoOn)) && (
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFullscreenType("camera");
-                    }}
-                    className="absolute top-20 right-6 w-44 sm:w-56 aspect-video rounded-xl overflow-hidden border border-neutral-700 shadow-2xl bg-black cursor-pointer group/campip z-30 transition-transform hover:scale-105"
-                    title="Click to view camera in main fullscreen"
-                  >
-                    <video
-                      ref={(el) => {
-                        if (el && cameraStream && el.srcObject !== cameraStream) {
-                          el.srcObject = cameraStream;
-                          el.play().catch(() => {});
-                        }
-                      }}
-                      autoPlay
-                      playsInline
-                      muted
-                      className={`w-full h-full object-cover ${isFullscreenLocal ? "transform -scale-x-100" : ""}`}
-                    />
-                    <div className="absolute bottom-2 left-2 bg-black/85 backdrop-blur-md px-2 py-0.5 rounded text-[10px] font-bold text-white shadow">
-                      {targetUsername}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : targetIsVideo ? (
-              <video
-                ref={(el) => {
-                  fullscreenVideoRef.current = el;
-                  if (el && cameraStream && el.srcObject !== cameraStream) {
-                    el.srcObject = cameraStream;
-                    el.play().catch(() => {});
-                  }
-                }}
-                autoPlay
-                playsInline
-                muted
-                className={`w-full h-full max-w-full max-h-full transition-all duration-150 cursor-pointer ${
-                  fullscreenFit === "cover" ? "object-cover" : "object-contain"
-                } ${isFullscreenLocal ? "transform -scale-x-100" : ""}`}
-              />
-            ) : (
-              <div className="flex flex-col items-center gap-4 text-center px-4">
-                <div className="relative">
-                  {targetPhoto ? (
-                    <img
-                      src={targetPhoto}
-                      alt={targetUsername}
-                      className="w-28 h-28 rounded-full object-cover shadow-2xl border-4"
-                      style={{
-                        borderColor: targetIsSpeaking ? targetColor.border : "rgba(64,64,64,0.8)",
-                        boxShadow: targetIsSpeaking
-                          ? `0 0 0 6px ${targetColor.ring}, 0 0 24px ${targetColor.glow}`
-                          : undefined,
-                      }}
-                    />
-                  ) : (
-                    <div
-                      className="w-28 h-28 rounded-full border-4 flex items-center justify-center text-4xl font-bold text-white shadow-2xl"
-                      style={{
-                        backgroundColor: targetColor.hex + "22",
-                        borderColor: targetIsSpeaking ? targetColor.border : "rgba(64,64,64,0.8)",
-                        color: targetColor.hex,
-                        boxShadow: targetIsSpeaking
-                          ? `0 0 0 6px ${targetColor.ring}, 0 0 24px ${targetColor.glow}`
-                          : undefined,
-                      }}
-                    >
-                      {(targetUsername || "?").charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  {targetIsMuted && (
-                    <div className="absolute -bottom-1 -right-1 bg-red-600 p-2 rounded-full text-white shadow-xl border-2 border-black">
-                      <MicOff size={18} />
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-white">{targetUsername}</h3>
-                  <p className="text-sm text-neutral-400 mt-1">Camera is currently off</p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Bottom Floating Control Dock */}
-          <div
-            className={`absolute bottom-0 inset-x-0 p-6 z-40 flex flex-col items-center gap-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity duration-300 pointer-events-auto ${
-              showFullscreenControls ? "opacity-100" : "opacity-0 pointer-events-none"
-            }`}
-          >
-            {/* Mobile quick switcher if more than 1 video/screen feed */}
-            {participantsWithVideo.length > 1 && (
-              <div className="flex md:hidden items-center gap-1.5 bg-black/70 backdrop-blur-md p-1 rounded-full border border-white/10 max-w-full overflow-x-auto">
-                {participantsWithVideo.map((item) => (
-                  <button
-                    key={`${item.uid}-${item.type}`}
-                    onClick={() => {
-                      setFullscreenUid(item.uid);
-                      setFullscreenType(item.type);
-                    }}
-                    className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 ${
-                      fullscreenUid === item.uid && fullscreenType === item.type
-                        ? "bg-white text-black font-semibold shadow"
-                        : "text-neutral-300 hover:text-white hover:bg-white/10"
-                    }`}
-                  >
-                    {item.type === "screen" && <MonitorUp size={11} />}
-                    <span>{item.username}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="flex items-center gap-3 bg-[#111214]/90 backdrop-blur-xl px-4 py-2.5 rounded-2xl border border-neutral-800 shadow-2xl">
-              {/* Mic toggle */}
-              <button
-                onClick={toggleMute}
-                className={`p-3 rounded-xl transition-all cursor-pointer ${
-                  isMuted
-                    ? "bg-red-600/20 text-red-500 border border-red-800/80 hover:bg-red-600/30"
-                    : "bg-neutral-800 text-white hover:bg-neutral-700"
-                }`}
-                title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
-              >
-                {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
-              </button>
-
-              {/* Camera toggle */}
-              <button
-                onClick={toggleVideo}
-                disabled={isCameraLoading}
-                className={`p-3 rounded-xl transition-all cursor-pointer ${
-                  isCameraLoading
-                    ? "bg-neutral-800 text-neutral-400 cursor-wait"
-                    : isVideoOn
-                    ? "bg-white text-black font-bold shadow-lg"
-                    : "bg-neutral-800 text-white hover:bg-neutral-700"
-                }`}
-                title={isVideoOn ? "Turn Off Camera" : "Turn On Camera"}
-              >
-                {isCameraLoading ? (
-                  <Loader2 size={18} className="animate-spin" />
-                ) : isVideoOn ? (
-                  <Video size={18} />
-                ) : (
-                  <VideoOff size={18} />
-                )}
-              </button>
-
-              {/* Screen Share toggle */}
-              <button
-                onClick={isScreenSharing ? stopScreenShare : toggleScreenShare}
-                className={`p-3 rounded-xl transition-all cursor-pointer ${
-                  isScreenSharing
-                    ? "bg-rose-600 hover:bg-rose-500 text-white font-bold shadow-lg shadow-rose-950/50 active:scale-95"
-                    : "bg-neutral-800 text-white hover:bg-neutral-700"
-                }`}
-                title={isScreenSharing ? "Stop Screen Sharing" : "Share Screen"}
-              >
-                {isScreenSharing ? <ScreenShareOff size={18} /> : <MonitorUp size={18} />}
-              </button>
-
-              {/* Screen Audio volume in fullscreen */}
-              {isScreenSharing && isScreenAudioOn && (
-                <div className="hidden sm:flex items-center gap-2 px-2 py-1 bg-neutral-900 rounded-xl border border-neutral-700">
-                  <Volume2 size={14} className="text-sky-400" />
-                  <input
-                    type="range"
-                    min="0"
-                    max="1.5"
-                    step="0.05"
-                    value={screenAudioVolume}
-                    onChange={(e) => setScreenAudioVolume(parseFloat(e.target.value))}
-                    className="w-16 accent-sky-400 cursor-pointer"
-                    title={`Screen Audio Volume: ${Math.round(screenAudioVolume * 100)}%`}
-                  />
-                </div>
-              )}
-
-              <div className="h-6 w-px bg-neutral-700 mx-1" />
-
-              {/* Disconnect voice */}
-              <button
-                onClick={() => {
-                  exitFullscreen();
-                  handleLeave();
-                }}
-                className="p-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-lg transition-all cursor-pointer active:scale-95"
-                title="Disconnect from Voice"
-              >
-                <PhoneOff size={18} />
-              </button>
-
-              {/* Exit Fullscreen button */}
-              <button
-                onClick={exitFullscreen}
-                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white transition-all text-xs font-semibold cursor-pointer"
-                title="Exit full screen (Esc)"
-              >
-                <Minimize2 size={16} />
-                <span className="hidden sm:inline">Exit Full Screen</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    })()}
   </>
   );
 }

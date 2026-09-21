@@ -1158,9 +1158,13 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           frameRate: { ideal: 30 },
         },
         audio: {
-          suppressLocalAudioPlayback: true,
+          suppressLocalAudioPlayback: false,
           echoCancellation: true,
           noiseSuppression: true,
+          autoGainControl: false,
+          systemAudio: "include",
+          selfBrowserSurface: "exclude",
+          surfaceSwitching: "include",
         } as any,
       });
 
