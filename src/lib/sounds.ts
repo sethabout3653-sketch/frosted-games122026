@@ -14,12 +14,28 @@ const msgAudioCache: HTMLAudioElement[] = [];
 
 export function playMessageSound() {
   try {
+    // Attempt to play the custom message sound first
+    const audio = new Audio("/audio/message.mp3");
+    audio.volume = 0.8;
+    const promise = audio.play();
+    if (promise !== undefined) {
+      promise.catch(() => {
+        // Fallback to original sound if custom sound is missing or blocked
+        playFallbackMessageSound();
+      });
+    }
+  } catch (e) {
+    playFallbackMessageSound();
+  }
+}
+
+function playFallbackMessageSound() {
+  try {
     const audio = new Audio("/audio/discord_sound.mp3");
     audio.volume = 0.8;
     const promise = audio.play();
     if (promise !== undefined) {
       promise.catch(() => {
-        // Fallback to Web Audio synth if HTML5 play() is blocked
         playSynthMessageSound();
       });
     }
@@ -29,6 +45,23 @@ export function playMessageSound() {
 }
 
 export function playJoinSound() {
+  try {
+    // Attempt to play the custom voice join sound first
+    const audio = new Audio("/audio/voice_join.mp3");
+    audio.volume = 0.8;
+    const promise = audio.play();
+    if (promise !== undefined) {
+      promise.catch(() => {
+        // Fallback to original sound if custom sound is missing or blocked
+        playFallbackJoinSound();
+      });
+    }
+  } catch (e) {
+    playFallbackJoinSound();
+  }
+}
+
+function playFallbackJoinSound() {
   try {
     const audio = new Audio("/audio/discord-join.mp3");
     audio.volume = 0.8;
@@ -44,6 +77,23 @@ export function playJoinSound() {
 }
 
 export function playLeaveSound() {
+  try {
+    // Attempt to play the custom voice leave sound first
+    const audio = new Audio("/audio/voice_leave.mp3");
+    audio.volume = 0.8;
+    const promise = audio.play();
+    if (promise !== undefined) {
+      promise.catch(() => {
+        // Fallback to original sound if custom sound is missing or blocked
+        playFallbackLeaveSound();
+      });
+    }
+  } catch (e) {
+    playFallbackLeaveSound();
+  }
+}
+
+function playFallbackLeaveSound() {
   try {
     const audio = new Audio("/audio/LockChime.mp3");
     audio.volume = 0.8;

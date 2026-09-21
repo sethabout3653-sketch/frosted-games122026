@@ -212,7 +212,7 @@ export function useActivityTracker({
   activeChannel,
   activeVideoTitle,
 }: {
-  currentView: "home" | "game" | "chat" | "youtube";
+  currentView: "home" | "game" | "chat" | "youtube" | "music";
   selectedGame?: { name: string; cover?: string } | null;
   searchQuery?: string;
   selectedTag?: string;

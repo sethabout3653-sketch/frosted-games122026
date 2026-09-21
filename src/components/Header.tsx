@@ -1,9 +1,8 @@
 import React, { memo } from "react";
-import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart, Music2, Disc3 } from "lucide-react";
+import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart } from "lucide-react";
 import { formatTagLabel } from "../utils";
 import { useCall } from "../context/CallContext";
 import { useFavorites } from "../lib/favorites";
-import { useMusic } from "../context/MusicContext";
 import CallMenuDropdown from "./CallMenuDropdown";
 
 interface HeaderProps {
@@ -12,10 +11,9 @@ interface HeaderProps {
   selectedTag: string;
   setSelectedTag: (tag: string) => void;
   tags: string[];
-  currentView?: "home" | "game" | "chat" | "music";
+  currentView?: "home" | "game" | "chat";
   onGoHome?: () => void;
   onChatClick?: () => void;
-  onMusicClick?: () => void;
   onOpenSettings?: () => void;
   onOpenTheme?: () => void;
 }
@@ -29,13 +27,11 @@ const Header = memo(function Header({
   currentView = "home",
   onGoHome,
   onChatClick,
-  onMusicClick,
   onOpenSettings,
   onOpenTheme,
 }: HeaderProps) {
   const { isCallMenuOpen, setIsCallMenuOpen, onlineUsers } = useCall();
   const { count: favoriteCount } = useFavorites();
-  const { isPlaying, currentTrack } = useMusic();
 
   const handleLogoClick = () => {
     setSearchQuery("");
@@ -78,7 +74,6 @@ const Header = memo(function Header({
 
   const isHome = currentView === "home" || currentView === "game";
   const isChat = currentView === "chat";
-  const isMusic = currentView === "music";
 
   return (
     <header
@@ -161,33 +156,6 @@ const Header = memo(function Header({
             >
               <MessageSquare size={14} className={isChat ? "text-[var(--theme-text-accent)]" : ""} />
               <span>Chat</span>
-            </button>
-
-            {/* Music Tab */}
-            <button
-              id="nav-music-btn"
-              type="button"
-              onClick={onMusicClick}
-              style={{
-                backgroundColor: isMusic ? "var(--theme-accent)" : "transparent",
-                borderColor: isMusic ? "var(--theme-border)" : "transparent",
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all duration-150 cursor-pointer ${
-                isMusic
-                  ? "text-white shadow-md ring-1 ring-white/15"
-                  : "text-neutral-400 hover:text-white hover:bg-white/5"
-              }`}
-              title="YouTube Music Player & Study Sounds"
-            >
-              {isPlaying ? (
-                <Disc3 size={14} className="text-emerald-400 animate-spin" style={{ animationDuration: "3s" }} />
-              ) : (
-                <Music2 size={14} className={isMusic ? "text-[var(--theme-text-accent)]" : ""} />
-              )}
-              <span>Music</span>
-              {currentTrack && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-500/50" />
-              )}
             </button>
 
             {/* Direct Calling & Group Voice Tab */}
