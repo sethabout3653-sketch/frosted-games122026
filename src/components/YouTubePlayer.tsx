@@ -23,6 +23,46 @@ import {
 import { YouTubeVideo, YouTubeStreamFormat } from "../types";
 import { isVideoSaved, toggleSaveVideo, addToWatchHistory } from "../lib/youtubeStorage";
 
+export function extractYouTubeId(urlOrId: string): string {
+  const trimmed = (urlOrId || "").trim();
+  if (!trimmed) return "";
+  
+  // If it's already a clean 11-char ID
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // Try extracting from various URL formats
+  try {
+    // Handle youtube-nocookie.com or youtube.com embed links
+    const embedRegex = /\/(embed|v)\/([a-zA-Z0-9_-]{11})/;
+    const embedMatch = trimmed.match(embedRegex);
+    if (embedMatch && embedMatch[2]) {
+      return embedMatch[2];
+    }
+
+    // Handle watch?v= or watch/ format
+    const watchRegex = /(v=|vi=|\/v\/|\/vi\/|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/;
+    const watchMatch = trimmed.match(watchRegex);
+    if (watchMatch && watchMatch[2]) {
+      return watchMatch[2];
+    }
+    
+    // Fallback search params search
+    if (trimmed.includes("?")) {
+      const urlObj = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+      const v = urlObj.searchParams.get("v") || urlObj.searchParams.get("vi");
+      if (v && /^[a-zA-Z0-9_-]{11}$/.test(v)) {
+        return v;
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to parse YouTube URL:", e);
+  }
+  
+  return trimmed;
+}
+
 interface YouTubePlayerProps {
   video: YouTubeVideo;
   onBack?: () => void;
@@ -36,6 +76,7 @@ export default function YouTubePlayer({
   onSelectRelated,
   autoPlayNext = true,
 }: YouTubePlayerProps) {
+  const cleanVideoId = extractYouTubeId(video.id);
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -59,6 +100,7 @@ export default function YouTubePlayer({
   const [isSaved, setIsSaved] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
+  const [useEmbedOnly, setUseEmbedOnly] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
@@ -83,7 +125,7 @@ export default function YouTubePlayer({
     async function fetchStreams() {
       setIsLoadingStream(true);
       try {
-        const res = await fetch(`/api/youtube/stream/${video.id}`);
+        const res = await fetch(`/api/youtube/stream/${cleanVideoId}`);
         if (!res.ok) throw new Error("Stream service unreachable");
         const data = await res.json();
 
@@ -112,7 +154,7 @@ export default function YouTubePlayer({
     return () => {
       isMounted = false;
     };
-  }, [video.id, video.streamUrl, video.streamFormats]);
+  }, [cleanVideoId, video.streamUrl, video.streamFormats]);
 
   // Sync Video time updates
   const handleTimeUpdate = () => {
@@ -227,7 +269,7 @@ export default function YouTubePlayer({
   };
 
   const handleCopyLink = () => {
-    const streamToCopy = activeStreamUrl || `https://www.youtube.com/watch?v=${video.id}`;
+    const streamToCopy = activeStreamUrl || `https://www.youtube.com/watch?v=${cleanVideoId}`;
     navigator.clipboard.writeText(streamToCopy);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
@@ -262,6 +304,22 @@ export default function YouTubePlayer({
           <ArrowLeft size={14} />
           <span>Back</span>
         </button>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setUseEmbedOnly(!useEmbedOnly)}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              useEmbedOnly
+                ? "bg-amber-600/95 hover:bg-amber-600 text-white shadow-md shadow-amber-950/40"
+                : "bg-[#272727] hover:bg-[#383838] text-white"
+            }`}
+            title={useEmbedOnly ? "Click to use direct streaming mode" : "Click to switch to embedded YouTube player"}
+          >
+            <Tv size={14} />
+            <span>{useEmbedOnly ? "Using Embed Player" : "Using Direct Stream"}</span>
+          </button>
+        </div>
       </div>
 
       {/* Video Player Canvas Container */}
@@ -273,30 +331,28 @@ export default function YouTubePlayer({
           isTheaterMode ? "w-full max-h-[85vh] aspect-video" : "w-full aspect-video"
         }`}
       >
-        {activeStreamUrl ? (
+        {activeStreamUrl && !useEmbedOnly ? (
           <video
             ref={videoRef}
             src={activeStreamUrl}
+            controls
             autoPlay
             playsInline
-            loop={isLooping}
-            onTimeUpdate={handleTimeUpdate}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
             onEnded={() => {
-              setIsPlaying(false);
               if (autoPlayNext && onSelectRelated) {
                 // Auto-advance
               }
             }}
-            onClick={handleTogglePlay}
-            onDoubleClick={handleToggleFullscreen}
-            className="w-full h-full object-contain bg-black cursor-pointer"
+            onError={(e) => {
+              console.warn("Direct stream load failed, falling back to YouTube Embed:", e);
+              setUseEmbedOnly(true);
+            }}
+            className="w-full h-full object-contain bg-black"
           />
         ) : (
           /* Clean Direct Ad-Free Player Fallback when stream is loading or resolving */
           <div className="w-full h-full relative flex items-center justify-center bg-[#070b1e]">
-            {isLoadingStream ? (
+            {isLoadingStream && !useEmbedOnly ? (
               <div className="text-center space-y-3 p-6">
                 <div className="h-10 w-10 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mx-auto" />
                 <p className="text-xs font-bold text-indigo-200">Resolving direct video stream format...</p>
@@ -304,195 +360,13 @@ export default function YouTubePlayer({
               </div>
             ) : (
               <iframe
-                src={`https://www.youtube-nocookie.com/embed/${video.id}?autoplay=1&rel=0&modestbranding=1`}
+                src={`https://www.youtube-nocookie.com/embed/${cleanVideoId}?autoplay=1&rel=0&modestbranding=1`}
                 title={video.title}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
                 className="w-full h-full border-0"
               />
             )}
-          </div>
-        )}
-
-        {/* Custom Video Controls Overlay (Only for direct HTML5 video stream) */}
-        {activeStreamUrl && (
-          <div
-            className={`absolute inset-0 flex flex-col justify-between p-3 sm:p-4 bg-gradient-to-t from-black/90 via-transparent to-black/50 transition-opacity duration-300 pointer-events-none ${
-              showControls ? "opacity-100" : "opacity-0"
-            }`}
-          >
-            {/* Top Bar: Title & Direct Stream Badge */}
-            <div className="flex items-center justify-between pointer-events-auto">
-              <div className="flex items-center gap-2 max-w-[70%]">
-                <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white text-[10px] font-black uppercase tracking-wider">
-                  Direct Stream
-                </span>
-                <h2 className="text-xs sm:text-sm font-bold text-white truncate drop-shadow-md">
-                  {video.title}
-                </h2>
-              </div>
-              <div className="text-[11px] text-neutral-300 font-medium">
-                {video.channelTitle}
-              </div>
-            </div>
-
-            {/* Bottom Controls Bar */}
-            <div className="space-y-2 pointer-events-auto">
-              {/* Progress Scrubber Bar */}
-              <div className="relative flex items-center group/scrubber cursor-pointer">
-                <input
-                  type="range"
-                  min={0}
-                  max={duration || 100}
-                  step={0.1}
-                  value={currentTime}
-                  onChange={handleSeek}
-                  className="w-full h-1.5 hover:h-2.5 rounded-lg appearance-none bg-white/20 accent-rose-500 transition-all cursor-pointer"
-                  style={{
-                    background: `linear-gradient(to right, #f43f5e ${(currentTime / (duration || 1)) * 100}%, rgba(255,255,255,0.2) 0%)`,
-                  }}
-                />
-              </div>
-
-              {/* Action Buttons Row */}
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                  {/* Play / Pause */}
-                  <button
-                    type="button"
-                    onClick={handleTogglePlay}
-                    className="p-1.5 rounded-lg hover:bg-white/20 text-white transition-all cursor-pointer active:scale-95"
-                    title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                  >
-                    {isPlaying ? <Pause size={18} /> : <Play size={18} className="fill-white" />}
-                  </button>
-
-                  {/* Skip -10s / +10s */}
-                  <button
-                    type="button"
-                    onClick={() => handleSkip(-10)}
-                    className="p-1.5 rounded-lg hover:bg-white/20 text-white transition-all cursor-pointer"
-                    title="Rewind 10 seconds"
-                  >
-                    <RotateCcw size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSkip(10)}
-                    className="p-1.5 rounded-lg hover:bg-white/20 text-white transition-all cursor-pointer"
-                    title="Forward 10 seconds"
-                  >
-                    <RotateCw size={16} />
-                  </button>
-
-                  {/* Volume Slider & Mute Toggle */}
-                  <div className="flex items-center gap-1 group/vol">
-                    <button
-                      type="button"
-                      onClick={handleToggleMute}
-                      className="p-1.5 rounded-lg hover:bg-white/20 text-white transition-all cursor-pointer"
-                      title={isMuted ? "Unmute (M)" : "Mute (M)"}
-                    >
-                      {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                    </button>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={isMuted ? 0 : volume}
-                      onChange={handleVolumeChange}
-                      className="w-14 sm:w-20 h-1 bg-white/30 accent-rose-500 rounded-lg cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Time Tracker */}
-                  <div className="text-[11px] font-mono text-neutral-300 font-semibold pl-1">
-                    {formatSeconds(currentTime)} / {formatSeconds(duration)}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  {/* Speed Switcher Menu */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                      className="px-2 py-1 rounded-lg hover:bg-white/20 text-white text-xs font-bold font-mono transition-all cursor-pointer"
-                    >
-                      {playbackSpeed}x
-                    </button>
-                    {showSpeedMenu && (
-                      <div className="absolute bottom-9 right-0 bg-[#0d143a] border border-indigo-500/40 rounded-xl p-1.5 shadow-2xl z-30 flex flex-col gap-1 min-w-[75px]">
-                        {[0.5, 0.75, 1, 1.25, 1.5, 2].map((s) => (
-                          <button
-                            key={s}
-                            type="button"
-                            onClick={() => handleSpeedChange(s)}
-                            className={`px-2 py-1 text-xs rounded-lg font-mono text-left font-bold ${
-                              playbackSpeed === s ? "bg-rose-500 text-white" : "text-neutral-300 hover:bg-white/10"
-                            }`}
-                          >
-                            {s}x
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Stream Quality Formats */}
-                  {streamFormats.length > 0 && (
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setShowQualityMenu(!showQualityMenu)}
-                        className="p-1.5 rounded-lg hover:bg-white/20 text-white transition-all cursor-pointer text-xs flex items-center gap-1 font-semibold"
-                        title="Stream Resolution"
-                      >
-                        <Settings size={15} />
-                        <span className="hidden sm:inline">{selectedQuality}</span>
-                      </button>
-                      {showQualityMenu && (
-                        <div className="absolute bottom-9 right-0 bg-[#0d143a] border border-indigo-500/40 rounded-xl p-1.5 shadow-2xl z-30 flex flex-col gap-1 min-w-[120px]">
-                          {streamFormats.map((f, i) => (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => handleQualityChange(f)}
-                              className="px-2.5 py-1 text-xs rounded-lg text-left font-semibold text-neutral-300 hover:bg-white/10 hover:text-white"
-                            >
-                              {f.quality || f.resolution} ({f.container || "mp4"})
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Theater Mode */}
-                  <button
-                    type="button"
-                    onClick={() => setIsTheaterMode(!isTheaterMode)}
-                    className={`p-1.5 rounded-lg hover:bg-white/20 text-white transition-all cursor-pointer ${
-                      isTheaterMode ? "text-rose-400" : ""
-                    }`}
-                    title="Theater mode"
-                  >
-                    <Tv size={16} />
-                  </button>
-
-                  {/* Fullscreen */}
-                  <button
-                    type="button"
-                    onClick={handleToggleFullscreen}
-                    className="p-1.5 rounded-lg hover:bg-white/20 text-white transition-all cursor-pointer"
-                    title="Fullscreen (F)"
-                  >
-                    {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </div>

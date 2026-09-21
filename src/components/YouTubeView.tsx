@@ -19,7 +19,7 @@ import {
   Compass,
 } from "lucide-react";
 import { YouTubeVideo } from "../types";
-import YouTubePlayer from "./YouTubePlayer";
+import YouTubePlayer, { extractYouTubeId } from "./YouTubePlayer";
 import {
   getSavedVideos,
   getWatchHistory,
@@ -166,17 +166,8 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
       return;
     }
 
-    // Check if it's a YouTube link (e.g. youtube.com/watch?v=... or youtu.be/...)
-    let videoId = "";
-    if (raw.includes("watch?v=")) {
-      videoId = raw.split("watch?v=")[1].split("&")[0];
-    } else if (raw.includes("youtu.be/")) {
-      videoId = raw.split("youtu.be/")[1].split("?")[0];
-    } else if (raw.length === 11) {
-      videoId = raw;
-    }
-
-    if (videoId) {
+    const videoId = extractYouTubeId(raw);
+    if (videoId && videoId.length === 11) {
       const parsedVideo: YouTubeVideo = {
         id: videoId,
         title: `YouTube Video (${videoId})`,
@@ -295,9 +286,26 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
               type="text"
               value={searchQuery}
               onChange={(e) => {
-                setSearchQuery(e.target.value);
+                const val = e.target.value;
+                setSearchQuery(val);
                 if (selectedCategory === "favorites" || selectedCategory === "history") {
                   setSelectedCategory("all");
+                }
+
+                // If input is a full YouTube link, automatically parse and select the video!
+                const lower = val.toLowerCase();
+                if (lower.includes("youtube.com") || lower.includes("youtu.be") || lower.includes("youtube-nocookie.com")) {
+                  const extractedId = extractYouTubeId(val);
+                  if (extractedId && extractedId.length === 11) {
+                    const parsedVideo: YouTubeVideo = {
+                      id: extractedId,
+                      title: `Pasted YouTube Video (${extractedId})`,
+                      channelTitle: "YouTube Embed Player",
+                      thumbnail: `https://i.ytimg.com/vi/${extractedId}/hqdefault.jpg`,
+                    };
+                    setSelectedVideo(parsedVideo);
+                    setSearchQuery(""); // Clear the search bar
+                  }
                 }
               }}
               placeholder="Search YouTube..."

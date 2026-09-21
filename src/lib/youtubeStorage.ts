@@ -11,6 +11,31 @@ export interface HistoryItem {
   duration?: number;
 }
 
+export function safeJsonStringify(obj: any): string {
+  const cache = new Set();
+  return JSON.stringify(obj, (key, value) => {
+    if (typeof value === "object" && value !== null) {
+      if (cache.has(value)) {
+        return undefined; // Circular reference found, discard key
+      }
+      cache.add(value);
+      
+      // If it is any DOM Element or React Fiber Node, discard it to avoid circular structure errors
+      if (
+        value instanceof Element || 
+        (value.constructor && value.constructor.name && (
+          value.constructor.name.includes("HTML") || 
+          value.constructor.name.includes("Fiber") ||
+          value.constructor.name.includes("Element")
+        ))
+      ) {
+        return undefined;
+      }
+    }
+    return value;
+  });
+}
+
 export function getSavedVideos(): YouTubeVideo[] {
   try {
     const raw = localStorage.getItem(SAVED_VIDEOS_KEY);
@@ -39,7 +64,7 @@ export function toggleSaveVideo(video: YouTubeVideo): boolean {
   }
 
   try {
-    localStorage.setItem(SAVED_VIDEOS_KEY, JSON.stringify(saved.slice(0, 100)));
+    localStorage.setItem(SAVED_VIDEOS_KEY, safeJsonStringify(saved.slice(0, 100)));
   } catch (e) {
     console.error("Failed to persist saved video:", e);
   }
@@ -73,8 +98,8 @@ export function addToWatchHistory(video: YouTubeVideo, lastPosition: number = 0,
   history.unshift(item);
 
   try {
-    localStorage.setItem(WATCH_HISTORY_KEY, JSON.stringify(history.slice(0, 50)));
-    localStorage.setItem(LAST_PLAYED_KEY, JSON.stringify(item));
+    localStorage.setItem(WATCH_HISTORY_KEY, safeJsonStringify(history.slice(0, 50)));
+    localStorage.setItem(LAST_PLAYED_KEY, safeJsonStringify(item));
   } catch (e) {
     console.error("Failed to save history:", e);
   }

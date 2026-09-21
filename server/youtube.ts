@@ -2,6 +2,7 @@ import express from "express";
 import { execFile } from "child_process";
 import path from "path";
 import fs from "fs";
+import { Readable } from "stream";
 
 export const youtubeRouter = express.Router();
 
@@ -156,47 +157,168 @@ interface FeedCache {
 const cacheMap = new Map<string, FeedCache>();
 const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes cache
 
-// Search YouTube by scraping search results HTML
+// Search YouTube by scraping search results HTML with robust multi-endpoint API fallbacks
 async function scrapeYouTubeSearch(query: string): Promise<VideoItem[]> {
   const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-      "Accept-Language": "en-US,en;q=0.9",
+  
+  // Method 1: Try scraping YouTube Desktop HTML directly
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      signal: AbortSignal.timeout(4000),
+    });
+
+    if (res.ok) {
+      const html = await res.text();
+      const jsonMatch = html.match(/ytInitialData\s*=\s*({.+?});<\/script>/);
+      if (jsonMatch) {
+        const data = JSON.parse(jsonMatch[1]);
+        const contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
+        const itemSection = contents?.find((c: any) => c.itemSectionRenderer)?.itemSectionRenderer?.contents || [];
+
+        const videos: VideoItem[] = [];
+        for (const item of itemSection) {
+          const v = item.videoRenderer;
+          if (v && v.videoId) {
+            const channelThumbnail = v.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail?.thumbnails?.[0]?.url || "";
+            videos.push({
+              id: v.videoId,
+              title: v.title?.runs?.[0]?.text || "Untitled Video",
+              channelTitle: v.ownerText?.runs?.[0]?.text || "YouTube Creator",
+              channelId: v.ownerText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || "",
+              channelThumbnail,
+              views: v.viewCountText?.simpleText || v.shortViewCountText?.simpleText || "",
+              publishedTime: v.publishedTimeText?.simpleText || "Recently",
+              duration: v.lengthText?.simpleText || "",
+              thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+              descriptionSnippet: v.detailedMetadataSnippets?.[0]?.snippetText?.runs?.map((r: any) => r.text).join("") || "",
+            });
+          }
+        }
+        if (videos.length > 0) {
+          return videos;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("YouTube search scraping failed or timed out, trying API fallbacks:", e);
+  }
+
+  // Method 2: Public Invidious and Piped API endpoints as high-reliability fallbacks
+  const fallbackEndpoints = [
+    {
+      type: "invidious",
+      url: `https://invidious.f5.si/api/v1/search?q=${encodeURIComponent(query)}`
     },
-    signal: AbortSignal.timeout(5000),
-  });
+    {
+      type: "piped",
+      url: `https://api.piped.private.coffee/search?q=${encodeURIComponent(query)}`
+    },
+    {
+      type: "invidious",
+      url: `https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(query)}`
+    },
+    {
+      type: "piped",
+      url: `https://pipedapi.ducks.party/search?q=${encodeURIComponent(query)}`
+    },
+    {
+      type: "invidious",
+      url: `https://invidious.privacydev.net/api/v1/search?q=${encodeURIComponent(query)}`
+    }
+  ];
 
-  if (!res.ok) throw new Error(`Search HTTP ${res.status}`);
-  const html = await res.text();
-  const jsonMatch = html.match(/ytInitialData\s*=\s*({.+?});<\/script>/);
-  if (!jsonMatch) return [];
-
-  const data = JSON.parse(jsonMatch[1]);
-  const contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
-  const itemSection = contents?.find((c: any) => c.itemSectionRenderer)?.itemSectionRenderer?.contents || [];
-
-  const videos: VideoItem[] = [];
-  for (const item of itemSection) {
-    const v = item.videoRenderer;
-    if (v && v.videoId) {
-      const channelThumbnail = v.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail?.thumbnails?.[0]?.url || "";
-      videos.push({
-        id: v.videoId,
-        title: v.title?.runs?.[0]?.text || "Untitled Video",
-        channelTitle: v.ownerText?.runs?.[0]?.text || "YouTube Creator",
-        channelId: v.ownerText?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || "",
-        channelThumbnail,
-        views: v.viewCountText?.simpleText || v.shortViewCountText?.simpleText || "",
-        publishedTime: v.publishedTimeText?.simpleText || "Recently",
-        duration: v.lengthText?.simpleText || "",
-        thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
-        descriptionSnippet: v.detailedMetadataSnippets?.[0]?.snippetText?.runs?.map((r: any) => r.text).join("") || "",
+  for (const endpoint of fallbackEndpoints) {
+    try {
+      const response = await fetch(endpoint.url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: AbortSignal.timeout(3000),
       });
+
+      if (!response.ok) continue;
+
+      if (endpoint.type === "invidious") {
+        const items = await response.json();
+        if (Array.isArray(items)) {
+          const videos: VideoItem[] = [];
+          for (const item of items) {
+            if (item.type === "video" && item.videoId) {
+              const sec = parseInt(item.lengthSeconds, 10) || 0;
+              const formattedDuration = sec > 0
+                ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`
+                : "";
+
+              videos.push({
+                id: item.videoId,
+                title: item.title || "Untitled Video",
+                channelTitle: item.author || "YouTube Creator",
+                channelId: item.authorId || "",
+                views: item.viewCountText || (item.viewCount ? `${item.viewCount.toLocaleString()} views` : ""),
+                publishedTime: item.publishedText || "Recently",
+                duration: formattedDuration,
+                thumbnail: item.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
+                descriptionSnippet: item.description || "",
+              });
+            }
+          }
+          if (videos.length > 0) {
+            console.log(`Successfully retrieved ${videos.length} search results from Invidious fallback: ${endpoint.url}`);
+            return videos;
+          }
+        }
+      } else if (endpoint.type === "piped") {
+        const data = await response.json();
+        const items = data.items || data.relatedStreams || [];
+        if (Array.isArray(items)) {
+          const videos: VideoItem[] = [];
+          for (const item of items) {
+            if (item.type === "stream" || item.type === "video") {
+              // Extract videoId from stream url or use direct field
+              let vId = item.videoId;
+              if (!vId && item.url) {
+                const parts = item.url.split("v=");
+                if (parts[1]) vId = parts[1].split("&")[0];
+              }
+              if (!vId && item.url && item.url.includes("/watch/")) {
+                const parts = item.url.split("/watch/");
+                if (parts[1]) vId = parts[1].split("?")[0];
+              }
+
+              if (vId) {
+                const sec = parseInt(item.duration, 10) || 0;
+                const formattedDuration = sec > 0
+                  ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`
+                  : "";
+
+                videos.push({
+                  id: vId,
+                  title: item.title || "Untitled Video",
+                  channelTitle: item.uploaderName || "YouTube Creator",
+                  channelId: item.uploaderUrl ? item.uploaderUrl.split("/").pop() : "",
+                  views: item.views ? `${item.views.toLocaleString()} views` : "",
+                  publishedTime: item.uploadedDate || "Recently",
+                  duration: formattedDuration,
+                  thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+                  descriptionSnippet: item.shortDescription || "",
+                });
+              }
+            }
+          }
+          if (videos.length > 0) {
+            console.log(`Successfully retrieved ${videos.length} search results from Piped fallback: ${endpoint.url}`);
+            return videos;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`Fallback search endpoint failed (${endpoint.url}):`, err);
     }
   }
 
-  return videos;
+  return [];
 }
 
 // Fetch RSS feed for a channel
@@ -531,16 +653,7 @@ youtubeRouter.get("/proxy-stream", async (req, res) => {
     }
 
     // Pipe response stream
-    const reader = videoRes.body.getReader();
-    const pump = async () => {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(value);
-      }
-      res.end();
-    };
-    await pump();
+    Readable.fromWeb(videoRes.body as any).pipe(res);
   } catch (err: any) {
     console.error("Stream proxy error:", err);
     if (!res.headersSent) {
