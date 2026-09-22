@@ -40,6 +40,20 @@ export interface ChatProfile {
   activity?: UserActivity;
 }
 
+export interface MemberUser {
+  uid: string;
+  username: string;
+  photoURL: string;
+  status?: string;
+  lastSeen?: number;
+  isMuted?: boolean;
+  isVideoOn?: boolean;
+  isScreenSharing?: boolean;
+  inVoice?: boolean;
+  channelName?: string;
+  activity?: UserActivity;
+}
+
 export interface ChatMessage {
   id: string;
   channelId?: string;

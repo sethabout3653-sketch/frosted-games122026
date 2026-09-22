@@ -26,6 +26,7 @@ import { ChatMessage, ChatProfile, UserActivity } from "../types";
 import { wsClient } from "../lib/websocket-client";
 import { getCurrentActivity, onActivityChanged, getVoiceState, broadcastPresenceUpdate } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
+import ModeratorPanelModal from "./ModeratorPanelModal";
 import { checkTextModeration } from "../utils/moderation";
 import { useCall } from "../context/CallContext";
 import {
@@ -264,6 +265,10 @@ export default function ChatPanel({
   // Banned Users & Unban Management States
   const [bannedList, setBannedList] = useState<any[]>([]);
   const [showBannedModal, setShowBannedModal] = useState(false);
+  const [showModSuiteModal, setShowModSuiteModal] = useState(false);
+  const [isChatLocked, setIsChatLocked] = useState(false);
+  const [slowmodeCooldown, setSlowmodeCooldown] = useState(0);
+  const lastUserMessageTimeRef = useRef<number>(0);
   const [manualUnbanInput, setManualUnbanInput] = useState("");
   const [unbanSuccessMsg, setUnbanSuccessMsg] = useState<string | null>(null);
   const [unbanErrorMsg, setUnbanErrorMsg] = useState<string | null>(null);
@@ -1358,6 +1363,24 @@ export default function ChatPanel({
     const currentName = attachmentName;
     const currentSize = attachmentSize;
     if (!currentText && !currentAttachment) return;
+
+    // Check Chat Lock
+    if (isChatLocked && !isUserModerator(profile.username, profile.uid)) {
+      showModerationAlert("Chat Temporarily Paused", "Chat has been temporarily locked by community moderators. Please wait a moment.");
+      return;
+    }
+
+    // Check Slowmode Cooldown
+    if (slowmodeCooldown > 0 && !isUserModerator(profile.username, profile.uid)) {
+      const now = Date.now();
+      const elapsed = (now - lastUserMessageTimeRef.current) / 1000;
+      if (elapsed < slowmodeCooldown) {
+        const remaining = Math.ceil(slowmodeCooldown - elapsed);
+        showModerationAlert("Slowmode Active", `Slowmode is enabled. Please wait ${remaining} second${remaining === 1 ? "" : "s"} before sending another message.`);
+        return;
+      }
+      lastUserMessageTimeRef.current = now;
+    }
 
     if (isUploading || (currentAttachment && currentAttachment.startsWith("blob:"))) {
       showModerationAlert(
@@ -2791,20 +2814,38 @@ export default function ChatPanel({
           <div className="flex-1 overflow-y-auto p-3 space-y-5">
             {/* 🛡️ Moderator Quick Bar */}
             {isUserModerator(profile.username, profile.uid) && (
-              <div className="p-2.5 rounded-xl bg-gradient-to-r from-red-950/50 via-[#121429] to-indigo-950/40 border border-red-800/40 flex items-center justify-between shadow-sm">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-red-300">
-                  <ShieldAlert size={14} className="text-red-400" />
-                  <span>Mod Panel</span>
+              <div className="p-2.5 rounded-xl bg-gradient-to-r from-red-950/60 via-[#121429] to-indigo-950/40 border border-red-800/50 space-y-2 shadow-md">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-red-300">
+                    <ShieldAlert size={14} className="text-red-400 animate-pulse" />
+                    <span>Mod Panel</span>
+                  </div>
+                  <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-red-950 border border-red-800/60 text-red-300">
+                    PASS
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowBannedModal(true)}
-                  className="px-2 py-1 rounded-lg bg-red-600/30 hover:bg-red-600/50 border border-red-500/40 text-[10px] font-bold text-red-200 transition-colors flex items-center gap-1 cursor-pointer"
-                  title="View banned users & unban"
-                >
-                  <Ban size={10} />
-                  <span>Banned ({bannedList.length})</span>
-                </button>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowModSuiteModal(true)}
+                    className="py-1.5 px-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer shadow active:scale-95"
+                    title="Open Full Moderator Dashboard"
+                  >
+                    <ShieldAlert size={11} />
+                    <span>Mod Suite</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowBannedModal(true)}
+                    className="py-1.5 px-2 rounded-lg bg-red-950/80 hover:bg-red-900 border border-red-800/60 text-red-200 text-[10px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer active:scale-95"
+                    title="View Banned Accounts"
+                  >
+                    <Ban size={11} />
+                    <span>Banned ({bannedList.length})</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -2927,9 +2968,6 @@ export default function ChatPanel({
 
                           {/* Activity & Voice Status */}
                           <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                            <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-300 bg-emerald-950/90 border border-emerald-600/60 px-1 py-0.2 rounded">
-                              <Volume2 size={9} /> General Voice
-                            </span>
                             {isScreen && (
                               <span className="flex items-center gap-0.5 text-[9px] font-extrabold text-indigo-200 bg-[#0c1642] border border-indigo-600/80 px-1 py-0.2 rounded animate-pulse">
                                 <MonitorUp size={9} /> LIVE
@@ -3809,6 +3847,27 @@ export default function ChatPanel({
           </div>
         </div>
       )}
+
+      {/* 🛡️ Full Featured Community Moderator Suite Modal */}
+      <ModeratorPanelModal
+        isOpen={showModSuiteModal && isUserModerator(profile.username, profile.uid)}
+        onClose={() => setShowModSuiteModal(false)}
+        profile={profile}
+        onlineUsers={activeOnlineUsers}
+        bannedList={bannedList}
+        onUnbanUser={handleUnbanUser}
+        onPurgeMessages={async (count) => {
+          const toDelete = messages.slice(-count);
+          for (const m of toDelete) {
+            await deleteDoc(doc(db, "messages", m.id)).catch(() => {});
+          }
+          setMessages((prev) => prev.slice(0, Math.max(0, prev.length - count)));
+        }}
+        onToggleChatLock={(locked) => setIsChatLocked(locked)}
+        isChatLocked={isChatLocked}
+        slowmodeCooldown={slowmodeCooldown}
+        onSetSlowmode={(sec) => setSlowmodeCooldown(sec)}
+      />
     </div>
   );
 }
