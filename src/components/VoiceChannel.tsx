@@ -47,7 +47,7 @@ import {
 import { ChatProfile, VoiceSignal } from "../types";
 import { SmartVoiceDetector } from "../utils/audioVAD";
 import { extractDominantColor } from "../utils/colorExtractor";
-import { getCurrentActivity, onActivityChanged } from "../lib/activity-tracker";
+import { getCurrentActivity, onActivityChanged, setVoiceState } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
 
 interface VoiceChannelProps {
@@ -268,23 +268,32 @@ export default function VoiceChannel({
   const lastCallAttemptRef = useRef<{ [uid: string]: number }>({});
   const callFailCountRef = useRef<{ [uid: string]: number }>({});
 
-  // Keep refs in sync for heartbeat timer
+  // Keep refs and global voice presence state in sync for heartbeat and websocket broadcasts
   const isMutedRef = useRef(isMuted);
   useEffect(() => {
     isMutedRef.current = isMuted;
+    setVoiceState({ inVoice: true, isMuted });
   }, [isMuted]);
+
+  useEffect(() => {
+    isVideoOnRef.current = isVideoOn;
+    setVoiceState({ inVoice: true, isVideoOn });
+  }, [isVideoOn]);
 
   const isCameraLoadingRef = useRef(isCameraLoading);
   useEffect(() => {
     isCameraLoadingRef.current = isCameraLoading;
+    setVoiceState({ inVoice: true, isVideoLoading: isCameraLoading });
   }, [isCameraLoading]);
 
   useEffect(() => {
     isScreenSharingRef.current = isScreenSharing;
+    setVoiceState({ inVoice: true, isScreenSharing });
   }, [isScreenSharing]);
 
   useEffect(() => {
     isScreenAudioOnRef.current = isScreenAudioOn;
+    setVoiceState({ inVoice: true, isScreenAudioOn });
   }, [isScreenAudioOn]);
 
   useEffect(() => {
@@ -1473,6 +1482,16 @@ export default function VoiceChannel({
           return;
         }
 
+        setVoiceState({
+          inVoice: true,
+          isMuted: false,
+          isVideoOn: false,
+          isVideoLoading: false,
+          isScreenSharing: false,
+          isScreenAudioOn: false,
+          channelName: "General Voice",
+        });
+
         await setDoc(doc(db, "voice_users", profile.uid), {
           uid: profile.uid,
           username: myCleanUsername,
@@ -1482,6 +1501,7 @@ export default function VoiceChannel({
           isVideoLoading: false,
           isScreenSharing: false,
           isScreenAudioOn: false,
+          activity: getCurrentActivity(),
           timestamp: Date.now(),
         });
 
@@ -1496,8 +1516,10 @@ export default function VoiceChannel({
           photoURL: profile.photoURL || "",
           status: "online",
           lastSeen: Date.now(),
+          timestamp: Date.now(),
           isMuted: false,
           inVoice: true,
+          activity: getCurrentActivity(),
         }, { merge: true }).catch(() => {});
 
         hasJoinedVoiceRef.current = true;
@@ -1762,6 +1784,7 @@ export default function VoiceChannel({
     // Fast 2-second heartbeat to ensure other peers know this client is alive
     const heartbeatInterval = setInterval(async () => {
       if (!isMountedRef.current) return;
+      const currentAct = getCurrentActivity();
       try {
         await updateDoc(doc(db, "voice_users", profile.uid), {
           timestamp: Date.now(),
@@ -1770,14 +1793,19 @@ export default function VoiceChannel({
           isVideoLoading: isCameraLoadingRef.current,
           isScreenSharing: isScreenSharingRef.current,
           isScreenAudioOn: isScreenAudioOnRef.current,
+          activity: currentAct,
         }).catch(() => {});
         await updateDoc(doc(db, "presence", profile.uid), {
           lastSeen: Date.now(),
+          timestamp: Date.now(),
           status: "online",
           inVoice: true,
           isMuted: isMutedRef.current,
           isVideoOn: isVideoOnRef.current,
+          isVideoLoading: isCameraLoadingRef.current,
           isScreenSharing: isScreenSharingRef.current,
+          isScreenAudioOn: isScreenAudioOnRef.current,
+          activity: currentAct,
         }).catch(() => {});
       } catch (e) {}
     }, 2000);
@@ -1791,12 +1819,23 @@ export default function VoiceChannel({
       stopAllMediaTracks();
       hasJoinedVoiceRef.current = false;
 
+      setVoiceState({
+        inVoice: false,
+        isMuted: false,
+        isVideoOn: false,
+        isVideoLoading: false,
+        isScreenSharing: false,
+        isScreenAudioOn: false,
+      });
+
       deleteDoc(doc(db, "voice_users", profile.uid)).catch(() => {});
       updateDoc(doc(db, "presence", profile.uid), {
         inVoice: false,
         isMuted: false,
         isScreenSharing: false,
         isVideoOn: false,
+        lastSeen: Date.now(),
+        timestamp: Date.now(),
       }).catch(() => {});
 
       if (unsubscribeBroadcast) unsubscribeBroadcast();

@@ -94,7 +94,41 @@ let currentGlobalActivity: UserActivity = {
   timestamp: Date.now(),
 };
 
+// Global in-memory voice state
+let currentVoiceState = {
+  inVoice: false,
+  isMuted: false,
+  isVideoOn: false,
+  isVideoLoading: false,
+  isScreenSharing: false,
+  isScreenAudioOn: false,
+  channelName: "General Voice",
+};
+
 const activityListeners = new Set<(activity: UserActivity) => void>();
+const voiceStateListeners = new Set<(voiceState: typeof currentVoiceState) => void>();
+
+export function setVoiceState(state: Partial<typeof currentVoiceState>) {
+  currentVoiceState = { ...currentVoiceState, ...state };
+  voiceStateListeners.forEach((cb) => {
+    try {
+      cb(currentVoiceState);
+    } catch (e) {}
+  });
+  broadcastPresenceUpdate();
+}
+
+export function getVoiceState() {
+  return currentVoiceState;
+}
+
+export function onVoiceStateChanged(cb: (vs: typeof currentVoiceState) => void): () => void {
+  voiceStateListeners.add(cb);
+  cb(currentVoiceState);
+  return () => {
+    voiceStateListeners.delete(cb);
+  };
+}
 
 export function updateGlobalActivity(activity: Partial<UserActivity>) {
   const now = Date.now();
@@ -109,7 +143,7 @@ export function updateGlobalActivity(activity: Partial<UserActivity>) {
     } else if (activity.type === "chatting") {
       computedText = activity.channel ? `In Chat #${activity.channel}` : "In Frosted Chat";
     } else if (activity.type === "scrolling") {
-      computedText = activity.tag && activity.tag !== "all" ? `Browsing ${activity.tag}` : "Scrolling games";
+      computedText = activity.tag && activity.tag !== "all" ? `Browsing ${activity.tag}` : "Browsing games";
     } else {
       computedText = "Browsing games";
     }
@@ -171,6 +205,13 @@ export function broadcastPresenceUpdate(activity?: UserActivity) {
     lastSeen: now,
     timestamp: now,
     activity: active,
+    inVoice: currentVoiceState.inVoice,
+    isMuted: currentVoiceState.isMuted,
+    isVideoOn: currentVoiceState.isVideoOn,
+    isVideoLoading: currentVoiceState.isVideoLoading,
+    isScreenSharing: currentVoiceState.isScreenSharing,
+    isScreenAudioOn: currentVoiceState.isScreenAudioOn,
+    channelName: currentVoiceState.channelName,
   };
 
   // 1. Instant 0ms WebSocket Broadcast

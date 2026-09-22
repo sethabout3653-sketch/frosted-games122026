@@ -24,7 +24,7 @@ import {
 } from "../supabase-adapter";
 import { ChatMessage, ChatProfile, UserActivity } from "../types";
 import { wsClient } from "../lib/websocket-client";
-import { getCurrentActivity, onActivityChanged } from "../lib/activity-tracker";
+import { getCurrentActivity, onActivityChanged, getVoiceState, broadcastPresenceUpdate } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
 import { checkTextModeration } from "../utils/moderation";
 import { useCall } from "../context/CallContext";
@@ -853,19 +853,8 @@ export default function ChatPanel({
     if (!profile) return;
     const presenceRef = doc(db, "presence", profile.uid);
 
-    const markOnline = async () => {
-      try {
-        const act = getCurrentActivity();
-        await setDoc(presenceRef, {
-          uid: profile.uid,
-          username: profile.username,
-          photoURL: profile.photoURL || "",
-          status: "online",
-          lastSeen: Date.now(),
-          timestamp: Date.now(),
-          activity: act,
-        }, { merge: true });
-      } catch (e) {}
+    const markOnline = () => {
+      broadcastPresenceUpdate();
     };
 
     const markLeft = async () => {
@@ -1877,16 +1866,18 @@ export default function ChatPanel({
       const isMe = u.uid === profile.uid || uNameClean === myNameClean;
       const lastSeenMs = toTimestampMs(u.lastSeen);
       const vInfo = voiceUsersMap.get(u.uid) || voiceUsersMap.get(uNameClean);
-      const isVoiceActive = Boolean(vInfo) || Boolean(u.inVoice);
+      const isVoiceActive = isMe
+        ? Boolean(getVoiceState().inVoice || vInfo)
+        : Boolean(vInfo || (u.inVoice && u.status !== "left"));
 
-      // Heartbeat window: 45s for standard users, 60s for voice/call participants
+      // Heartbeat window: 60s for all active participants to prevent flickering
       const timeDiff = Math.abs(now - lastSeenMs);
-      const isRecentlyActive = isVoiceActive ? timeDiff < 60000 : timeDiff < 45000;
+      const isRecentlyActive = timeDiff < 60000;
       const isValid = isMe || isVoiceActive || (isRecentlyActive && u.status !== "left");
 
       if (isValid) {
         const existing = userMap.get(uNameClean);
-        const effectiveVoice = isVoiceActive || Boolean(existing?.inVoice);
+        const effectiveVoice = isVoiceActive;
         const effectiveMuted = vInfo?.isMuted ?? u.isMuted ?? existing?.isMuted ?? false;
         const effectiveVideo = vInfo?.isVideoOn ?? u.isVideoOn ?? existing?.isVideoOn ?? false;
         const effectiveScreen = vInfo?.isScreenSharing ?? u.isScreenSharing ?? existing?.isScreenSharing ?? false;
@@ -1901,8 +1892,8 @@ export default function ChatPanel({
           isScreenSharing: effectiveScreen,
           channelName: vInfo?.channelName || u.channelName || existing?.channelName || (effectiveVoice ? "General Voice" : undefined),
           status: "online",
-          lastSeen: Math.max(lastSeenMs, toTimestampMs(existing?.lastSeen)),
-          activity: isMe ? (localActivity || u.activity) : (u.activity || existing?.activity),
+          lastSeen: Math.max(lastSeenMs, toTimestampMs(existing?.lastSeen) || 0),
+          activity: isMe ? (getCurrentActivity() || localActivity || u.activity) : (u.activity || existing?.activity),
         });
       }
     });
