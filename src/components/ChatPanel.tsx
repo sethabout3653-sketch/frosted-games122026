@@ -262,7 +262,24 @@ export default function ChatPanel({
   const [modReason, setModReason] = useState("");
   const [modBanDuration, setModBanDuration] = useState<number>(5 * 60 * 1000); // 5 mins
 
-  // Banned Users & Unban Management States
+  // Real-time synchronization of slowmode & chat lock from Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "chat_settings", "global"), (snap: any) => {
+      const exists = typeof snap?.exists === "function" ? snap.exists() : !!snap?.exists;
+      if (exists) {
+        const data = typeof snap.data === "function" ? snap.data() : (snap.data || snap);
+        if (data) {
+          if (typeof data.slowmode === "number") {
+            setSlowmodeCooldown(data.slowmode);
+          }
+          if (typeof data.isLocked === "boolean") {
+            setIsChatLocked(data.isLocked);
+          }
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
   const [bannedList, setBannedList] = useState<any[]>([]);
   const [showBannedModal, setShowBannedModal] = useState(false);
   const [showModSuiteModal, setShowModSuiteModal] = useState(false);
@@ -1371,15 +1388,19 @@ export default function ChatPanel({
     }
 
     // Check Slowmode Cooldown
-    if (slowmodeCooldown > 0 && !isUserModerator(profile.username, profile.uid)) {
+    if (slowmodeCooldown > 0) {
       const now = Date.now();
-      const elapsed = (now - lastUserMessageTimeRef.current) / 1000;
+      const storedLastTs = localStorage.getItem("last_msg_ts");
+      const lastTs = storedLastTs ? Number(storedLastTs) : lastUserMessageTimeRef.current;
+      const elapsed = (now - lastTs) / 1000;
+
       if (elapsed < slowmodeCooldown) {
         const remaining = Math.ceil(slowmodeCooldown - elapsed);
-        showModerationAlert("Slowmode Active", `Slowmode is enabled. Please wait ${remaining} second${remaining === 1 ? "" : "s"} before sending another message.`);
+        showModerationAlert("Slowmode Active", `Channel slowmode is enabled (${slowmodeCooldown}s). Please wait ${remaining} second${remaining === 1 ? "" : "s"} before sending another message.`);
         return;
       }
       lastUserMessageTimeRef.current = now;
+      localStorage.setItem("last_msg_ts", String(now));
     }
 
     if (isUploading || (currentAttachment && currentAttachment.startsWith("blob:"))) {
@@ -2023,19 +2044,6 @@ export default function ChatPanel({
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>{activeOnlineUsers.length} Online</span>
             </span>
-
-            {/* In-Voice Header Pill */}
-            {inVoiceUsers.length > 0 && (
-              <button
-                type="button"
-                onClick={onSelectVoice}
-                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-[11px] font-bold hover:bg-emerald-900/90 transition-all cursor-pointer shadow-sm active:scale-95 animate-pulse ml-1"
-                title="Click to switch to General Voice"
-              >
-                <Volume2 size={11} className="text-emerald-400" />
-                <span>{inVoiceUsers.length} in Voice</span>
-              </button>
-            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -2093,53 +2101,6 @@ export default function ChatPanel({
             )}
           </div>
         </div>
-
-        {/* 🎙️ Voice Room Discord-style Presence Banner */}
-        {inVoiceUsers.length > 0 && (
-          <div className="bg-gradient-to-r from-emerald-950/70 via-indigo-950/60 to-neutral-950/90 px-4 py-2 border-b border-emerald-500/30 flex items-center justify-between gap-3 text-xs flex-shrink-0 backdrop-blur-md z-10">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex-shrink-0">
-                <Volume2 size={15} className="animate-pulse" />
-              </div>
-              <div className="min-w-0 flex items-center gap-2">
-                <div>
-                  <p className="text-xs font-bold text-white leading-tight">
-                    <span className="text-emerald-400 font-extrabold">{inVoiceUsers.length} {inVoiceUsers.length === 1 ? "user is" : "users are"}</span> in General Voice
-                  </p>
-                  <p className="text-[10px] text-neutral-300 truncate max-w-xs sm:max-w-md">
-                    {inVoiceUsers.map(u => u.username).slice(0, 4).join(", ")}{inVoiceUsers.length > 4 ? ` +${inVoiceUsers.length - 4} more` : ""}
-                  </p>
-                </div>
-                {/* Micro Avatars stack */}
-                <div className="hidden sm:flex items-center -space-x-1.5 ml-2 overflow-hidden py-0.5">
-                  {inVoiceUsers.slice(0, 5).map((vu, idx) => (
-                    <div
-                      key={`hdr-voice-${vu.uid || idx}`}
-                      className="w-5 h-5 rounded-full overflow-hidden border border-emerald-500/60 bg-neutral-800 flex-shrink-0"
-                      title={vu.username}
-                    >
-                      {vu.photoURL ? (
-                        <img src={vu.photoURL} alt={vu.username} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="w-full h-full flex items-center justify-center text-[9px] font-bold text-white bg-indigo-900">
-                          {vu.username?.charAt(0).toUpperCase()}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onSelectVoice}
-              className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 flex-shrink-0 border border-emerald-400/40"
-            >
-              <PhoneCall size={12} />
-              <span>Join Voice</span>
-            </button>
-          </div>
-        )}
 
         {/* 🛡️ Moderation Alert Banner */}
         {moderationWarning && moderationWarning.open && (
@@ -2845,155 +2806,6 @@ export default function ChatPanel({
                     <Ban size={11} />
                     <span>Banned ({bannedList.length})</span>
                   </button>
-                </div>
-              </div>
-            )}
-
-            {/* 🎙️ IN VOICE & CALLS SECTION */}
-            {inVoiceUsers.length > 0 && (
-              <div className="rounded-xl p-2 bg-gradient-to-b from-emerald-950/40 to-indigo-950/30 border border-emerald-500/20">
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <div className="flex items-center gap-1.5 text-emerald-400">
-                    <Volume2 size={12} className="animate-pulse" />
-                    <h3 className="text-[10px] font-extrabold tracking-wider uppercase">
-                      IN VOICE & CALLS — {inVoiceUsers.length}
-                    </h3>
-                  </div>
-                  {onSelectVoice && (
-                    <button
-                      type="button"
-                      onClick={onSelectVoice}
-                      className="text-[9px] font-bold text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
-                    >
-                      Join
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  {inVoiceUsers.map((user, uIdx) => {
-                    const isCurrentUser = user.uid === profile.uid;
-                    const voiceInfo = activeVoiceUsers[user.uid];
-                    const isMuted = voiceInfo?.isMuted ?? user.isMuted;
-                    const isVideo = voiceInfo?.isVideoOn ?? user.isVideoOn;
-                    const isScreen = (voiceInfo as any)?.isScreenSharing ?? user.isScreenSharing;
-                    const userActivity = isCurrentUser ? (localActivity || user.activity) : user.activity;
-
-                    return (
-                      <div
-                        key={`voice-${user.uid || "v"}-${uIdx}`}
-                        className="group relative flex items-start gap-2.5 p-1.5 rounded-lg hover:bg-emerald-950/50 border border-transparent hover:border-emerald-500/30 transition-all duration-150 cursor-pointer"
-                        onClick={() => setSelectedUserProfile(user)}
-                      >
-                        {/* Avatar with Voice Ring & Dot */}
-                        <div className="relative mt-0.5 flex-shrink-0">
-                          <div className="w-8 h-8 rounded-full overflow-hidden bg-neutral-800 ring-2 ring-emerald-500/60 flex items-center justify-center text-xs font-bold text-white shadow-sm">
-                            {user.photoURL ? (
-                              <img
-                                src={user.photoURL}
-                                alt={user.username || "User"}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <span>{(user.username || "?").charAt(0).toUpperCase()}</span>
-                            )}
-                          </div>
-                          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-[#030514]" />
-                        </div>
-
-                        {/* User info */}
-                        <div className="flex-1 min-w-0 flex flex-col">
-                          <div className="flex items-center justify-between gap-1 w-full">
-                            <div className="flex items-center gap-1 min-w-0">
-                              <span className="text-xs font-bold text-emerald-200 group-hover:text-white truncate">
-                                {user.username}
-                              </span>
-                              {isUserModerator(user.username, user.uid) && (
-                                <span className="bg-red-950/80 text-red-400 border border-red-800/60 text-[8px] font-extrabold px-1 py-0.2 rounded uppercase tracking-wider flex-shrink-0" title="Community Moderator">
-                                  MOD
-                                </span>
-                              )}
-                              {isCurrentUser && (
-                                <span className="bg-[#0a1236] text-indigo-300 border border-indigo-700/80 text-[8px] font-bold px-1 py-0.2 rounded uppercase tracking-wider flex-shrink-0">
-                                  YOU
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Quick Action buttons */}
-                            <div className="hidden group-hover:flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                              {!isCurrentUser && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleStartDirectCall(user, "audio")}
-                                    className="p-1 rounded bg-white/10 hover:bg-emerald-600/30 text-emerald-300 hover:text-white transition-colors"
-                                    title="Call Direct Audio"
-                                  >
-                                    <Phone size={10} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleStartDirectCall(user, "video")}
-                                    className="p-1 rounded bg-white/10 hover:bg-indigo-600/30 text-indigo-300 hover:text-white transition-colors"
-                                    title="Call Direct Video"
-                                  >
-                                    <Video size={10} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleMentionUser(user.username)}
-                                    className="p-1 rounded bg-white/10 hover:bg-white/20 text-neutral-300 hover:text-white transition-colors"
-                                    title="Mention in chat"
-                                  >
-                                    <AtSign size={10} />
-                                  </button>
-                                  {isUserModerator(profile.username, profile.uid) && !isUserModerator(user.username, user.uid) && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setModTargetUser(user);
-                                        setModActionType("kick");
-                                        setModReason("");
-                                      }}
-                                      className="p-1 rounded bg-red-950/60 hover:bg-red-900/80 text-red-300 hover:text-red-100 transition-colors cursor-pointer"
-                                      title="Kick or Ban User"
-                                    >
-                                      <ShieldAlert size={10} />
-                                    </button>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Activity & Voice Status */}
-                          <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                            {isScreen && (
-                              <span className="flex items-center gap-0.5 text-[9px] font-extrabold text-indigo-200 bg-[#0c1642] border border-indigo-600/80 px-1 py-0.2 rounded animate-pulse">
-                                <MonitorUp size={9} /> LIVE
-                              </span>
-                            )}
-                            {isVideo && (
-                              <span className="flex items-center gap-0.5 text-[9px] font-bold text-cyan-300 bg-cyan-950/80 border border-cyan-700/60 px-1 py-0.2 rounded">
-                                <Video size={9} /> Cam
-                              </span>
-                            )}
-                            {isMuted && (
-                              <span className="flex items-center gap-0.5 text-[9px] font-bold text-red-400 bg-red-950/80 border border-red-800/60 px-1 py-0.2 rounded">
-                                <MicOff size={9} /> Muted
-                              </span>
-                            )}
-                          </div>
-
-                          {userActivity && (
-                            <div className="mt-1">
-                              <ActivityBadge activity={userActivity} compact />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               </div>
             )}
@@ -3863,10 +3675,16 @@ export default function ChatPanel({
           }
           setMessages((prev) => prev.slice(0, Math.max(0, prev.length - count)));
         }}
-        onToggleChatLock={(locked) => setIsChatLocked(locked)}
+        onToggleChatLock={async (locked) => {
+          setIsChatLocked(locked);
+          await setDoc(doc(db, "chat_settings", "global"), { isLocked: locked, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+        }}
         isChatLocked={isChatLocked}
         slowmodeCooldown={slowmodeCooldown}
-        onSetSlowmode={(sec) => setSlowmodeCooldown(sec)}
+        onSetSlowmode={async (sec) => {
+          setSlowmodeCooldown(sec);
+          await setDoc(doc(db, "chat_settings", "global"), { slowmode: sec, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+        }}
       />
     </div>
   );
