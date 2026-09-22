@@ -36,124 +36,14 @@ interface YouTubeViewProps {
 }
 
 const CATEGORIES = [
-  { id: "all", label: "Trending Music", icon: Music },
+  { id: "all", label: "Trending Music", icon: Flame },
   { id: "study", label: "Study & Lofi", icon: Headphones },
-  { id: "favorites", label: "Saved Music", icon: Heart },
-  { id: "history", label: "Music History", icon: History },
-];
-
-const CURATED_CREATORS = [
-  { name: "Lofi Girl", id: "UCSJ4gkVC6NrvII8umztf0Ow", tag: "Study Beats" },
-  { name: "MrBeast", id: "UCX6OQ3DkcsbYNE6H8uQQuVA", tag: "Challenges" },
-  { name: "IGN", id: "UCKy1dAqELo0zrOtPkf0eTMw", tag: "Gaming News" },
-  { name: "Kurzgesagt", id: "UCsXVk37bltHxD1rDPwtNM8Q", tag: "Science" },
-  { name: "Fireship", id: "UCsBjURrPoezykLs9EqgamOA", tag: "Tech in 100s" },
-  { name: "GameSpot", id: "UC9CuvdOVfMPvKCiWD4QSNLA", tag: "Trailers" },
-  { name: "PewDiePie", id: "UC-lHJZR3Gqxm24_Vd_AJ5Yw", tag: "Gaming" },
-  { name: "Monstercat", id: "UCWzS3Z3R4U2x5z3t0yF-l9w", tag: "EDM" },
-];
-
-const CURATED_SHORTS: YouTubeVideo[] = [
-  {
-    id: "2K08A375tFE",
-    title: "Can Water Float on Air? 🤯 (Science Experiment)",
-    channelTitle: "Science Lab",
-    views: "89M views",
-    publishedTime: "3mo ago",
-    duration: "0:45",
-    thumbnail: "https://i.ytimg.com/vi/2K08A375tFE/hqdefault.jpg",
-    isShort: true,
-  },
-  {
-    id: "L_LUpnjgPso",
-    title: "Flying to Paris just to get a fresh baguette! 🇫🇷",
-    channelTitle: "MrBeast",
-    views: "142M views",
-    publishedTime: "1mo ago",
-    duration: "0:58",
-    thumbnail: "https://i.ytimg.com/vi/L_LUpnjgPso/hqdefault.jpg",
-    isShort: true,
-  },
-  {
-    id: "X_mE7uD9P6g",
-    title: "Insane Magic Illusion Trick! How did he do that? 🪄",
-    channelTitle: "Zach King",
-    views: "98M views",
-    publishedTime: "6mo ago",
-    duration: "0:42",
-    thumbnail: "https://i.ytimg.com/vi/X_mE7uD9P6g/hqdefault.jpg",
-    isShort: true,
-  },
-  {
-    id: "z3_7bS_A13E",
-    title: "Super satisfying kinetic sand carving compilation ASMR 🔪",
-    channelTitle: "ASMR satisfying",
-    views: "67M views",
-    publishedTime: "5mo ago",
-    duration: "0:50",
-    thumbnail: "https://i.ytimg.com/vi/z3_7bS_A13E/hqdefault.jpg",
-    isShort: true,
-  },
-  {
-    id: "9n7U2-KzUmg",
-    title: "Insane City Roof Parkour Jump! DO NOT TRY THIS! 🏃‍♂️",
-    channelTitle: "Parkour Pro",
-    views: "45M views",
-    publishedTime: "2mo ago",
-    duration: "0:35",
-    thumbnail: "https://i.ytimg.com/vi/9n7U2-KzUmg/hqdefault.jpg",
-    isShort: true,
-  },
-  {
-    id: "S90fH_YnIvs",
-    title: "3 History Facts They Didn't Teach You In School! 📜",
-    channelTitle: "History Revealed",
-    views: "12M views",
-    publishedTime: "8mo ago",
-    duration: "0:59",
-    thumbnail: "https://i.ytimg.com/vi/S90fH_YnIvs/hqdefault.jpg",
-    isShort: true,
-  },
-  {
-    id: "uH6N0O-9SgA",
-    title: "This visual drawing illusion will melt your brain! ✏️",
-    channelTitle: "Art Masterclass",
-    views: "31M views",
-    publishedTime: "4mo ago",
-    duration: "0:48",
-    thumbnail: "https://i.ytimg.com/vi/uH6N0O-9SgA/hqdefault.jpg",
-    isShort: true,
-  },
-  {
-    id: "q8qK_mU6X8Y",
-    title: "Cooking standard fast food at home but gourmet! 🍔",
-    channelTitle: "Chef Gordon",
-    views: "53M views",
-    publishedTime: "1mo ago",
-    duration: "0:55",
-    thumbnail: "https://i.ytimg.com/vi/q8qK_mU6X8Y/hqdefault.jpg",
-    isShort: true,
-  },
-  {
-    id: "C2_I2eGj1sA",
-    title: "Satisfying high power laser rust cleaning ⚡",
-    channelTitle: "LaserTech",
-    views: "74M views",
-    publishedTime: "2mo ago",
-    duration: "0:40",
-    thumbnail: "https://i.ytimg.com/vi/C2_I2eGj1sA/hqdefault.jpg",
-    isShort: true,
-  },
-  {
-    id: "d6y2tY87wXg",
-    title: "Perfect satisfy flapjack pancake flip challenge! 🥞",
-    channelTitle: "Baking Beats",
-    views: "18M views",
-    publishedTime: "3mo ago",
-    duration: "0:30",
-    thumbnail: "https://i.ytimg.com/vi/d6y2tY87wXg/hqdefault.jpg",
-    isShort: true,
-  }
+  { id: "pop", label: "Pop Hits", icon: Sparkles },
+  { id: "hiphop", label: "Hip Hop & Rap", icon: Music },
+  { id: "electronic", label: "EDM & Dance", icon: Radio },
+  { id: "rock", label: "Rock & Indie", icon: Compass },
+  { id: "favorites", label: "Saved Tracks", icon: Heart },
+  { id: "history", label: "History", icon: History },
 ];
 
 export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChange }: YouTubeViewProps) {
@@ -204,12 +94,9 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
     async function loadVideos() {
       setIsLoading(true);
       try {
-        let endpoint = `/api/youtube/trending?category=music`;
-        if (selectedCategory === "study") {
-          endpoint = `/api/youtube/trending?category=study`;
-        }
+        let endpoint = `/api/youtube/trending?category=${selectedCategory}`;
         if (deferredSearch.trim()) {
-          endpoint = `/api/youtube/search?q=${encodeURIComponent(deferredSearch.trim() + " official music video song")}`;
+          endpoint = `/api/youtube/search?q=${encodeURIComponent(deferredSearch.trim())}`;
         }
 
         const res = await fetch(endpoint);
@@ -254,12 +141,11 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
     const raw = directUrlInput.trim();
     if (!raw) return;
 
-    // Check if it's a direct googlevideo URL or custom video URL
     if (raw.includes("googlevideo.com") || raw.endsWith(".mp4") || raw.endsWith(".webm")) {
       const customVideo: YouTubeVideo = {
         id: "direct_stream_" + Date.now(),
-        title: "Direct GoogleVideo Stream",
-        channelTitle: "Direct Stream Source",
+        title: "Direct Stream Audio",
+        channelTitle: "Frosted Music",
         thumbnail: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80",
         streamUrl: raw,
       };
@@ -273,8 +159,8 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
     if (videoId && videoId.length === 11) {
       const parsedVideo: YouTubeVideo = {
         id: videoId,
-        title: `YouTube Video (${videoId})`,
-        channelTitle: "YouTube",
+        title: `Playing Track (${videoId})`,
+        channelTitle: "Frosted Music",
         thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
       };
       setSelectedVideo(parsedVideo);
@@ -292,7 +178,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
     }
   };
 
-  // If a video is currently selected, show the rich HTML5 video player
+  // If a video is currently selected, show the player
   if (selectedVideo) {
     return (
       <div className="w-full min-h-[calc(100vh-120px)] p-3 sm:p-6 space-y-6">
@@ -302,10 +188,11 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
           onSelectRelated={(v) => setSelectedVideo(v)}
         />
 
-        {/* Up Next & Recommended Videos Grid */}
+        {/* Up Next & Recommended Music Grid */}
         <div className="w-full max-w-7xl mx-auto space-y-4 pt-4">
-          <h3 className="text-base font-bold text-white">
-            Up Next
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <Music size={16} className="text-[var(--theme-text-accent)]" />
+            <span>Up Next in Frosted Music</span>
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-7">
@@ -313,7 +200,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
               .filter((v) => v.id !== selectedVideo.id)
               .slice(0, 8)
               .map((v) => {
-                const channelInit = (v.channelTitle || "Y")[0].toUpperCase();
+                const channelInit = (v.channelTitle || "M")[0].toUpperCase();
                 return (
                   <div
                     key={v.id}
@@ -323,7 +210,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
                     }}
                     className="group cursor-pointer flex flex-col space-y-2.5"
                   >
-                    <div className="relative aspect-video rounded-xl overflow-hidden bg-[#181818] group-hover:rounded-none transition-all duration-200">
+                    <div className="relative aspect-video rounded-xl overflow-hidden bg-[#181818] border border-white/5 group-hover:border-[var(--theme-accent)] transition-all duration-200">
                       <img
                         src={v.thumbnail}
                         alt={v.title}
@@ -352,7 +239,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-semibold text-white line-clamp-2 leading-snug group-hover:text-neutral-200 transition-colors">
+                        <h4 className="text-sm font-semibold text-white line-clamp-2 leading-snug group-hover:text-[var(--theme-text-accent)] transition-colors">
                           {v.title}
                         </h4>
                         <p className="text-xs text-neutral-400 mt-1 truncate">{v.channelTitle}</p>
@@ -372,13 +259,24 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
       {/* Top Search & Navigation Bar */}
       <div className="flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap pb-3 border-b border-white/5">
         {/* Left: Frosted Music Branding */}
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-[var(--theme-indigo-600)] to-[var(--theme-indigo-900)] flex items-center justify-center text-white shadow-md shadow-black/40">
-            <Music size={18} />
+        <div className="flex items-center gap-2.5">
+          <div
+            style={{
+              backgroundColor: "var(--theme-accent)",
+              borderColor: "var(--theme-border)",
+            }}
+            className="h-9 w-9 rounded-xl border flex items-center justify-center text-white shadow-md transition-colors"
+          >
+            <Music size={18} className="text-white" />
           </div>
-          <span className="text-lg font-bold tracking-tight text-white font-sans">
-            Frosted Music
-          </span>
+          <div className="flex flex-col">
+            <span className="text-lg font-extrabold tracking-tight text-white font-sans flex items-center gap-1.5">
+              Frosted Music
+            </span>
+            <span className="text-[10px] text-neutral-400 font-medium tracking-wide">
+              Stream & Listen Together
+            </span>
+          </div>
         </div>
 
         {/* Center: Search Bar */}
@@ -402,17 +300,17 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
                   if (extractedId && extractedId.length === 11) {
                     const parsedVideo: YouTubeVideo = {
                       id: extractedId,
-                      title: `Pasted YouTube Video (${extractedId})`,
-                      channelTitle: "YT Music",
+                      title: `Playing Video (${extractedId})`,
+                      channelTitle: "Frosted Music",
                       thumbnail: `https://i.ytimg.com/vi/${extractedId}/hqdefault.jpg`,
                     };
                     setSelectedVideo(parsedVideo);
-                    setSearchQuery(""); // Clear the search bar
+                    setSearchQuery("");
                   }
                 }
               }}
-              placeholder="Search music, artists, albums..."
-              className="w-full h-10 pl-10 pr-10 rounded-full bg-[#121212] border border-[#303030] text-sm text-white placeholder-neutral-400 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all"
+              placeholder="Search music, songs, artists, albums, or paste YouTube link..."
+              className="w-full h-10 pl-10 pr-10 rounded-full bg-[#121212] border border-[#303030] text-sm text-white placeholder-neutral-400 focus:outline-none focus:border-[var(--theme-accent)] focus:ring-1 focus:ring-[var(--theme-accent)] transition-all"
             />
             {searchQuery && (
               <button
@@ -431,6 +329,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         {CATEGORIES.map((cat) => {
           const isSelected = selectedCategory === cat.id && !searchQuery;
+          const Icon = cat.icon;
           return (
             <button
               key={cat.id}
@@ -439,15 +338,20 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
                 setSelectedCategory(cat.id);
                 setSearchQuery("");
               }}
-              className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+              style={{
+                backgroundColor: isSelected ? "var(--theme-accent)" : "rgba(255, 255, 255, 0.05)",
+                borderColor: isSelected ? "var(--theme-border)" : "transparent",
+              }}
+              className={`px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-150 whitespace-nowrap cursor-pointer flex items-center gap-1.5 border ${
                 isSelected
-                  ? "bg-white text-black"
-                  : "bg-[#272727] hover:bg-[#383838] text-white"
+                  ? "text-white shadow-md ring-1 ring-white/20"
+                  : "text-neutral-300 hover:text-white hover:bg-white/10"
               }`}
             >
+              <Icon size={14} className={isSelected ? "text-white" : "text-neutral-400"} />
               <span>{cat.label}</span>
               {cat.id === "favorites" && savedCount > 0 && (
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isSelected ? "bg-black/10 text-black" : "bg-white/20 text-white"}`}>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isSelected ? "bg-white/20 text-white" : "bg-white/10 text-neutral-300"}`}>
                   {savedCount}
                 </span>
               )}
@@ -460,7 +364,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
       <div className="space-y-4">
         {selectedCategory === "history" && videos.length > 0 && (
           <div className="flex items-center justify-between pt-1">
-            <h2 className="text-sm font-bold text-white">Watch History</h2>
+            <h2 className="text-sm font-bold text-white">Listening History</h2>
             <button
               type="button"
               onClick={() => {
@@ -476,7 +380,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
 
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6">
-            {Array.from({ length: 10 }).map((_, i) => (
+            {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="space-y-3 animate-pulse">
                 <div className="rounded-xl bg-[#272727] aspect-video" />
                 <div className="flex gap-3">
@@ -491,10 +395,10 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
           </div>
         ) : videos.length === 0 ? (
           <div className="py-16 text-center space-y-3 bg-[#121212]/50 rounded-2xl border border-white/5">
-            <Tv size={40} className="mx-auto text-neutral-600" />
-            <p className="text-sm font-semibold text-neutral-300">No content found</p>
+            <Music size={40} className="mx-auto text-neutral-600" />
+            <p className="text-sm font-semibold text-neutral-300">No tracks found</p>
             <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-              Try entering a search or change the active category filter.
+              Try searching for an artist, track title, or switch category.
             </p>
           </div>
         ) : (
@@ -514,7 +418,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
                   className="group cursor-pointer flex flex-col space-y-2.5"
                 >
                   {/* Thumbnail Area */}
-                  <div className="relative aspect-video rounded-xl overflow-hidden bg-[#181818] transition-all duration-200">
+                  <div className="relative aspect-video rounded-xl overflow-hidden bg-[#181818] border border-white/5 group-hover:border-[var(--theme-accent)] transition-all duration-200">
                     <img
                       src={vid.thumbnail}
                       alt={vid.title}
@@ -524,16 +428,22 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
                     />
 
                     {/* Play Hover Overlay */}
-                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <div className="h-10 w-10 rounded-full bg-[var(--theme-indigo-600)] text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
-                        <Play size={18} className="fill-white ml-0.5" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <div
+                        style={{ backgroundColor: "var(--theme-accent)" }}
+                        className="h-11 w-11 rounded-full text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform"
+                      >
+                        <Play size={20} className="fill-white ml-0.5" />
                       </div>
                     </div>
 
-                    {/* Music specific tag */}
-                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-[var(--theme-indigo-600)]/90 text-white font-bold text-[9px] tracking-wider uppercase flex items-center gap-1 z-10 shadow-sm">
+                    {/* Frosted Music specific tag */}
+                    <div
+                      style={{ backgroundColor: "var(--theme-accent)" }}
+                      className="absolute top-2 left-2 px-2 py-0.5 rounded text-white font-bold text-[9px] tracking-wider uppercase flex items-center gap-1 z-10 shadow-sm"
+                    >
                       <Music size={9} />
-                      <span>Music</span>
+                      <span>Frosted Music</span>
                     </div>
 
                     {/* Duration Badge */}
@@ -547,9 +457,12 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
                     <button
                       type="button"
                       onClick={(e) => handleToggleFavoriteCard(e, vid)}
+                      style={{
+                        backgroundColor: saved ? "var(--theme-accent)" : undefined,
+                      }}
                       className={`absolute top-2 right-2 h-7 w-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                         saved
-                          ? "bg-[var(--theme-indigo-600)] text-white shadow-md"
+                          ? "text-white shadow-md"
                           : "bg-black/60 text-white/80 hover:bg-black/90 hover:text-white"
                       }`}
                       title={saved ? "Saved" : "Save track"}
@@ -576,7 +489,7 @@ export default function YouTubeView({ isActive, onBackToHome, onActiveVideoChang
 
                     {/* Title & Metadata */}
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-semibold text-white line-clamp-2 leading-snug group-hover:text-neutral-200 transition-colors">
+                      <h3 className="text-sm font-semibold text-white line-clamp-2 leading-snug group-hover:text-[var(--theme-text-accent)] transition-colors">
                         {vid.title}
                       </h3>
 

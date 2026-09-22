@@ -60,31 +60,47 @@ interface VideoItem {
 function isStrictMusicVideo(v: VideoItem): boolean {
   const t = (v.title || "").toLowerCase();
   const c = (v.channelTitle || "").toLowerCase();
+  const d = (v.descriptionSnippet || "").toLowerCase();
   
   // Exclude non-music content
-  const bad = ["gameplay", "tutorial", "news", "reaction", "review", "podcast", "vlog", "walkthrough", "unboxing", "trailer", "highlights", "interview", "documentary", "test", "fps", "valorant", "fortnite", "roblox", "minecraft"];
-  if (bad.some(b => t.includes(b) || c.includes(b))) return false;
+  const nonMusicTerms = [
+    "gameplay", "walkthrough", "playthrough", "let's play", "speedrun", "roblox", "minecraft",
+    "fortnite", "valorant", "gta", "cod", "call of duty", "unboxing", "tutorial", "how to",
+    "review", "reaction", "react to", "reacting", "vlog", "prank", "challenge", "podcast",
+    "interview", "news", "documentary", "highlights", "funny moments", "fails", "compilation of fails",
+    "asmr satisfying", "kinetic sand", "rust cleaning", "magic illusion", "science experiment",
+    "mrbeast", "ign", "gamespot", "fireship", "kurzgesagt", "ted-ed", "techlinked", "recipe",
+    "cooking standard", "baguette", "pancake flip", "parkour jump"
+  ];
+  if (nonMusicTerms.some(term => t.includes(term) || c.includes(term))) {
+    return false;
+  }
   
-  // Must have music indicators or be from a music/artist/vevo channel
-  const musicWords = ["music", "audio", "song", "official", "vevo", "lyrics", "cover", "album", "concert", "mix", "remix", "live", "feat", "ft.", "prod.", "ep", "single", "video", "records", "music video", "topic", "soundtrack", "pop", "hip hop", "rock", "lofi", "chill", "R&B", "edm", "dance"];
-  const matchesMusic = musicWords.some(m => t.includes(m) || c.includes(m));
-  return matchesMusic;
+  // YouTube Music artist channels auto-tagged as "Artist - Topic", Vevo, or Records
+  if (c.endsWith("- topic") || c.includes("vevo") || c.includes("records") || c.includes("music")) {
+    return true;
+  }
+
+  // Strong music signals
+  const musicSignals = [
+    "music", "audio", "song", "track", "album", "artist", "official music video", "official audio",
+    "official video", "lyric video", "lyrics", "records", "vevo", "soundtrack", "ost", "remix",
+    "prod.", "feat.", "ft.", "instrumental", "acoustic", "live session", "concert", "orchestra",
+    "lofi", "beats", "chillhop", "synthwave", "pop", "rock", "hip hop", "rap", "r&b", "soul",
+    "jazz", "electronic", "edm", "dance", "house", "trap", "phonk", "metal", "indie", "k-pop"
+  ];
+  
+  return musicSignals.some(sig => t.includes(sig) || c.includes(sig) || d.includes(sig));
 }
 
-// Popular curated channels for instant fallback and high quality study / gaming / entertainment feeds
+// Popular curated official music channels for instant fallback
 const CURATED_CHANNELS = [
   { id: "UCSJ4gkVC6NrvII8umztf0Ow", name: "Lofi Girl", category: "study" },
-  { id: "UCX6OQ3DkcsbYNE6H8uQQuVA", name: "MrBeast", category: "entertainment" },
-  { id: "UCKy1dAqELo0zrOtPkf0eTMw", name: "IGN", category: "gaming" },
-  { id: "UCsXVk37bltHxD1rDPwtNM8Q", name: "Kurzgesagt", category: "tech" },
-  { id: "UCsBjURrPoezykLs9EqgamOA", name: "Fireship", category: "tech" },
-  { id: "UC7_YxT-KID8PEw5XA066Nuw", name: "FreeCodeCamp", category: "tech" },
-  { id: "UC-lHJZR3Gqxm24_Vd_AJ5Yw", name: "PewDiePie", category: "gaming" },
+  { id: "UCWzS3Z3R4U2x5z3t0yF-l9w", name: "Monstercat", category: "electronic" },
+  { id: "UC-9-kyTW8ZkZNDHQJ6FgpwQ", name: "Vevo", category: "music" },
+  { id: "UCbW18JZ9LA4vCvXjzNiK43g", name: "NoCopyrightSounds", category: "electronic" },
   { id: "UCuAXFkgsw1L7xaCfnd5JJOw", name: "Rick Astley", category: "music" },
-  { id: "UCsooa4yRKGN_zEE8iknghZA", name: "TED-Ed", category: "tech" },
-  { id: "UC0vBXGSyV14uvJ4hECDOl0Q", name: "TechLinked", category: "tech" },
-  { id: "UC9CuvdOVfMPvKCiWD4QSNLA", name: "GameSpot", category: "gaming" },
-  { id: "UCWzS3Z3R4U2x5z3t0yF-l9w", name: "Monstercat", category: "music" },
+  { id: "UC2pmfLm7iq6Ov1UwYrWYkZA", name: "ChilledCow / Lofi", category: "study" },
 ];
 
 // Helper to parse XML feeds from YouTube RSS
@@ -343,10 +359,10 @@ async function fetchChannelFeed(channelId: string): Promise<VideoItem[]> {
   return parseXmlFeed(xml);
 }
 
-// 1. GET /api/youtube/trending - Get category feeds or all latest videos
+// 1. GET /api/youtube/trending - Get category feeds for Frosted Music
 youtubeRouter.get("/trending", async (req, res) => {
   const category = (req.query.category as string) || "all";
-  const cacheKey = `trending_${category}`;
+  const cacheKey = `trending_music_${category}`;
 
   const cached = cacheMap.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
@@ -356,50 +372,54 @@ youtubeRouter.get("/trending", async (req, res) => {
   try {
     let videos: VideoItem[] = [];
 
-    // Map categories to search queries or channel groups
-    if (category === "gaming") {
-      const searchResults = await scrapeYouTubeSearch("gaming trailers gameplay highlights 2026");
-      videos = searchResults.length > 0 ? searchResults : await fetchChannelFeed("UCKy1dAqELo0zrOtPkf0eTMw"); // IGN fallback
-    } else if (category === "music" || category === "all") {
-      const searchResults = await scrapeYouTubeSearch("youtube music top charts official audio song hits");
-      const filtered = searchResults.filter(isStrictMusicVideo);
-      if (filtered.length > 0) {
-        videos = filtered;
-      } else {
-        videos = await fetchChannelFeed("UC-9-kyTW8ZkZNDHQJ6FgpwQ"); // VEVO
-      }
-    } else if (category === "study" || category === "lofi") {
-      const lofiVideos = await fetchChannelFeed("UCSJ4gkVC6NrvII8umztf0Ow"); // Lofi Girl
-      videos = lofiVideos;
-    } else if (category === "tech") {
-      const techVideos = await scrapeYouTubeSearch("technology science breakdown documentary");
-      videos = techVideos;
-    } else if (category === "entertainment") {
-      const mrbeast = await fetchChannelFeed("UCX6OQ3DkcsbYNE6H8uQQuVA"); // MrBeast
-      videos = mrbeast;
+    // Map categories to high-fidelity YouTube Music search queries
+    let searchQuery = "youtube music top charts official audio song hits";
+    if (category === "study" || category === "lofi") {
+      searchQuery = "lofi hip hop radio beats to relax study to";
+    } else if (category === "pop") {
+      searchQuery = "pop music top hits official music video songs 2026";
+    } else if (category === "hiphop") {
+      searchQuery = "top hip hop rap music video official songs 2026";
+    } else if (category === "electronic" || category === "edm") {
+      searchQuery = "electronic edm dance festival official music video";
+    } else if (category === "rock") {
+      searchQuery = "rock alternative hits official music video songs";
+    } else if (category === "rnb") {
+      searchQuery = "r&b soul hits official music video song";
+    }
+
+    const searchResults = await scrapeYouTubeSearch(searchQuery);
+    const filtered = searchResults.filter(isStrictMusicVideo);
+
+    if (filtered.length >= 4) {
+      videos = filtered;
     } else {
-      // "all" - Combined search of top latest videos + curated channels
-      const searchVideos = await scrapeYouTubeSearch("trending new videos today");
-      if (searchVideos.length > 0) {
-        videos = searchVideos;
+      // Fallback: merge with official music feeds (Vevo, Lofi Girl, Monstercat)
+      const [lofi, vevo, monster] = await Promise.allSettled([
+        fetchChannelFeed("UCSJ4gkVC6NrvII8umztf0Ow"),
+        fetchChannelFeed("UC-9-kyTW8ZkZNDHQJ6FgpwQ"),
+        fetchChannelFeed("UCWzS3Z3R4U2x5z3t0yF-l9w"),
+      ]);
+      const officialList: VideoItem[] = [];
+      if (category === "study" || category === "lofi") {
+        if (lofi.status === "fulfilled") officialList.push(...lofi.value);
+      } else if (category === "electronic") {
+        if (monster.status === "fulfilled") officialList.push(...monster.value);
       } else {
-        // Fallback: merge 3 top channels
-        const [lofi, beast, ign] = await Promise.allSettled([
-          fetchChannelFeed("UCSJ4gkVC6NrvII8umztf0Ow"),
-          fetchChannelFeed("UCX6OQ3DkcsbYNE6H8uQQuVA"),
-          fetchChannelFeed("UCKy1dAqELo0zrOtPkf0eTMw"),
-        ]);
-        if (lofi.status === "fulfilled") videos.push(...lofi.value.slice(0, 5));
-        if (beast.status === "fulfilled") videos.push(...beast.value.slice(0, 5));
-        if (ign.status === "fulfilled") videos.push(...ign.value.slice(0, 5));
+        if (vevo.status === "fulfilled") officialList.push(...vevo.value);
+        if (monster.status === "fulfilled") officialList.push(...monster.value.slice(0, 4));
+        if (lofi.status === "fulfilled") officialList.push(...lofi.value.slice(0, 4));
+      }
+      videos = [...filtered, ...officialList].filter(isStrictMusicVideo);
+      if (videos.length === 0) {
+        videos = officialList;
       }
     }
 
     cacheMap.set(cacheKey, { timestamp: Date.now(), data: videos });
     return res.json({ success: true, category, videos });
   } catch (error: any) {
-    console.error("Error fetching trending YouTube videos:", error);
-    // Fallback: Return cached if available even if stale
+    console.error("Error fetching trending Frosted Music videos:", error);
     if (cached) {
       return res.json({ success: true, category, videos: cached.data, stale: true });
     }
@@ -407,27 +427,44 @@ youtubeRouter.get("/trending", async (req, res) => {
   }
 });
 
-// 2. GET /api/youtube/search - Search any topic, video, or channel
+// 2. GET /api/youtube/search - Search YouTube Music
 youtubeRouter.get("/search", async (req, res) => {
   const query = (req.query.q as string || "").trim();
   if (!query) {
     return res.json({ success: true, videos: [] });
   }
 
-  const cacheKey = `search_${query.toLowerCase()}`;
+  const cacheKey = `search_music_${query.toLowerCase()}`;
   const cached = cacheMap.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return res.json({ success: true, query, videos: cached.data, cached: true });
   }
 
   try {
-    const rawVideos = await scrapeYouTubeSearch(query);
-    const filtered = rawVideos.filter(isStrictMusicVideo);
-    const videos = filtered.length > 0 ? filtered : rawVideos;
+    // Append music keywords to target genuine music tracks
+    const targetQuery = query.toLowerCase().includes("song") || query.toLowerCase().includes("music")
+      ? query
+      : `${query} official music video audio song`;
+
+    const rawVideos = await scrapeYouTubeSearch(targetQuery);
+    let filtered = rawVideos.filter(isStrictMusicVideo);
+
+    // If initial filtering was too strict, try with "official audio"
+    if (filtered.length === 0) {
+      const secondTry = await scrapeYouTubeSearch(`${query} official audio`);
+      filtered = secondTry.filter(isStrictMusicVideo);
+    }
+
+    const videos = filtered.length > 0 ? filtered : rawVideos.filter((v) => {
+      const t = (v.title || "").toLowerCase();
+      const bad = ["gameplay", "tutorial", "walkthrough", "speedrun", "roblox", "minecraft", "fortnite", "unboxing", "vlog", "prank"];
+      return !bad.some((b) => t.includes(b));
+    });
+
     cacheMap.set(cacheKey, { timestamp: Date.now(), data: videos });
     return res.json({ success: true, query, videos });
   } catch (error: any) {
-    console.error(`Error searching YouTube for "${query}":`, error);
+    console.error(`Error searching Frosted Music for "${query}":`, error);
     return res.status(500).json({ success: false, error: error.message, videos: [] });
   }
 });

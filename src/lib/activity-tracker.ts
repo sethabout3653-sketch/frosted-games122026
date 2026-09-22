@@ -226,8 +226,8 @@ export function useActivityTracker({
     if (currentView === "youtube") {
       updateGlobalActivity({
         type: "playing",
-        gameName: activeVideoTitle ? `YT Music: ${activeVideoTitle}` : "YT Music",
-        text: activeVideoTitle ? `Listening to: ${activeVideoTitle}` : "Listening to YT Music",
+        gameName: activeVideoTitle ? `Frosted Music: ${activeVideoTitle}` : "Frosted Music",
+        text: activeVideoTitle ? `Listening to: ${activeVideoTitle}` : "Listening to Frosted Music",
       });
       return;
     }

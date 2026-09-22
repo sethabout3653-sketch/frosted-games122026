@@ -24,6 +24,7 @@ import { wsClient } from "../lib/websocket-client";
 import { getCurrentActivity, onActivityChanged } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
 import { checkTextModeration } from "../utils/moderation";
+import { useCall } from "../context/CallContext";
 import {
   Send,
   Image as ImageIcon,
@@ -33,6 +34,7 @@ import {
   Users,
   Search,
   Hash,
+  Mic,
   MicOff,
   Volume2,
   Video,
@@ -44,6 +46,15 @@ import {
   SmilePlus,
   Sparkles,
   Smile,
+  Phone,
+  PhoneCall,
+  AtSign,
+  User as UserIcon,
+  Shield,
+  Radio,
+  Check,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 import GiphyPicker from "./GiphyPicker";
@@ -103,6 +114,7 @@ interface ChatPanelProps {
   onSelectVoice?: () => void;
   showMembersSidebar?: boolean;
   setShowMembersSidebar?: (show: boolean | ((prev: boolean) => boolean)) => void;
+  voiceUsers?: any[];
 }
 
 interface MemberUser {
@@ -112,7 +124,11 @@ interface MemberUser {
   lastSeen?: number;
   status?: "online" | "left" | "offline";
   isMuted?: boolean;
+  isVideoOn?: boolean;
+  isScreenSharing?: boolean;
   inVoice?: boolean;
+  inCall?: boolean;
+  channelName?: string;
   activity?: UserActivity;
 }
 
@@ -168,7 +184,34 @@ export default function ChatPanel({
   activeChannel = "general",
   showMembersSidebar = true,
   setShowMembersSidebar,
+  onSelectVoice,
+  voiceUsers: propVoiceUsers = [],
 }: ChatPanelProps) {
+  const callCtx = useCall();
+  const [selectedUserProfile, setSelectedUserProfile] = useState<MemberUser | null>(null);
+  const [voiceUsersMap, setVoiceUsersMap] = useState<Map<string, any>>(new Map());
+
+  const handleStartDirectCall = (user: MemberUser, type: "audio" | "video") => {
+    if (!user || user.uid === profile.uid) return;
+    callCtx?.startDirectCall(
+      {
+        uid: user.uid,
+        username: user.username,
+        photoURL: user.photoURL,
+        status: user.status,
+        activity: user.activity,
+      },
+      type
+    );
+  };
+
+  const handleMentionUser = (username: string) => {
+    if (!username) return;
+    const mentionTag = `@${username.trim()} `;
+    setText((prev) => (prev ? `${prev} ${mentionTag}` : mentionTag));
+    inputRef.current?.focus();
+  };
+
   const initialCache = getCachedMessages();
   const [messages, setMessages] = useState<ChatMessage[]>(initialCache);
   const [messageLimit, setMessageLimit] = useState(50);
@@ -401,23 +444,172 @@ export default function ChatPanel({
     return () => clearInterval(timer);
   }, []);
 
-  // Real-time listener for voice users
+  // Real-time listener for voice users combining Firestore and WebSocket
   useEffect(() => {
-    const unsub = onSnapshot(
+    const unsubWsVoice = wsClient.onCollectionChange("voice_users", (change) => {
+      if (!change || !change.data) return;
+      const data = change.data as any;
+      if (!data.uid && !data.username) return;
+
+      const uid = data.uid || data.username;
+      const uname = (data.username || "").trim();
+      const now = Date.now();
+      const ts = toTimestampMs(data.timestamp || data.lastSeen || now);
+
+      if (change.op === "delete" || data.status === "left") {
+        setActiveVoiceUsers((prev) => {
+          const next = { ...prev };
+          delete next[uid];
+          return next;
+        });
+        setVoiceUsersMap((prev) => {
+          const next = new Map(prev);
+          next.delete(uid);
+          if (uname) next.delete(uname.toLowerCase());
+          return next;
+        });
+        return;
+      }
+
+      const voiceObj = {
+        ...data,
+        uid,
+        username: uname || "User",
+        timestamp: ts,
+        inVoice: true,
+      };
+
+      setActiveVoiceUsers((prev) => ({ ...prev, [uid]: voiceObj }));
+      setVoiceUsersMap((prev) => {
+        const next = new Map(prev);
+        next.set(uid, voiceObj);
+        if (uname) next.set(uname.toLowerCase(), voiceObj);
+        return next;
+      });
+    });
+
+    const unsubVoice = onSnapshot(
       collection(db, "voice_users"),
       (snapshot: any) => {
-        setActiveVoiceUsers(
-          Object.fromEntries(
-            snapshot.docs.map((d: any) => [d.id, d.data() as any])
-          )
-        );
+        const now = Date.now();
+        const vMap = new Map<string, any>();
+        const voiceMembers: MemberUser[] = [];
+        const rawDict: Record<string, any> = {};
+
+        snapshot.docs.forEach((d: any) => {
+          const data = d.data() as any;
+          const uname = (data?.username || "").trim();
+          const uid = data?.uid || d.id;
+          if (!uid || !uname) return;
+
+          const ts = toTimestampMs(data.timestamp || data.lastSeen || now);
+          const isAlive = (ts > 0 && Math.abs(now - ts) <= 60000) || uid === profile?.uid;
+          if (!isAlive) return;
+
+          const voiceObj = {
+            ...data,
+            uid,
+            username: uname,
+            timestamp: ts,
+            inVoice: true,
+          };
+
+          rawDict[uid] = voiceObj;
+          vMap.set(uid, voiceObj);
+          vMap.set(uname.toLowerCase(), voiceObj);
+
+          voiceMembers.push({
+            uid,
+            username: uname,
+            photoURL: data.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(uname)}`,
+            status: "online",
+            lastSeen: ts,
+            isMuted: Boolean(data.isMuted),
+            isVideoOn: Boolean(data.isVideoOn),
+            isScreenSharing: Boolean(data.isScreenSharing),
+            inVoice: true,
+            channelName: data.channelName || "General Voice",
+            activity: data.activity,
+          });
+        });
+
+        setActiveVoiceUsers(rawDict);
+        setVoiceUsersMap(vMap);
+
+        // Immediately merge active voice users into memberUsers so they appear in general chat
+        if (voiceMembers.length > 0) {
+          setMemberUsers((prev) => {
+            const map = new Map<string, MemberUser>();
+            prev.forEach((u) => map.set((u.username || u.uid).toLowerCase(), u));
+            voiceMembers.forEach((vu) => {
+              const key = (vu.username || vu.uid).toLowerCase();
+              const existing = map.get(key);
+              map.set(key, { ...existing, ...vu });
+            });
+            return Array.from(map.values());
+          });
+        }
       },
       (error) => {
         console.warn("ChatPanel voice_users listener error:", error);
       }
     );
-    return () => unsub();
-  }, []);
+
+    return () => {
+      unsubWsVoice();
+      unsubVoice();
+    };
+  }, [profile?.uid]);
+
+  // Sync propVoiceUsers if provided from parent Chat component
+  useEffect(() => {
+    if (!propVoiceUsers || propVoiceUsers.length === 0) return;
+    const now = Date.now();
+    const voiceMembers: MemberUser[] = [];
+    const vMap = new Map<string, any>(voiceUsersMap);
+
+    propVoiceUsers.forEach((vu) => {
+      const uname = (vu.username || "").trim();
+      const uid = vu.uid;
+      if (!uid || !uname) return;
+
+      const ts = toTimestampMs(vu.timestamp || vu.lastSeen || now);
+      if (Math.abs(now - ts) > 60000 && uid !== profile.uid) return;
+
+      const vObj = { ...vu, uid, username: uname, timestamp: ts, inVoice: true };
+      vMap.set(uid, vObj);
+      vMap.set(uname.toLowerCase(), vObj);
+
+      voiceMembers.push({
+        uid,
+        username: uname,
+        photoURL: vu.photoURL || "",
+        status: "online",
+        lastSeen: ts,
+        isMuted: Boolean(vu.isMuted),
+        isVideoOn: Boolean(vu.isVideoOn),
+        isScreenSharing: Boolean(vu.isScreenSharing),
+        inVoice: true,
+        channelName: vu.channelName || "General Voice",
+        activity: vu.activity,
+      });
+    });
+
+    setVoiceUsersMap(vMap);
+
+    if (voiceMembers.length > 0) {
+      setMemberUsers((prev) => {
+        const map = new Map<string, MemberUser>();
+        prev.forEach((u) => map.set((u.username || u.uid).toLowerCase(), u));
+        voiceMembers.forEach((vu) => {
+          const key = (vu.username || vu.uid).toLowerCase();
+          const existing = map.get(key);
+          map.set(key, { ...existing, ...vu });
+        });
+        return Array.from(map.values());
+      });
+    }
+  }, [propVoiceUsers, profile.uid]);
 
   const [localActivity, setLocalActivity] = useState<UserActivity>(() => getCurrentActivity());
 
@@ -488,19 +680,25 @@ export default function ChatPanel({
 
       setMemberUsers((prev) => {
         const existingIdx = prev.findIndex((u) => u.uid === data.uid);
+        const unameClean = (data.username || "").toLowerCase();
+        const vInfo = voiceUsersMap.get(data.uid) || voiceUsersMap.get(unameClean);
+
         const updatedUser: MemberUser = {
           uid: data.uid,
           username: data.username || "User",
           photoURL: data.photoURL || "",
           status: data.status || "online",
           lastSeen: toTimestampMs(data.lastSeen || data.timestamp || Date.now()),
-          isMuted: data.isMuted || false,
-          inVoice: data.inVoice || false,
+          isMuted: vInfo?.isMuted ?? (data.isMuted || false),
+          isVideoOn: vInfo?.isVideoOn ?? (data.isVideoOn || false),
+          isScreenSharing: vInfo?.isScreenSharing ?? (data.isScreenSharing || false),
+          inVoice: Boolean(vInfo) || Boolean(data.inVoice),
+          channelName: vInfo?.channelName || data.channelName,
           activity: data.activity,
         };
 
         if (change.op === "delete" || data.status === "left") {
-          return prev.map((u) => (u.uid === data.uid ? { ...u, status: "left" } : u));
+          return prev.map((u) => (u.uid === data.uid ? { ...u, status: "left", inVoice: false } : u));
         }
 
         if (existingIdx >= 0) {
@@ -529,26 +727,38 @@ export default function ChatPanel({
           if (!uname) {
             return;
           }
+          const unameClean = uname.toLowerCase();
+          const vInfo = voiceUsersMap.get(docSnap.id) || voiceUsersMap.get(unameClean);
+
           users.push({
             uid: docSnap.id,
             username: uname,
             photoURL: data.photoURL || "",
             status: data.status || "online",
             lastSeen: toTimestampMs(data.lastSeen),
-            isMuted: data.isMuted || false,
-            inVoice: data.inVoice || false,
+            isMuted: vInfo?.isMuted ?? (data.isMuted || false),
+            isVideoOn: vInfo?.isVideoOn ?? (data.isVideoOn || false),
+            isScreenSharing: vInfo?.isScreenSharing ?? (data.isScreenSharing || false),
+            inVoice: Boolean(vInfo) || Boolean(data.inVoice),
+            channelName: vInfo?.channelName || data.channelName,
             activity: data.activity,
           });
         });
 
         // Ensure current profile is present if valid and not already in the list by unique UID
         if (profile?.uid && !users.some((u) => u.uid === profile.uid)) {
+          const myVInfo = voiceUsersMap.get(profile.uid) || voiceUsersMap.get((profile.username || "").toLowerCase());
           users.unshift({
             uid: profile.uid,
             username: profile.username,
             photoURL: profile.photoURL,
             status: "online",
             lastSeen: Date.now(),
+            inVoice: Boolean(myVInfo),
+            isMuted: Boolean(myVInfo?.isMuted),
+            isVideoOn: Boolean(myVInfo?.isVideoOn),
+            isScreenSharing: Boolean(myVInfo?.isScreenSharing),
+            channelName: myVInfo?.channelName,
             activity: getCurrentActivity(),
           });
         }
@@ -576,7 +786,7 @@ export default function ChatPanel({
       unsubWs();
       unsub();
     };
-  }, [profile]);
+  }, [profile, voiceUsersMap]);
 
   // Real-time message subscription with instant local rendering and fast pagination
   useEffect(() => {
@@ -1263,58 +1473,117 @@ export default function ChatPanel({
     return [...list].sort(compareMessagesChronological);
   }, [channelMessages, searchQuery]);
 
-  // Deduplicate by normalized username (keeping local profile or most recent activity) and filter by activity
-  const activeOnlineUsers = useMemo(() => {
+  // Unified computation for In-Voice Users, Online Users, and Left Users
+  const {
+    activeOnlineUsers,
+    inVoiceUsers,
+    standardOnlineUsers,
+    leftUsers,
+  } = useMemo(() => {
     const userMap = new Map<string, MemberUser>();
     const myNameClean = (profile.username || "").trim().toLowerCase();
-    
-    memberUsers.forEach(u => {
+    const now = currentTime;
+
+    // 1. Ingest all candidates from memberUsers, voiceUsersMap, and CallContext
+    const candidates: MemberUser[] = [...memberUsers];
+
+    voiceUsersMap.forEach((vu) => {
+      candidates.push({
+        uid: vu.uid,
+        username: vu.username,
+        photoURL: vu.photoURL || "",
+        status: "online",
+        lastSeen: toTimestampMs(vu.timestamp || now),
+        isMuted: Boolean(vu.isMuted),
+        isVideoOn: Boolean(vu.isVideoOn),
+        isScreenSharing: Boolean(vu.isScreenSharing),
+        inVoice: true,
+        channelName: vu.channelName || "General Voice",
+        activity: vu.activity,
+      });
+    });
+
+    if (callCtx?.onlineUsers) {
+      callCtx.onlineUsers.forEach((cu) => {
+        candidates.push({
+          uid: cu.uid,
+          username: cu.username,
+          photoURL: cu.photoURL || "",
+          status: (cu.status as any) || "online",
+          lastSeen: now,
+          activity: cu.activity,
+        });
+      });
+    }
+
+    candidates.forEach((u) => {
       const uNameClean = (u.username || "").trim().toLowerCase();
       if (!uNameClean || uNameClean === "anonymous" || uNameClean === "guest") return;
 
       const isMe = u.uid === profile.uid || uNameClean === myNameClean;
       const lastSeenMs = toTimestampMs(u.lastSeen);
-      // Online threshold (heartbeat is 3s, client updates every 5s, so 15s is very safe yet responsive)
-      const isRecentlyActive = Math.abs(currentTime - lastSeenMs) < 15000;
-      const isValid = isMe || (isRecentlyActive && u.status === "online");
+      const vInfo = voiceUsersMap.get(u.uid) || voiceUsersMap.get(uNameClean);
+      const isVoiceActive = Boolean(vInfo) || Boolean(u.inVoice);
+
+      // Heartbeat window: 45s for standard users, 60s for voice/call participants
+      const timeDiff = Math.abs(now - lastSeenMs);
+      const isRecentlyActive = isVoiceActive ? timeDiff < 60000 : timeDiff < 45000;
+      const isValid = isMe || isVoiceActive || (isRecentlyActive && u.status !== "left");
 
       if (isValid) {
         const existing = userMap.get(uNameClean);
-        if (!existing || isMe || toTimestampMs(u.lastSeen) > toTimestampMs(existing.lastSeen)) {
-          userMap.set(uNameClean, { ...u, uid: isMe ? profile.uid : u.uid });
-        }
+        const effectiveVoice = isVoiceActive || Boolean(existing?.inVoice);
+        const effectiveMuted = vInfo?.isMuted ?? u.isMuted ?? existing?.isMuted ?? false;
+        const effectiveVideo = vInfo?.isVideoOn ?? u.isVideoOn ?? existing?.isVideoOn ?? false;
+        const effectiveScreen = vInfo?.isScreenSharing ?? u.isScreenSharing ?? existing?.isScreenSharing ?? false;
+
+        userMap.set(uNameClean, {
+          ...existing,
+          ...u,
+          uid: isMe ? profile.uid : (u.uid || existing?.uid || uNameClean),
+          inVoice: effectiveVoice,
+          isMuted: effectiveMuted,
+          isVideoOn: effectiveVideo,
+          isScreenSharing: effectiveScreen,
+          channelName: vInfo?.channelName || u.channelName || existing?.channelName || (effectiveVoice ? "General Voice" : undefined),
+          status: "online",
+          lastSeen: Math.max(lastSeenMs, toTimestampMs(existing?.lastSeen)),
+          activity: isMe ? (localActivity || u.activity) : (u.activity || existing?.activity),
+        });
       }
     });
 
-    return Array.from(userMap.values()).sort((a, b) => {
-      if (a.uid === profile.uid || (a.username || "").trim().toLowerCase() === myNameClean) return -1;
-      if (b.uid === profile.uid || (b.username || "").trim().toLowerCase() === myNameClean) return 1;
+    const all = Array.from(userMap.values()).sort((a, b) => {
+      const aIsMe = a.uid === profile.uid || (a.username || "").toLowerCase() === myNameClean;
+      const bIsMe = b.uid === profile.uid || (b.username || "").toLowerCase() === myNameClean;
+      if (aIsMe) return -1;
+      if (bIsMe) return 1;
+      if (a.inVoice && !b.inVoice) return -1;
+      if (!a.inVoice && b.inVoice) return 1;
       return (a.username || "").localeCompare(b.username || "");
     });
-  }, [memberUsers, profile.uid, profile.username, currentTime]);
 
-  const leftUsers = useMemo(() => {
-    const userMap = new Map<string, MemberUser>();
-    const onlineUids = new Set(activeOnlineUsers.map(u => u.uid));
+    const inVoice = all.filter((u) => u.inVoice);
+    const standard = all.filter((u) => !u.inVoice);
 
-    memberUsers.forEach(u => {
-      if (!u.uid || u.uid === profile.uid || onlineUids.has(u.uid)) return;
-
-      const isRecent = typeof u.lastSeen === "number" && currentTime - u.lastSeen < 60000;
-      const isLeft = u.status === "left" || !isRecent;
-
-      if (isLeft) {
-        const existing = userMap.get(u.uid);
-        if (!existing || (u.lastSeen || 0) > (existing.lastSeen || 0)) {
-          userMap.set(u.uid, u);
-        }
+    const onlineKeys = new Set(all.map((u) => (u.username || "").toLowerCase()));
+    const leftMap = new Map<string, MemberUser>();
+    memberUsers.forEach((u) => {
+      const key = (u.username || "").trim().toLowerCase();
+      if (!key || onlineKeys.has(key) || u.uid === profile.uid || key === myNameClean) return;
+      const lastSeenMs = toTimestampMs(u.lastSeen);
+      if (now - lastSeenMs < 120000) {
+        leftMap.set(key, u);
       }
     });
 
-    return Array.from(userMap.values()).sort((a, b) => {
-      return (a.username || "").localeCompare(b.username || "");
-    });
-  }, [memberUsers, profile.uid, currentTime, activeOnlineUsers]);
+    return {
+      activeOnlineUsers: all,
+      inVoiceUsers: inVoice,
+      standardOnlineUsers: standard,
+      leftUsers: Array.from(leftMap.values()).sort((a, b) => (a.username || "").localeCompare(b.username || "")),
+    };
+  }, [memberUsers, profile.uid, profile.username, currentTime, voiceUsersMap, callCtx?.onlineUsers, localActivity]);
 
   const renderAttachment = (msg: ChatMessage) => {
     if (!msg.attachment) return null;
@@ -1364,7 +1633,7 @@ export default function ChatPanel({
           }}
           className="h-12 px-4 border-b flex items-center justify-between flex-shrink-0"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span
               style={{ color: "var(--theme-text-accent)" }}
               className="text-xl font-bold"
@@ -1380,6 +1649,25 @@ export default function ChatPanel({
             >
               main room
             </span>
+
+            {/* Online Member Pill */}
+            <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[11px] text-neutral-300 font-medium ml-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>{activeOnlineUsers.length} Online</span>
+            </span>
+
+            {/* In-Voice Header Pill */}
+            {inVoiceUsers.length > 0 && (
+              <button
+                type="button"
+                onClick={onSelectVoice}
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-[11px] font-bold hover:bg-emerald-900/90 transition-all cursor-pointer shadow-sm active:scale-95 animate-pulse ml-1"
+                title="Click to switch to General Voice"
+              >
+                <Volume2 size={11} className="text-emerald-400" />
+                <span>{inVoiceUsers.length} in Voice</span>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -1419,6 +1707,53 @@ export default function ChatPanel({
             )}
           </div>
         </div>
+
+        {/* 🎙️ Voice Room Discord-style Presence Banner */}
+        {inVoiceUsers.length > 0 && (
+          <div className="bg-gradient-to-r from-emerald-950/70 via-indigo-950/60 to-neutral-950/90 px-4 py-2 border-b border-emerald-500/30 flex items-center justify-between gap-3 text-xs flex-shrink-0 backdrop-blur-md z-10">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex-shrink-0">
+                <Volume2 size={15} className="animate-pulse" />
+              </div>
+              <div className="min-w-0 flex items-center gap-2">
+                <div>
+                  <p className="text-xs font-bold text-white leading-tight">
+                    <span className="text-emerald-400 font-extrabold">{inVoiceUsers.length} {inVoiceUsers.length === 1 ? "user is" : "users are"}</span> in General Voice
+                  </p>
+                  <p className="text-[10px] text-neutral-300 truncate max-w-xs sm:max-w-md">
+                    {inVoiceUsers.map(u => u.username).slice(0, 4).join(", ")}{inVoiceUsers.length > 4 ? ` +${inVoiceUsers.length - 4} more` : ""}
+                  </p>
+                </div>
+                {/* Micro Avatars stack */}
+                <div className="hidden sm:flex items-center -space-x-1.5 ml-2 overflow-hidden py-0.5">
+                  {inVoiceUsers.slice(0, 5).map((vu, idx) => (
+                    <div
+                      key={`hdr-voice-${vu.uid || idx}`}
+                      className="w-5 h-5 rounded-full overflow-hidden border border-emerald-500/60 bg-neutral-800 flex-shrink-0"
+                      title={vu.username}
+                    >
+                      {vu.photoURL ? (
+                        <img src={vu.photoURL} alt={vu.username} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="w-full h-full flex items-center justify-center text-[9px] font-bold text-white bg-indigo-900">
+                          {vu.username?.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onSelectVoice}
+              className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 flex-shrink-0 border border-emerald-400/40"
+            >
+              <PhoneCall size={12} />
+              <span>Join Voice</span>
+            </button>
+          </div>
+        )}
 
         {/* 🛡️ Moderation Alert Banner */}
         {moderationWarning && moderationWarning.open && (
@@ -1498,13 +1833,35 @@ export default function ChatPanel({
               (msg.username === profile.username &&
                 msg.photoURL === profile.photoURL);
 
+            const authorVoice = inVoiceUsers.find(
+              (vu) => vu.uid === msg.uid || vu.username.toLowerCase() === (msg.username || "").toLowerCase()
+            );
+            const authorOnline = activeOnlineUsers.find(
+              (ou) => ou.uid === msg.uid || ou.username.toLowerCase() === (msg.username || "").toLowerCase()
+            );
+            const openAuthorProfile = () => {
+              setSelectedUserProfile(
+                authorVoice ||
+                  authorOnline || {
+                    uid: msg.uid || `user_${msg.username}`,
+                    username: msg.username || "User",
+                    photoURL: msg.photoURL || "",
+                    status: "online",
+                  }
+              );
+            };
+
             return (
               <div
                 key={`${msg.id || "msg"}-${mIdx}`}
                 className="flex gap-3.5 group hover:bg-[#070e2f]/50 p-1.5 -mx-1.5 rounded-lg transition-colors duration-150 relative"
               >
                 {/* Avatar Circle */}
-                <div className="w-10 h-10 rounded-full overflow-hidden bg-neutral-800 border border-indigo-950 flex-shrink-0 flex items-center justify-center font-bold text-white text-sm shadow-sm transition-transform duration-150 group-hover:scale-105">
+                <div
+                  onClick={openAuthorProfile}
+                  className="w-10 h-10 rounded-full overflow-hidden bg-neutral-800 border border-indigo-950 flex-shrink-0 flex items-center justify-center font-bold text-white text-sm shadow-sm transition-transform duration-150 group-hover:scale-105 cursor-pointer relative"
+                  title={`View ${msg.username}'s profile`}
+                >
                   {msg.photoURL ? (
                     <img
                       src={msg.photoURL}
@@ -1516,14 +1873,43 @@ export default function ChatPanel({
                   ) : (
                     <span>{(msg.username || "?").charAt(0).toUpperCase()}</span>
                   )}
+                  {authorVoice && (
+                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#070e2f] flex items-center justify-center text-[7px]" title="In Voice">
+                      <Volume2 size={7} className="text-white" />
+                    </span>
+                  )}
                 </div>
 
                 {/* Message Content */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-bold text-white hover:underline hover:text-indigo-200 cursor-pointer transition-colors">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      onClick={openAuthorProfile}
+                      className="text-sm font-bold text-white hover:underline hover:text-indigo-200 cursor-pointer transition-colors"
+                    >
                       {msg.username}
                     </span>
+                    {isUserModerator(msg.username, msg.uid) && (
+                      <span className="bg-red-950/80 text-red-400 border border-red-800/60 text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider flex-shrink-0" title="Community Moderator">
+                        MOD
+                      </span>
+                    )}
+                    {isMe && (
+                      <span className="bg-[#0a1236] text-indigo-300 border border-indigo-700/80 text-[8px] font-bold px-1 py-0.2 rounded uppercase tracking-wider flex-shrink-0">
+                        YOU
+                      </span>
+                    )}
+                    {authorVoice && (
+                      <button
+                        type="button"
+                        onClick={onSelectVoice}
+                        className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-300 bg-emerald-950/90 border border-emerald-600/70 px-1.5 py-0.2 rounded-full hover:bg-emerald-900 transition-colors cursor-pointer"
+                        title="In General Voice — click to join voice channel"
+                      >
+                        <Volume2 size={9} className="text-emerald-400 animate-pulse" />
+                        <span>In Voice</span>
+                      </button>
+                    )}
                     <span className="text-[11px] text-indigo-300/60 font-normal">
                       {formatTimestamp(msg.timestamp)}
                     </span>
@@ -2014,45 +2400,182 @@ export default function ChatPanel({
         </div>
       </div>
 
-      {/* Right Members Sidebar ("ONLINE — N" & "OFFLINE / LEFT — N") matching Image 2 */}
+      {/* Right Members Sidebar ("IN VOICE & CALLS", "ONLINE", "OFFLINE") */}
       {showMembersSidebar && (
         <aside
           style={{
             backgroundColor: "var(--theme-chat-sidebar)",
             borderColor: "var(--theme-border-subtle)",
           }}
-          className="w-56 border-l flex flex-col h-full flex-shrink-0"
+          className="w-60 border-l flex flex-col h-full flex-shrink-0 select-none"
         >
           <div className="flex-1 overflow-y-auto p-3 space-y-5">
-            {/* ONLINE SECTION */}
+            {/* 🎙️ IN VOICE & CALLS SECTION */}
+            {inVoiceUsers.length > 0 && (
+              <div className="rounded-xl p-2 bg-gradient-to-b from-emerald-950/40 to-indigo-950/30 border border-emerald-500/20">
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <div className="flex items-center gap-1.5 text-emerald-400">
+                    <Volume2 size={12} className="animate-pulse" />
+                    <h3 className="text-[10px] font-extrabold tracking-wider uppercase">
+                      IN VOICE & CALLS — {inVoiceUsers.length}
+                    </h3>
+                  </div>
+                  {onSelectVoice && (
+                    <button
+                      type="button"
+                      onClick={onSelectVoice}
+                      className="text-[9px] font-bold text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+                    >
+                      Join
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  {inVoiceUsers.map((user, uIdx) => {
+                    const isCurrentUser = user.uid === profile.uid;
+                    const voiceInfo = activeVoiceUsers[user.uid];
+                    const isMuted = voiceInfo?.isMuted ?? user.isMuted;
+                    const isVideo = voiceInfo?.isVideoOn ?? user.isVideoOn;
+                    const isScreen = (voiceInfo as any)?.isScreenSharing ?? user.isScreenSharing;
+                    const userActivity = isCurrentUser ? (localActivity || user.activity) : user.activity;
+
+                    return (
+                      <div
+                        key={`voice-${user.uid || "v"}-${uIdx}`}
+                        className="group relative flex items-start gap-2.5 p-1.5 rounded-lg hover:bg-emerald-950/50 border border-transparent hover:border-emerald-500/30 transition-all duration-150 cursor-pointer"
+                        onClick={() => setSelectedUserProfile(user)}
+                      >
+                        {/* Avatar with Voice Ring & Dot */}
+                        <div className="relative mt-0.5 flex-shrink-0">
+                          <div className="w-8 h-8 rounded-full overflow-hidden bg-neutral-800 ring-2 ring-emerald-500/60 flex items-center justify-center text-xs font-bold text-white shadow-sm">
+                            {user.photoURL ? (
+                              <img
+                                src={user.photoURL}
+                                alt={user.username || "User"}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span>{(user.username || "?").charAt(0).toUpperCase()}</span>
+                            )}
+                          </div>
+                          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-[#030514]" />
+                        </div>
+
+                        {/* User info */}
+                        <div className="flex-1 min-w-0 flex flex-col">
+                          <div className="flex items-center justify-between gap-1 w-full">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className="text-xs font-bold text-emerald-200 group-hover:text-white truncate">
+                                {user.username}
+                              </span>
+                              {isUserModerator(user.username, user.uid) && (
+                                <span className="bg-red-950/80 text-red-400 border border-red-800/60 text-[8px] font-extrabold px-1 py-0.2 rounded uppercase tracking-wider flex-shrink-0" title="Community Moderator">
+                                  MOD
+                                </span>
+                              )}
+                              {isCurrentUser && (
+                                <span className="bg-[#0a1236] text-indigo-300 border border-indigo-700/80 text-[8px] font-bold px-1 py-0.2 rounded uppercase tracking-wider flex-shrink-0">
+                                  YOU
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Quick Action buttons */}
+                            <div className="hidden group-hover:flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                              {!isCurrentUser && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartDirectCall(user, "audio")}
+                                    className="p-1 rounded bg-white/10 hover:bg-emerald-600/30 text-emerald-300 hover:text-white transition-colors"
+                                    title="Call Direct Audio"
+                                  >
+                                    <Phone size={10} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartDirectCall(user, "video")}
+                                    className="p-1 rounded bg-white/10 hover:bg-indigo-600/30 text-indigo-300 hover:text-white transition-colors"
+                                    title="Call Direct Video"
+                                  >
+                                    <Video size={10} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMentionUser(user.username)}
+                                    className="p-1 rounded bg-white/10 hover:bg-white/20 text-neutral-300 hover:text-white transition-colors"
+                                    title="Mention in chat"
+                                  >
+                                    <AtSign size={10} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Activity & Voice Status */}
+                          <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                            <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-300 bg-emerald-950/90 border border-emerald-600/60 px-1 py-0.2 rounded">
+                              <Volume2 size={9} /> General Voice
+                            </span>
+                            {isScreen && (
+                              <span className="flex items-center gap-0.5 text-[9px] font-extrabold text-indigo-200 bg-[#0c1642] border border-indigo-600/80 px-1 py-0.2 rounded animate-pulse">
+                                <MonitorUp size={9} /> LIVE
+                              </span>
+                            )}
+                            {isVideo && (
+                              <span className="flex items-center gap-0.5 text-[9px] font-bold text-cyan-300 bg-cyan-950/80 border border-cyan-700/60 px-1 py-0.2 rounded">
+                                <Video size={9} /> Cam
+                              </span>
+                            )}
+                            {isMuted && (
+                              <span className="flex items-center gap-0.5 text-[9px] font-bold text-red-400 bg-red-950/80 border border-red-800/60 px-1 py-0.2 rounded">
+                                <MicOff size={9} /> Muted
+                              </span>
+                            )}
+                          </div>
+
+                          {userActivity && (
+                            <div className="mt-1">
+                              <ActivityBadge activity={userActivity} compact />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 🟢 ONLINE SECTION */}
             <div>
               <div className="flex items-center justify-between mb-2 px-1">
                 <h3 className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
-                  ONLINE — {activeOnlineUsers.length}
+                  ONLINE — {standardOnlineUsers.length}
                 </h3>
                 <button
                   onClick={handleDeleteAllUsers}
                   disabled={isDeletingAllUsers}
-                  className="p-1 hover:bg-rose-500/20 rounded text-neutral-500 hover:text-rose-400 transition-colors"
+                  className="p-1 hover:bg-rose-500/20 rounded text-neutral-500 hover:text-rose-400 transition-colors cursor-pointer"
                   title="Force clear and reset all users presence"
                 >
                   <Trash2 size={10} className={isDeletingAllUsers ? "animate-spin" : ""} />
                 </button>
               </div>
               <div className="space-y-1">
-                {activeOnlineUsers.map((user, uIdx) => {
+                {standardOnlineUsers.map((user, uIdx) => {
                   const isCurrentUser = user.uid === profile.uid;
-                  const voiceInfo = activeVoiceUsers[user.uid];
-                  const isInVoice = !!voiceInfo;
                   const userActivity = isCurrentUser ? (localActivity || user.activity) : user.activity;
 
                   return (
                     <div
-                      key={`${user.uid || "online"}-${uIdx}`}
-                      className="flex items-start gap-2.5 p-1.5 rounded-lg hover:bg-neutral-900/60 transition-colors"
+                      key={`online-${user.uid || "online"}-${uIdx}`}
+                      className="group relative flex items-start gap-2.5 p-1.5 rounded-lg hover:bg-neutral-900/60 border border-transparent hover:border-white/5 transition-all duration-150 cursor-pointer"
+                      onClick={() => setSelectedUserProfile(user)}
                     >
-                      {/* Avatar with Green Online Dot Badge */}
-                      <div className="relative mt-0.5">
+                      {/* Avatar with Green Online Dot */}
+                      <div className="relative mt-0.5 flex-shrink-0">
                         <div className="w-8 h-8 rounded-full overflow-hidden bg-neutral-800 border border-neutral-800 flex items-center justify-center text-xs font-bold text-white">
                           {user.photoURL ? (
                             <img
@@ -2069,9 +2592,9 @@ export default function ChatPanel({
 
                       {/* Username & Status Label & Activity */}
                       <div className="flex-1 min-w-0 flex flex-col">
-                        <div className="flex items-center justify-between gap-1.5 w-full">
+                        <div className="flex items-center justify-between gap-1 w-full">
                           <div className="flex items-center gap-1 min-w-0">
-                            <span className="text-xs font-bold text-neutral-200 truncate">
+                            <span className="text-xs font-bold text-neutral-200 group-hover:text-white truncate">
                               {user.username}
                             </span>
                             {isUserModerator(user.username, user.uid) && (
@@ -2086,60 +2609,299 @@ export default function ChatPanel({
                             )}
                           </div>
 
-                          {/* Kick/Ban button for mods to manage others */}
-                          {isUserModerator(profile.username, profile.uid) && !isCurrentUser && (
-                            <button
-                              onClick={() => {
-                                setModTargetUser(user);
-                                setModActionType("kick");
-                                setModReason("");
-                              }}
-                              className="p-1 hover:bg-red-500/20 rounded text-red-400 hover:text-red-300 transition-colors cursor-pointer active:scale-95"
-                              title="Kick or Ban User"
-                            >
-                              <ShieldAlert size={11} />
-                            </button>
-                          )}
+                          {/* Hover action toolbar */}
+                          <div className="hidden group-hover:flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                            {!isCurrentUser && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartDirectCall(user, "audio")}
+                                  className="p-1 rounded bg-white/10 hover:bg-emerald-600/30 text-emerald-300 hover:text-white transition-colors"
+                                  title="Call Direct Audio"
+                                >
+                                  <Phone size={10} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartDirectCall(user, "video")}
+                                  className="p-1 rounded bg-white/10 hover:bg-indigo-600/30 text-indigo-300 hover:text-white transition-colors"
+                                  title="Call Direct Video"
+                                >
+                                  <Video size={10} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleMentionUser(user.username)}
+                                  className="p-1 rounded bg-white/10 hover:bg-white/20 text-neutral-300 hover:text-white transition-colors"
+                                  title="Mention in chat"
+                                >
+                                  <AtSign size={10} />
+                                </button>
+                              </>
+                            )}
+                            {isUserModerator(profile.username, profile.uid) && !isCurrentUser && (
+                              <button
+                                onClick={() => {
+                                  setModTargetUser(user);
+                                  setModActionType("kick");
+                                  setModReason("");
+                                }}
+                                className="p-1 hover:bg-red-500/20 rounded text-red-400 hover:text-red-300 transition-colors cursor-pointer active:scale-95"
+                                title="Kick or Ban User"
+                              >
+                                <ShieldAlert size={10} />
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         {/* Real-Time Activity Badge */}
-                        {userActivity && (
+                        {userActivity ? (
                           <div className="mt-0.5">
                             <ActivityBadge activity={userActivity} compact />
                           </div>
+                        ) : (
+                          <span className="text-[10px] text-neutral-400/80 font-medium mt-0.5">
+                            Online
+                          </span>
                         )}
-
-                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                          {!userActivity && (
-                            <span className="text-[10px] text-indigo-300/50 font-medium">
-                              Online
-                            </span>
-                          )}
-                          {isInVoice && (
-                            <span className="flex items-center gap-1 text-[9px] font-bold text-indigo-300 bg-[#0a1236] border border-indigo-700/60 px-1 py-0.2 rounded">
-                              <Volume2 size={9} /> In Voice
-                            </span>
-                          )}
-                          {isInVoice && (voiceInfo as any)?.isScreenSharing && (
-                            <span className="flex items-center gap-0.5 text-[9px] font-extrabold text-indigo-200 bg-[#0c1642] border border-indigo-600/80 px-1 py-0.2 rounded animate-pulse">
-                              <MonitorUp size={9} /> LIVE
-                            </span>
-                          )}
-                          {isInVoice && voiceInfo?.isMuted && (
-                            <span className="flex items-center gap-0.5 text-[9px] font-bold text-red-400 bg-red-950/80 border border-red-800/60 px-1 rounded">
-                              <MicOff size={9} /> Muted
-                            </span>
-                          )}
-                        </div>
                       </div>
                     </div>
                   );
                 })}
               </div>
             </div>
+
+            {/* 💤 OFFLINE SECTION */}
+            {leftUsers.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <h3 className="text-[10px] font-bold text-neutral-500 tracking-wider uppercase">
+                    OFFLINE — {leftUsers.length}
+                  </h3>
+                </div>
+                <div className="space-y-1 opacity-70">
+                  {leftUsers.slice(0, 15).map((user, uIdx) => (
+                    <div
+                      key={`left-${user.uid || "left"}-${uIdx}`}
+                      className="flex items-center gap-2 p-1 rounded-lg hover:bg-neutral-900/40 transition-colors cursor-pointer"
+                      onClick={() => setSelectedUserProfile(user)}
+                    >
+                      <div className="relative flex-shrink-0">
+                        <div className="w-6 h-6 rounded-full overflow-hidden bg-neutral-800 grayscale flex items-center justify-center text-[10px] font-bold text-neutral-400">
+                          {user.photoURL ? (
+                            <img src={user.photoURL} alt={user.username} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{(user.username || "?").charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-neutral-600 border-2 border-[#030514]" />
+                      </div>
+                      <span className="text-xs text-neutral-400 truncate flex-1">
+                        {user.username}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </aside>
       )}
+
+      {/* 👤 Interactive User Profile Popover / Modal */}
+      <AnimatePresence>
+        {selectedUserProfile && (
+          <motion.div
+            key="user-profile-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            onClick={() => setSelectedUserProfile(null)}
+            className="fixed inset-0 z-[99998] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          >
+            <motion.div
+              key="user-profile-card"
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-sm bg-[#0e1122] border border-indigo-500/30 rounded-2xl shadow-2xl overflow-hidden text-white"
+            >
+              {/* Header Gradient Banner */}
+              <div className="h-20 bg-gradient-to-r from-indigo-900 via-purple-900 to-emerald-950 relative">
+                <button
+                  type="button"
+                  onClick={() => setSelectedUserProfile(null)}
+                  className="absolute top-2.5 right-2.5 w-7 h-7 rounded-full bg-black/40 hover:bg-black/70 flex items-center justify-center text-white/80 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+
+              {/* Profile Body */}
+              <div className="px-5 pb-5 pt-0 relative">
+                {/* Large Avatar */}
+                <div className="-mt-10 mb-3 flex items-end justify-between">
+                  <div className="relative">
+                    <div className={`w-20 h-20 rounded-2xl overflow-hidden border-4 border-[#0e1122] bg-neutral-800 shadow-xl ${
+                      selectedUserProfile.inVoice ? "ring-2 ring-emerald-400" : ""
+                    }`}>
+                      {selectedUserProfile.photoURL ? (
+                        <img
+                          src={selectedUserProfile.photoURL}
+                          alt={selectedUserProfile.username}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-2xl font-bold bg-indigo-900 text-white">
+                          {(selectedUserProfile.username || "?").charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <span
+                      className={`absolute bottom-1 right-1 w-4 h-4 rounded-full border-2 border-[#0e1122] ${
+                        selectedUserProfile.inVoice
+                          ? "bg-emerald-400 animate-pulse"
+                          : selectedUserProfile.status === "online"
+                          ? "bg-emerald-500"
+                          : "bg-neutral-500"
+                      }`}
+                    />
+                  </div>
+
+                  {/* Status Tag */}
+                  <div>
+                    {selectedUserProfile.inVoice ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs font-bold shadow-sm">
+                        <Volume2 size={12} className="text-emerald-400 animate-pulse" />
+                        <span>In General Voice</span>
+                      </span>
+                    ) : selectedUserProfile.status === "online" ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <span>Online</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-400 text-xs">
+                        <span>Offline</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Name & Role */}
+                <div className="space-y-1 mb-4">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-bold text-white">
+                      {selectedUserProfile.username}
+                    </h2>
+                    {isUserModerator(selectedUserProfile.username, selectedUserProfile.uid) && (
+                      <span className="bg-red-950/80 text-red-400 border border-red-800/60 text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider" title="Community Moderator">
+                        MOD
+                      </span>
+                    )}
+                    {selectedUserProfile.uid === profile.uid && (
+                      <span className="bg-[#0a1236] text-indigo-300 border border-indigo-700/80 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
+                        YOU
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-neutral-400 font-mono">
+                    ID: {selectedUserProfile.uid.slice(0, 16)}
+                  </p>
+                </div>
+
+                {/* Rich Activity / Playing Info */}
+                {(selectedUserProfile.activity || selectedUserProfile.inVoice) && (
+                  <div className="p-3 rounded-xl bg-black/40 border border-white/5 space-y-2 mb-4">
+                    {selectedUserProfile.inVoice && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-neutral-400 font-medium">Voice Channel:</span>
+                        <span className="text-emerald-300 font-bold flex items-center gap-1">
+                          <Volume2 size={12} /> General Voice
+                        </span>
+                      </div>
+                    )}
+                    {selectedUserProfile.activity && (
+                      <div>
+                        <span className="text-[11px] text-neutral-400 font-medium block mb-1">
+                          Currently Active:
+                        </span>
+                        <ActivityBadge activity={selectedUserProfile.activity} />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Direct Action Buttons */}
+                <div className="space-y-2 pt-1">
+                  {selectedUserProfile.uid !== profile.uid ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleStartDirectCall(selectedUserProfile, "audio");
+                            setSelectedUserProfile(null);
+                          }}
+                          className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 border border-emerald-400/30"
+                        >
+                          <Phone size={14} />
+                          <span>Voice Call</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleStartDirectCall(selectedUserProfile, "video");
+                            setSelectedUserProfile(null);
+                          }}
+                          className="py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 border border-indigo-400/30"
+                        >
+                          <Video size={14} />
+                          <span>Video Call</span>
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleMentionUser(selectedUserProfile.username);
+                          setSelectedUserProfile(null);
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-neutral-800/80 hover:bg-neutral-700/80 text-neutral-200 hover:text-white font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-white/5 active:scale-95"
+                      >
+                        <AtSign size={13} />
+                        <span>Mention @{selectedUserProfile.username} in Chat</span>
+                      </button>
+
+                      {selectedUserProfile.inVoice && onSelectVoice && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectVoice();
+                            setSelectedUserProfile(null);
+                          }}
+                          className="w-full py-2 px-3 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-emerald-600/40 active:scale-95"
+                        >
+                          <Volume2 size={13} />
+                          <span>Join General Voice with {selectedUserProfile.username}</span>
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-center py-2 text-xs text-neutral-400">
+                      This is your profile.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Moderation Warning Modal */}
       <AnimatePresence>

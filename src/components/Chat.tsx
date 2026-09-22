@@ -771,6 +771,7 @@ export default function Chat({
             <ChatPanel
               profile={profile}
               activeChannel={activeChannel}
+              voiceUsers={voiceUsers}
               onSelectVoice={() => {
                 setActiveTab("voice");
                 setIsInVoiceSession(true);

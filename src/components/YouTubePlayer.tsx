@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   Heart,
   ArrowLeft,
+  Music,
 } from "lucide-react";
 import { YouTubeVideo } from "../types";
 import { isVideoSaved, toggleSaveVideo, addToWatchHistory } from "../lib/youtubeStorage";
@@ -82,11 +83,21 @@ export default function YouTubePlayer({
           id="yt-back-btn"
           type="button"
           onClick={onBack}
-          className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#272727] hover:bg-[#383838] text-white text-xs font-semibold transition-colors cursor-pointer"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white text-xs font-semibold transition-all border border-white/5 hover:border-white/10 cursor-pointer"
         >
           <ArrowLeft size={14} />
-          <span>Back</span>
+          <span>Back to Frosted Music</span>
         </button>
+
+        <div className="flex items-center gap-2 text-xs font-semibold text-neutral-400">
+          <div
+            style={{ backgroundColor: "var(--theme-accent)" }}
+            className="w-5 h-5 rounded-md flex items-center justify-center text-white"
+          >
+            <Music size={11} />
+          </div>
+          <span className="text-white font-bold">Frosted Music Player</span>
+        </div>
       </div>
 
       {/* Video Player Canvas Container */}
@@ -111,7 +122,7 @@ export default function YouTubePlayer({
         </h1>
 
         <div className="flex items-center justify-between gap-4 flex-wrap pb-1">
-          {/* Channel Info & Subscribe Button */}
+          {/* Channel Info */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-[#272727] overflow-hidden border border-white/5 shrink-0 flex items-center justify-center">
               {video.channelThumbnail ? (
@@ -123,7 +134,7 @@ export default function YouTubePlayer({
                 />
               ) : (
                 <span className="text-white font-bold text-sm">
-                  {(video.channelTitle || "Y")[0].toUpperCase()}
+                  {(video.channelTitle || "M")[0].toUpperCase()}
                 </span>
               )}
             </div>
@@ -131,7 +142,7 @@ export default function YouTubePlayer({
               <h2 className="text-sm sm:text-base font-bold text-white leading-tight">
                 {video.channelTitle}
               </h2>
-              <p className="text-xs text-neutral-400 font-normal">Official Channel</p>
+              <p className="text-xs text-neutral-400 font-normal">Official Audio / Track</p>
             </div>
           </div>
 
@@ -139,15 +150,19 @@ export default function YouTubePlayer({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-colors cursor-pointer ${
+              style={{
+                backgroundColor: isSaved ? "var(--theme-accent)" : "rgba(255, 255, 255, 0.08)",
+                borderColor: isSaved ? "var(--theme-border)" : "transparent",
+              }}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all border cursor-pointer ${
                 isSaved
-                  ? "bg-red-600 text-white"
-                  : "bg-[#272727] hover:bg-[#383838] text-white"
+                  ? "text-white shadow-md ring-1 ring-white/20"
+                  : "hover:bg-white/15 text-white"
               }`}
               onClick={handleToggleFavorite}
             >
               <Heart size={14} className={isSaved ? "fill-white" : ""} />
-              <span>{isSaved ? "Saved" : "Save"}</span>
+              <span>{isSaved ? "Saved to Library" : "Save Track"}</span>
             </button>
           </div>
         </div>

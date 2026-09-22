@@ -175,9 +175,9 @@ const Header = memo(function Header({
                   ? "text-white shadow-md ring-1 ring-white/15"
                   : "text-neutral-400 hover:text-white hover:bg-white/5"
               }`}
-              title="Listen to YT Music"
+              title="Listen to Frosted Music"
             >
-              <Music size={14} className={isYouTube ? "text-amber-400" : "text-amber-400/80"} />
+              <Music size={14} className={isYouTube ? "text-white" : "text-[var(--theme-text-accent)]"} />
               <span>Music</span>
             </button>
 
