@@ -57,6 +57,20 @@ interface VideoItem {
   streamUrl?: string;
 }
 
+function isStrictMusicVideo(v: VideoItem): boolean {
+  const t = (v.title || "").toLowerCase();
+  const c = (v.channelTitle || "").toLowerCase();
+  
+  // Exclude non-music content
+  const bad = ["gameplay", "tutorial", "news", "reaction", "review", "podcast", "vlog", "walkthrough", "unboxing", "trailer", "highlights", "interview", "documentary", "test", "fps", "valorant", "fortnite", "roblox", "minecraft"];
+  if (bad.some(b => t.includes(b) || c.includes(b))) return false;
+  
+  // Must have music indicators or be from a music/artist/vevo channel
+  const musicWords = ["music", "audio", "song", "official", "vevo", "lyrics", "cover", "album", "concert", "mix", "remix", "live", "feat", "ft.", "prod.", "ep", "single", "video", "records", "music video", "topic", "soundtrack", "pop", "hip hop", "rock", "lofi", "chill", "R&B", "edm", "dance"];
+  const matchesMusic = musicWords.some(m => t.includes(m) || c.includes(m));
+  return matchesMusic;
+}
+
 // Popular curated channels for instant fallback and high quality study / gaming / entertainment feeds
 const CURATED_CHANNELS = [
   { id: "UCSJ4gkVC6NrvII8umztf0Ow", name: "Lofi Girl", category: "study" },
@@ -346,9 +360,14 @@ youtubeRouter.get("/trending", async (req, res) => {
     if (category === "gaming") {
       const searchResults = await scrapeYouTubeSearch("gaming trailers gameplay highlights 2026");
       videos = searchResults.length > 0 ? searchResults : await fetchChannelFeed("UCKy1dAqELo0zrOtPkf0eTMw"); // IGN fallback
-    } else if (category === "music") {
-      const searchResults = await scrapeYouTubeSearch("official music video trending");
-      videos = searchResults;
+    } else if (category === "music" || category === "all") {
+      const searchResults = await scrapeYouTubeSearch("youtube music top charts official audio song hits");
+      const filtered = searchResults.filter(isStrictMusicVideo);
+      if (filtered.length > 0) {
+        videos = filtered;
+      } else {
+        videos = await fetchChannelFeed("UC-9-kyTW8ZkZNDHQJ6FgpwQ"); // VEVO
+      }
     } else if (category === "study" || category === "lofi") {
       const lofiVideos = await fetchChannelFeed("UCSJ4gkVC6NrvII8umztf0Ow"); // Lofi Girl
       videos = lofiVideos;
@@ -402,7 +421,9 @@ youtubeRouter.get("/search", async (req, res) => {
   }
 
   try {
-    const videos = await scrapeYouTubeSearch(query);
+    const rawVideos = await scrapeYouTubeSearch(query);
+    const filtered = rawVideos.filter(isStrictMusicVideo);
+    const videos = filtered.length > 0 ? filtered : rawVideos;
     cacheMap.set(cacheKey, { timestamp: Date.now(), data: videos });
     return res.json({ success: true, query, videos });
   } catch (error: any) {
