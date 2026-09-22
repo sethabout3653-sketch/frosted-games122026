@@ -101,5 +101,8 @@ export interface YouTubeVideo {
   hlsUrl?: string;
   isShort?: boolean;
   isMusic?: boolean;
+  mediaType?: "audio" | "video";
+  artist?: string;
+  album?: string;
 }
 

@@ -7,6 +7,7 @@ import {
   orderBy,
   limit,
   getDocs,
+  getDoc,
   onSnapshot,
   addDoc,
   deleteDoc,
@@ -18,6 +19,8 @@ import {
   OperationType,
   toTimestampMs,
   compareMessagesChronological,
+  sendBroadcastSignal,
+  subscribeBroadcastSignals,
 } from "../supabase-adapter";
 import { ChatMessage, ChatProfile, UserActivity } from "../types";
 import { wsClient } from "../lib/websocket-client";
@@ -55,6 +58,9 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  UserCheck,
+  Unlock,
+  Clock,
 } from "lucide-react";
 
 import GiphyPicker from "./GiphyPicker";
@@ -135,6 +141,32 @@ interface MemberUser {
 let globalMessagesCache: ChatMessage[] = [];
 let globalMessagesLoaded = false;
 const CACHE_KEY = "lumos_chat_messages_v5";
+const DELETED_CACHE_KEY = "lumos_deleted_msg_ids_v1";
+
+const getCachedDeletedIds = (): Set<string> => {
+  const set = new Set<string>();
+  try {
+    const raw = localStorage.getItem(DELETED_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((id: string) => {
+          if (typeof id === "string") set.add(id);
+        });
+      }
+    }
+  } catch {}
+  return set;
+};
+
+const saveDeletedMessageId = (id: string) => {
+  try {
+    const set = getCachedDeletedIds();
+    set.add(id);
+    const arr = Array.from(set).slice(-500);
+    localStorage.setItem(DELETED_CACHE_KEY, JSON.stringify(arr));
+  } catch {}
+};
 
 try {
   localStorage.removeItem("lumos_chat_messages_v4");
@@ -144,15 +176,19 @@ try {
 } catch {}
 
 const getCachedMessages = (): ChatMessage[] => {
-  if (globalMessagesCache.length > 0) return globalMessagesCache;
+  const deleted = getCachedDeletedIds();
+  if (globalMessagesCache.length > 0) {
+    return globalMessagesCache.filter((m) => !deleted.has(m.id));
+  }
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        globalMessagesCache = parsed;
+        const filtered = (parsed as ChatMessage[]).filter((m) => !deleted.has(m.id));
+        globalMessagesCache = filtered;
         globalMessagesLoaded = true;
-        return parsed;
+        return filtered;
       }
     }
   } catch (e) {
@@ -162,11 +198,13 @@ const getCachedMessages = (): ChatMessage[] => {
 };
 
 const saveCachedMessages = (msgs: ChatMessage[]) => {
-  globalMessagesCache = msgs;
+  const deleted = getCachedDeletedIds();
+  const valid = msgs.filter((m) => !deleted.has(m.id));
+  globalMessagesCache = valid;
   globalMessagesLoaded = true;
   try {
     // Cache the most recent 60 messages for fast startup
-    const toSave = msgs.slice(-60).map((m) => {
+    const toSave = valid.slice(-60).map((m) => {
       // Avoid overflowing localStorage quota on huge base64 data
       if (m.attachment && m.attachment.length > 100000) {
         return { ...m, attachment: "" };
@@ -222,6 +260,14 @@ export default function ChatPanel({
   const [modActionType, setModActionType] = useState<"kick" | "ban">("kick");
   const [modReason, setModReason] = useState("");
   const [modBanDuration, setModBanDuration] = useState<number>(5 * 60 * 1000); // 5 mins
+
+  // Banned Users & Unban Management States
+  const [bannedList, setBannedList] = useState<any[]>([]);
+  const [showBannedModal, setShowBannedModal] = useState(false);
+  const [manualUnbanInput, setManualUnbanInput] = useState("");
+  const [unbanSuccessMsg, setUnbanSuccessMsg] = useState<string | null>(null);
+  const [unbanErrorMsg, setUnbanErrorMsg] = useState<string | null>(null);
+  const [isUnbanning, setIsUnbanning] = useState(false);
 
   const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
@@ -302,6 +348,8 @@ export default function ChatPanel({
   const isInitialLoadRef = useRef<boolean>(true);
   const isUserScrolledUpRef = useRef<boolean>(false);
   const lastKnownLatestMsgIdRef = useRef<string | null>(null);
+  const lastKnownLatestMsgTimestampRef = useRef<number>(0);
+  const deletedMessageIdsRef = useRef<Set<string>>(getCachedDeletedIds());
   const isLoadingOlderRef = useRef<boolean>(false);
   const prevScrollHeightRef = useRef<number>(0);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState<boolean>(false);
@@ -327,32 +375,212 @@ export default function ChatPanel({
     };
   }, [activeReactionMenuMsgId]);
 
-  // Real-time moderation enforcement listener
+  // Real-time moderation enforcement listener & unban signals
   useEffect(() => {
     if (!profile?.uid) return;
-    const unsub = onSnapshot(doc(db, "moderation_actions", profile.uid), (docSnap: any) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.type === "ban") {
+
+    // 1. Direct document snapshot listener on target UID
+    const unsubUid = onSnapshot(doc(db, "moderation_actions", profile.uid), (docSnap: any) => {
+      const exists = typeof docSnap?.exists === "function" ? docSnap.exists() : !!docSnap?.exists;
+      if (exists) {
+        const data = typeof docSnap.data === "function" ? docSnap.data() : (docSnap.data || docSnap);
+        if (data?.type === "ban") {
           if (data.banUntil === -1 || Date.now() < data.banUntil) {
             setActiveModeration(data);
           } else {
             // Ban expired, clean up
             deleteDoc(doc(db, "moderation_actions", profile.uid)).catch(() => {});
+            deleteDoc(doc(db, "banned_users", profile.uid)).catch(() => {});
+            if (profile.username) {
+              deleteDoc(doc(db, "moderation_banned_names", profile.username.trim().toLowerCase())).catch(() => {});
+            }
             setActiveModeration(null);
           }
-        } else if (data.type === "kick") {
+        } else if (data?.type === "kick") {
           setActiveModeration(data);
         }
       } else {
-        setActiveModeration(null);
+        // Also check if banned by username
+        if (profile.username) {
+          getDoc(doc(db, "moderation_banned_names", profile.username.trim().toLowerCase())).then((nameSnap: any) => {
+            const nameExists = typeof nameSnap?.exists === "function" ? nameSnap.exists() : !!nameSnap?.exists;
+            if (nameExists) {
+              const nameData = typeof nameSnap.data === "function" ? nameSnap.data() : (nameSnap.data || nameSnap);
+              if (nameData?.banUntil === -1 || Date.now() < nameData.banUntil) {
+                setActiveModeration(nameData);
+                return;
+              }
+            }
+            setActiveModeration((prev: any) => (prev?.type === "kick" ? prev : null));
+          }).catch(() => {
+            setActiveModeration((prev: any) => (prev?.type === "kick" ? prev : null));
+          });
+        } else {
+          setActiveModeration((prev: any) => (prev?.type === "kick" ? prev : null));
+        }
       }
     });
+
+    // 2. Real-time WebRTC / WebSocket broadcast signal listener for instant 0ms enforcement
+    const unsubSignals = subscribeBroadcastSignals(profile.uid, (sig: any) => {
+      if (!sig) return;
+      if (sig.type === "moderation_action") {
+        const myUid = profile.uid;
+        const myName = (profile.username || "").toLowerCase();
+        const targetUid = sig.targetUid;
+        const targetName = (sig.targetUsername || "").toLowerCase();
+
+        if (targetUid === myUid || (targetName && targetName === myName)) {
+          setActiveModeration({
+            type: sig.action || sig.type,
+            reason: sig.reason,
+            bannedBy: sig.bannedBy,
+            banUntil: sig.banUntil,
+            timestamp: sig.timestamp || Date.now(),
+          });
+        }
+      } else if (sig.type === "moderation_unban") {
+        const myUid = profile.uid;
+        const myName = (profile.username || "").toLowerCase();
+        const targetUid = sig.targetUid;
+        const targetName = (sig.targetUsername || "").toLowerCase();
+
+        if (targetUid === myUid || (targetName && targetName === myName)) {
+          setActiveModeration(null);
+        }
+      }
+    });
+
+    return () => {
+      unsubUid();
+      unsubSignals();
+    };
+  }, [profile?.uid, profile?.username]);
+
+  // Live timer for ban countdown
+  useEffect(() => {
+    if (!activeModeration || activeModeration.type !== "ban" || activeModeration.banUntil === -1) return;
+    const interval = setInterval(() => {
+      if (Date.now() >= activeModeration.banUntil) {
+        deleteDoc(doc(db, "moderation_actions", profile.uid)).catch(() => {});
+        deleteDoc(doc(db, "banned_users", profile.uid)).catch(() => {});
+        if (profile.username) {
+          deleteDoc(doc(db, "moderation_banned_names", profile.username.trim().toLowerCase())).catch(() => {});
+        }
+        setActiveModeration(null);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeModeration, profile?.uid, profile?.username]);
+
+  // Immediately terminate calls/audio when under active moderation
+  useEffect(() => {
+    if (activeModeration) {
+      try {
+        callCtx.endActiveCall();
+        callCtx.declineIncomingCall();
+        callCtx.cancelOutgoingCall();
+      } catch (e) {}
+    }
+  }, [activeModeration]);
+
+  // Real-time listener for banned users collection (for moderators to view and unban)
+  useEffect(() => {
+    if (!profile?.username) return;
+    const isMod = isUserModerator(profile.username, profile.uid);
+    if (!isMod) return;
+
+    const unsub = onSnapshot(collection(db, "banned_users"), (snap: any) => {
+      const list: any[] = [];
+      const now = Date.now();
+      if (snap && snap.docs) {
+        snap.docs.forEach((d: any) => {
+          const data = typeof d.data === "function" ? d.data() : d;
+          if (data && (data.banUntil === -1 || now < data.banUntil)) {
+            list.push({ id: d.id, ...data });
+          }
+        });
+      }
+      setBannedList(list);
+    });
+
     return () => unsub();
-  }, [profile?.uid]);
+  }, [profile?.username, profile?.uid]);
+
+  // Handler to unban any user (by UID or Username)
+  const handleUnbanUser = async (targetUidOrName: string) => {
+    const clean = (targetUidOrName || "").trim();
+    if (!clean) return;
+
+    if (!isUserModerator(profile.username, profile.uid)) {
+      setUnbanErrorMsg("Only moderators can unban users.");
+      setTimeout(() => setUnbanErrorMsg(null), 3500);
+      return;
+    }
+
+    setIsUnbanning(true);
+    try {
+      // Find matching user in bannedList if present
+      const match = bannedList.find(
+        (b) =>
+          b.uid === clean ||
+          b.id === clean ||
+          b.username?.toLowerCase() === clean.toLowerCase() ||
+          b.targetUsername?.toLowerCase() === clean.toLowerCase()
+      );
+
+      const targetUid = match ? (match.uid || match.id || match.targetUid) : clean;
+      const targetUsername = match ? (match.username || match.targetUsername) : clean;
+
+      // 1. Delete from moderation_actions and banned_users and moderation_banned_names
+      await deleteDoc(doc(db, "moderation_actions", targetUid)).catch(() => {});
+      await deleteDoc(doc(db, "banned_users", targetUid)).catch(() => {});
+      if (targetUsername) {
+        await deleteDoc(doc(db, "moderation_banned_names", targetUsername.trim().toLowerCase())).catch(() => {});
+      }
+
+      // Also clean by clean value itself if clean is a username
+      await deleteDoc(doc(db, "moderation_banned_names", clean.toLowerCase())).catch(() => {});
+
+      // 2. Broadcast real-time unban signal to target client
+      const unbanSig = {
+        type: "moderation_unban",
+        targetUid,
+        targetUsername,
+        unbannedBy: profile.username,
+        timestamp: Date.now(),
+      };
+
+      sendBroadcastSignal(unbanSig);
+      try {
+        wsClient.sendSignal(unbanSig);
+      } catch (e) {}
+
+      // 3. Update local state
+      setBannedList((prev) =>
+        prev.filter(
+          (b) =>
+            b.uid !== targetUid &&
+            b.id !== targetUid &&
+            b.targetUid !== targetUid &&
+            b.username?.toLowerCase() !== targetUsername.toLowerCase() &&
+            b.username?.toLowerCase() !== clean.toLowerCase()
+        )
+      );
+
+      setManualUnbanInput("");
+      setUnbanSuccessMsg(`Successfully unbanned "${targetUsername}"!`);
+      setTimeout(() => setUnbanSuccessMsg(null), 3500);
+    } catch (err: any) {
+      setUnbanErrorMsg("Failed to unban user: " + (err?.message || "Unknown error"));
+      setTimeout(() => setUnbanErrorMsg(null), 3500);
+    } finally {
+      setIsUnbanning(false);
+    }
+  };
 
   const updateTypingStatus = async (typing: boolean) => {
-    if (!profile) return;
+    if (!profile || (activeModeration && activeModeration.type === "ban")) return;
     const typingRef = doc(db, "typing", `${activeChannel}_${profile.uid}`);
     if (typing) {
       setIsLocalTyping(true);
@@ -420,6 +648,7 @@ export default function ChatPanel({
     isInitialLoadRef.current = true;
     isUserScrolledUpRef.current = false;
     lastKnownLatestMsgIdRef.current = null;
+    lastKnownLatestMsgTimestampRef.current = 0;
     setShowScrollBottomBtn(false);
   }, [activeChannel]);
 
@@ -804,6 +1033,9 @@ export default function ChatPanel({
       (snapshot: any) => {
         const newMessages: ChatMessage[] = [];
         snapshot.forEach((docSnap: any) => {
+          if (deletedMessageIdsRef.current.has(docSnap.id)) {
+            return;
+          }
           const data = docSnap.data() as any;
           newMessages.push({
             id: docSnap.id,
@@ -820,14 +1052,23 @@ export default function ChatPanel({
           // Keep only true local optimistic messages that haven't arrived in the snapshot yet (<8s old)
           const pending = prev.filter(
             (m) =>
+              !deletedMessageIdsRef.current.has(m.id) &&
               Boolean((m as any)._isOptimistic) &&
               now - (toTimestampMs(m.timestamp) || 0) < 8000 &&
               !newMessages.some((sm) => sm.id === m.id)
           );
 
           const combinedMap = new Map<string, ChatMessage>();
-          newMessages.forEach((m) => combinedMap.set(m.id, m));
-          pending.forEach((m) => combinedMap.set(m.id, m));
+          newMessages.forEach((m) => {
+            if (!deletedMessageIdsRef.current.has(m.id)) {
+              combinedMap.set(m.id, m);
+            }
+          });
+          pending.forEach((m) => {
+            if (!deletedMessageIdsRef.current.has(m.id)) {
+              combinedMap.set(m.id, m);
+            }
+          });
 
           const finalMessages = Array.from(combinedMap.values()).sort(compareMessagesChronological);
           saveCachedMessages(finalMessages);
@@ -856,22 +1097,30 @@ export default function ChatPanel({
           if (newMessages.length > 0) {
             const latest = [...newMessages].sort(compareMessagesChronological).pop();
             lastKnownLatestMsgIdRef.current = latest?.id || null;
+            lastKnownLatestMsgTimestampRef.current = latest ? toTimestampMs(latest.timestamp) : 0;
           }
           window.setTimeout(() => scrollToBottom("auto"), 50);
           return;
         }
 
-        // 3. Detect if a brand new message actually arrived
+        // 3. Detect if a brand new message actually arrived (must be strictly newer timestamp)
         const latestMessage = newMessages.length > 0
           ? [...newMessages].sort(compareMessagesChronological).pop()
           : null;
 
+        const latestTimestamp = latestMessage ? toTimestampMs(latestMessage.timestamp) : 0;
+        const isStrictlyNewer = latestTimestamp > lastKnownLatestMsgTimestampRef.current;
+
         const isNewIncomingMessage =
           Boolean(latestMessage) &&
+          isStrictlyNewer &&
           latestMessage?.id !== lastKnownLatestMsgIdRef.current;
 
         if (latestMessage) {
           lastKnownLatestMsgIdRef.current = latestMessage.id;
+          if (latestTimestamp > lastKnownLatestMsgTimestampRef.current) {
+            lastKnownLatestMsgTimestampRef.current = latestTimestamp;
+          }
         }
 
         // 4. CRITICAL: When scrolling or reading through older messages,
@@ -894,7 +1143,24 @@ export default function ChatPanel({
       }
     );
 
-    return () => unsubscribe();
+    // Listen to real-time deletion events via WebSocket so deleted messages vanish instantly and permanently
+    const unsubWsMsg = wsClient.onCollectionChange("messages", (change) => {
+      if (!change || !change.id) return;
+      if (change.op === "delete") {
+        deletedMessageIdsRef.current.add(change.id);
+        saveDeletedMessageId(change.id);
+        setMessages((prev) => {
+          const updated = prev.filter((m) => m.id !== change.id);
+          saveCachedMessages(updated);
+          return updated;
+        });
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      unsubWsMsg();
+    };
   }, [messageLimit]);
 
   const handleScroll = () => {
@@ -927,16 +1193,84 @@ export default function ChatPanel({
     }
   };
 
-  const handleDeleteMessage = async (msgId: string) => {
-    if (!isUserModerator(profile.username, profile.uid)) {
-      alert("Only moderators can delete messages.");
+  const handleDeleteMessage = async (msgId: string, event?: React.MouseEvent) => {
+    // 1. Explicitly blur active element so Chromium/WebKit doesn't scroll to the top of the container
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
+    const targetMsg = messages.find((m) => m.id === msgId);
+    if (!targetMsg) return;
+
+    const isMyMsg = targetMsg.uid === profile.uid || targetMsg.username === profile.username;
+    const isAuthorMod = isUserModerator(targetMsg.username, targetMsg.uid);
+    const isCurrentMod = isUserModerator(profile.username, profile.uid);
+
+    // CRITICAL: You cannot delete messages sent by another moderator!
+    if (isAuthorMod && !isMyMsg) {
+      showModerationAlert("Action Forbidden", "You cannot delete messages sent by another moderator.");
       return;
     }
+
+    if (!isMyMsg && !isCurrentMod) {
+      showModerationAlert("Permission Denied", "Only moderators can delete other users' messages.");
+      return;
+    }
+
+    // 2. Mark this message ID as deleted permanently in local tombstones
+    deletedMessageIdsRef.current.add(msgId);
+    saveDeletedMessageId(msgId);
+
+    // 3. Snapshot scroll metrics before DOM manipulation
+    const container = chatContainerRef.current;
+    let savedScrollTop = 0;
+    let savedScrollHeight = 0;
+    let wasAtBottom = false;
+    let msgElOffsetTop = 0;
+    let msgElHeight = 0;
+
+    if (container) {
+      savedScrollTop = container.scrollTop;
+      savedScrollHeight = container.scrollHeight;
+      const distanceFromBottom = savedScrollHeight - savedScrollTop - container.clientHeight;
+      wasAtBottom = distanceFromBottom <= 60 && !isUserScrolledUpRef.current;
+
+      const msgEl = document.getElementById(`msg-item-${msgId}`);
+      if (msgEl) {
+        msgElOffsetTop = msgEl.offsetTop;
+        msgElHeight = msgEl.offsetHeight;
+      }
+    }
+
+    // 4. Remove immediately from UI state and local cache
     setMessages((prev) => {
-      const updated = prev.filter((m) => m.id !== msgId);
+      const updated = prev.filter((m) => m.id !== msgId && !deletedMessageIdsRef.current.has(m.id));
       saveCachedMessages(updated);
       return updated;
     });
+
+    // 5. Precisely lock and preserve scroll position so the view NEVER jumps up or shifts!
+    if (container) {
+      requestAnimationFrame(() => {
+        if (!chatContainerRef.current) return;
+        const cont = chatContainerRef.current;
+        if (wasAtBottom) {
+          cont.scrollTop = cont.scrollHeight - cont.clientHeight;
+        } else {
+          // If the removed element was above the current scroll view, adjust scrollTop so position is stable
+          if (msgElOffsetTop + msgElHeight <= savedScrollTop && msgElHeight > 0) {
+            cont.scrollTop = Math.max(0, savedScrollTop - msgElHeight);
+          } else {
+            cont.scrollTop = savedScrollTop;
+          }
+        }
+      });
+    }
+
     try {
       await deleteDoc(doc(db, "messages", msgId));
     } catch (error) {
@@ -991,7 +1325,7 @@ export default function ChatPanel({
     if (e) e.preventDefault();
     const currentText = text.trim();
 
-    // /clear or /delete-all command to instantly wipe all messages
+    // /clear or /delete-all command to instantly wipe non-moderator messages
     if (currentText === "/clear" || currentText === "/clearall" || currentText === "/delete-all") {
       if (!isUserModerator(profile.username, profile.uid)) {
         showModerationAlert("Permission Denied", "Only moderators can run clearance commands.");
@@ -999,14 +1333,34 @@ export default function ChatPanel({
         return;
       }
       setText("");
-      setMessages([]);
-      saveCachedMessages([]);
+      // Preserve other moderators' messages (cannot delete other moderators' messages)
+      const messagesToDelete = messages.filter((m) => {
+        const isMy = m.uid === profile.uid || m.username === profile.username;
+        const isOtherMod = isUserModerator(m.username, m.uid) && !isMy;
+        return !isOtherMod;
+      });
+      messagesToDelete.forEach((m) => {
+        deletedMessageIdsRef.current.add(m.id);
+        saveDeletedMessageId(m.id);
+      });
+      const preservedMessages = messages.filter((m) => {
+        const isMy = m.uid === profile.uid || m.username === profile.username;
+        const isOtherMod = isUserModerator(m.username, m.uid) && !isMy;
+        return isOtherMod;
+      });
+      setMessages(preservedMessages);
+      saveCachedMessages(preservedMessages);
       try {
-        // Asynchronously delete all message documents
-        for (const msg of messages) {
+        for (const msg of messagesToDelete) {
           await deleteDoc(doc(db, "messages", msg.id)).catch(() => {});
         }
       } catch (err) {}
+      return;
+    }
+
+    // Check if user is currently banned
+    if (activeModeration && activeModeration.type === "ban") {
+      showModerationAlert("Account Banned", "You are currently banned and cannot send messages.");
       return;
     }
 
@@ -1705,6 +2059,24 @@ export default function ChatPanel({
                 <Users size={18} />
               </button>
             )}
+
+            {/* Moderator Banned Users Management Button */}
+            {isUserModerator(profile.username, profile.uid) && (
+              <button
+                type="button"
+                onClick={() => setShowBannedModal(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-950/70 hover:bg-red-900/90 border border-red-700/60 text-xs font-bold text-red-200 transition-all duration-150 active:scale-95 cursor-pointer shadow-sm hover:text-white"
+                title="Open Banned Users & Unban Control"
+              >
+                <Ban size={13} className="text-red-400" />
+                <span className="hidden sm:inline">Banned</span>
+                {bannedList.length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-extrabold leading-none">
+                    {bannedList.length}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
         </div>
 
@@ -1780,6 +2152,7 @@ export default function ChatPanel({
         <div
           ref={chatContainerRef}
           onScroll={handleScroll}
+          style={{ overflowAnchor: "none" }}
           className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 relative"
         >
           {/* Welcome Channel Banner matching Image 2 */}
@@ -1853,6 +2226,7 @@ export default function ChatPanel({
 
             return (
               <div
+                id={`msg-item-${msg.id}`}
                 key={`${msg.id || "msg"}-${mIdx}`}
                 className="flex gap-3.5 group hover:bg-[#070e2f]/50 p-1.5 -mx-1.5 rounded-lg transition-colors duration-150 relative"
               >
@@ -2026,14 +2400,28 @@ export default function ChatPanel({
                     <SmilePlus size={15} />
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteMessage(msg.id)}
-                    className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-[#0e1b56] rounded-lg transition-colors duration-150 cursor-pointer ml-0.5 border-l border-indigo-950/60 active:scale-90"
-                    title="Delete Message"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {(() => {
+                    const isMyMsg = msg.uid === profile.uid || msg.username === profile.username;
+                    const isAuthorMod = isUserModerator(msg.username, msg.uid);
+                    const isCurrentMod = isUserModerator(profile.username, profile.uid);
+                    const canDelete = isMyMsg || (isCurrentMod && !isAuthorMod);
+                    if (!canDelete) return null;
+                    return (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          (e.currentTarget as HTMLElement)?.blur();
+                          handleDeleteMessage(msg.id, e);
+                        }}
+                        className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-[#0e1b56] rounded-lg transition-colors duration-150 cursor-pointer ml-0.5 border-l border-indigo-950/60 active:scale-90"
+                        title="Delete Message"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    );
+                  })()}
                 </div>
 
                 {/* Floating Rich Reaction & Custom Text Popover */}
@@ -2410,6 +2798,25 @@ export default function ChatPanel({
           className="w-60 border-l flex flex-col h-full flex-shrink-0 select-none"
         >
           <div className="flex-1 overflow-y-auto p-3 space-y-5">
+            {/* 🛡️ Moderator Quick Bar */}
+            {isUserModerator(profile.username, profile.uid) && (
+              <div className="p-2.5 rounded-xl bg-gradient-to-r from-red-950/50 via-[#121429] to-indigo-950/40 border border-red-800/40 flex items-center justify-between shadow-sm">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-red-300">
+                  <ShieldAlert size={14} className="text-red-400" />
+                  <span>Mod Panel</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBannedModal(true)}
+                  className="px-2 py-1 rounded-lg bg-red-600/30 hover:bg-red-600/50 border border-red-500/40 text-[10px] font-bold text-red-200 transition-colors flex items-center gap-1 cursor-pointer"
+                  title="View banned users & unban"
+                >
+                  <Ban size={10} />
+                  <span>Banned ({bannedList.length})</span>
+                </button>
+              </div>
+            )}
+
             {/* 🎙️ IN VOICE & CALLS SECTION */}
             {inVoiceUsers.length > 0 && (
               <div className="rounded-xl p-2 bg-gradient-to-b from-emerald-950/40 to-indigo-950/30 border border-emerald-500/20">
@@ -2508,6 +2915,20 @@ export default function ChatPanel({
                                   >
                                     <AtSign size={10} />
                                   </button>
+                                  {isUserModerator(profile.username, profile.uid) && !isUserModerator(user.username, user.uid) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setModTargetUser(user);
+                                        setModActionType("kick");
+                                        setModReason("");
+                                      }}
+                                      className="p-1 rounded bg-red-950/60 hover:bg-red-900/80 text-red-300 hover:text-red-100 transition-colors cursor-pointer"
+                                      title="Kick or Ban User"
+                                    >
+                                      <ShieldAlert size={10} />
+                                    </button>
+                                  )}
                                 </>
                               )}
                             </div>
@@ -2639,7 +3060,7 @@ export default function ChatPanel({
                                 </button>
                               </>
                             )}
-                            {isUserModerator(profile.username, profile.uid) && !isCurrentUser && (
+                            {isUserModerator(profile.username, profile.uid) && !isCurrentUser && !isUserModerator(user.username, user.uid) && (
                               <button
                                 onClick={() => {
                                   setModTargetUser(user);
@@ -2890,6 +3311,56 @@ export default function ChatPanel({
                           <span>Join General Voice with {selectedUserProfile.username}</span>
                         </button>
                       )}
+
+                      {/* 🛡️ Protected Moderator notice if target is a moderator */}
+                      {isUserModerator(selectedUserProfile.username, selectedUserProfile.uid) && (
+                        <div className="p-2.5 rounded-xl bg-red-950/40 border border-red-800/40 flex items-center gap-2 text-xs text-red-300">
+                          <ShieldAlert size={16} className="text-red-400 flex-shrink-0" />
+                          <div className="text-left">
+                            <span className="font-bold block text-red-200">Protected Moderator</span>
+                            <span className="text-[10px] text-red-400/80">Moderators cannot be kicked, banned, or moderated.</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 🛡️ Moderator Actions for non-moderators */}
+                      {isUserModerator(profile.username, profile.uid) && !isUserModerator(selectedUserProfile.username, selectedUserProfile.uid) && (
+                        <div className="pt-2 border-t border-white/10 space-y-1.5">
+                          {bannedList.some(
+                            (b) =>
+                              b.uid === selectedUserProfile.uid ||
+                              b.id === selectedUserProfile.uid ||
+                              b.targetUid === selectedUserProfile.uid ||
+                              b.username?.toLowerCase() === selectedUserProfile.username?.toLowerCase()
+                          ) ? (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await handleUnbanUser(selectedUserProfile.uid);
+                                setSelectedUserProfile(null);
+                              }}
+                              className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all active:scale-95"
+                            >
+                              <Check size={14} />
+                              <span>Unban {selectedUserProfile.username}</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setModTargetUser(selectedUserProfile);
+                                setModActionType("kick");
+                                setModReason("");
+                                setSelectedUserProfile(null);
+                              }}
+                              className="w-full py-2.5 px-3 rounded-xl bg-red-950/60 hover:bg-red-900/80 text-red-300 hover:text-red-100 border border-red-800/60 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm"
+                            >
+                              <ShieldAlert size={14} className="text-red-400" />
+                              <span>Moderate User (Kick / Ban)</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="text-center py-2 text-xs text-neutral-400">
@@ -3045,6 +3516,12 @@ export default function ChatPanel({
               <button
                 type="button"
                 onClick={async () => {
+                  if (!modTargetUser) return;
+                  if (isUserModerator(modTargetUser.username, modTargetUser.uid)) {
+                    alert("You cannot kick or ban another moderator.");
+                    setModTargetUser(null);
+                    return;
+                  }
                   if (!modReason.trim()) {
                     alert("Please provide a reason.");
                     return;
@@ -3053,7 +3530,7 @@ export default function ChatPanel({
                     ? (modBanDuration === -1 ? -1 : Date.now() + modBanDuration)
                     : 0;
 
-                  await setDoc(doc(db, "moderation_actions", modTargetUser.uid), {
+                  const actionPayload = {
                     type: modActionType,
                     targetUid: modTargetUser.uid,
                     targetUsername: modTargetUser.username,
@@ -3061,7 +3538,49 @@ export default function ChatPanel({
                     reason: modReason.trim(),
                     banUntil,
                     timestamp: Date.now(),
-                  });
+                  };
+
+                  // 1. Write to database collections
+                  await setDoc(doc(db, "moderation_actions", modTargetUser.uid), actionPayload);
+                  if (modTargetUser.username) {
+                    await setDoc(doc(db, "moderation_banned_names", modTargetUser.username.trim().toLowerCase()), actionPayload);
+                  }
+
+                  if (modActionType === "ban") {
+                    await setDoc(doc(db, "banned_users", modTargetUser.uid), {
+                      uid: modTargetUser.uid,
+                      username: modTargetUser.username,
+                      bannedBy: profile.username,
+                      reason: modReason.trim(),
+                      banUntil,
+                      timestamp: Date.now(),
+                    });
+                  }
+
+                  // 2. Real-time signaling via WebRTC signals & WebSockets for instant 0ms enforcement
+                  const broadcastPayload = {
+                    type: "moderation_action",
+                    action: modActionType,
+                    targetUid: modTargetUser.uid,
+                    targetUsername: modTargetUser.username,
+                    bannedBy: profile.username,
+                    reason: modReason.trim(),
+                    banUntil,
+                    timestamp: Date.now(),
+                  };
+
+                  sendBroadcastSignal(broadcastPayload);
+                  try {
+                    wsClient.sendSignal(broadcastPayload);
+                  } catch (e) {}
+
+                  // 3. Update local banned list if ban
+                  if (modActionType === "ban") {
+                    setBannedList((prev) => [
+                      ...prev.filter((u) => u.uid !== modTargetUser.uid && u.id !== modTargetUser.uid),
+                      { id: modTargetUser.uid, ...actionPayload },
+                    ]);
+                  }
 
                   setModTargetUser(null);
                   setModReason("");
@@ -3094,6 +3613,9 @@ export default function ChatPanel({
             <button
               onClick={async () => {
                 await deleteDoc(doc(db, "moderation_actions", profile.uid)).catch(() => {});
+                if (profile.username) {
+                  await deleteDoc(doc(db, "moderation_banned_names", profile.username.trim().toLowerCase())).catch(() => {});
+                }
                 setActiveModeration(null);
               }}
               className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors shadow-lg active:scale-95"
@@ -3125,8 +3647,174 @@ export default function ChatPanel({
               )}
             </p>
             <p className="text-xs text-neutral-500">
-              You will be able to rejoin once the ban timer expires.
+              {activeModeration.banUntil === -1
+                ? "Contact a community moderator to be unbanned."
+                : "You will automatically rejoin once the ban timer expires or when unbanned."}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* 🛡️ Dedicated Banned Users & Unban Management Modal for Moderators */}
+      {showBannedModal && isUserModerator(profile.username, profile.uid) && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-[#0f1224] border border-red-900/50 rounded-2xl max-w-lg w-full p-6 text-white shadow-2xl space-y-5 text-left animate-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-indigo-950 pb-3 flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-red-950/80 border border-red-700/60 flex items-center justify-center text-red-400">
+                  <Ban size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white leading-tight">
+                    Banned Users & Unban Control
+                  </h3>
+                  <p className="text-[11px] text-neutral-400">
+                    Review currently banned accounts and restore access
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBannedModal(false)}
+                className="p-1.5 rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Notification messages */}
+            {unbanSuccessMsg && (
+              <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-150 flex-shrink-0">
+                <Check size={16} className="text-emerald-400 flex-shrink-0" />
+                <span>{unbanSuccessMsg}</span>
+              </div>
+            )}
+            {unbanErrorMsg && (
+              <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/40 text-red-200 text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-150 flex-shrink-0">
+                <AlertTriangle size={16} className="text-red-400 flex-shrink-0" />
+                <span>{unbanErrorMsg}</span>
+              </div>
+            )}
+
+            {/* Manual Unban Form */}
+            <div className="bg-[#090b18] p-3.5 rounded-xl border border-indigo-950 space-y-2 flex-shrink-0">
+              <label className="text-[10px] font-extrabold text-indigo-300 tracking-wider uppercase block">
+                Quick Unban (By Username or UID)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={manualUnbanInput}
+                  onChange={(e) => setManualUnbanInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleUnbanUser(manualUnbanInput);
+                    }
+                  }}
+                  placeholder="Enter username or UID to unban..."
+                  className="flex-1 bg-[#121630] border border-indigo-900/60 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleUnbanUser(manualUnbanInput)}
+                  disabled={isUnbanning || !manualUnbanInput.trim()}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-md active:scale-95 flex-shrink-0"
+                >
+                  <Unlock size={13} />
+                  <span>Unban</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Banned Users List */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[140px]">
+              <div className="flex items-center justify-between text-[11px] font-bold text-neutral-400 mb-1 px-1">
+                <span>CURRENTLY BANNED ({bannedList.length})</span>
+              </div>
+
+              {bannedList.length === 0 ? (
+                <div className="text-center py-10 space-y-2 border border-dashed border-indigo-950/60 rounded-xl bg-[#090b18]/40">
+                  <div className="w-10 h-10 rounded-full bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
+                    <Check size={20} />
+                  </div>
+                  <p className="text-xs font-bold text-neutral-300">No Banned Users</p>
+                  <p className="text-[11px] text-neutral-500 max-w-xs mx-auto">
+                    All users currently have active access to the chat and channels.
+                  </p>
+                </div>
+              ) : (
+                bannedList.map((bUser, idx) => {
+                  const targetName = bUser.username || bUser.targetUsername || "Unknown User";
+                  const targetId = bUser.uid || bUser.targetUid || bUser.id;
+                  const isPerm = bUser.banUntil === -1;
+                  const expiryText = isPerm
+                    ? "Permanent"
+                    : `Expires ${new Date(bUser.banUntil).toLocaleTimeString()}`;
+
+                  return (
+                    <div
+                      key={`banned-${targetId}-${idx}`}
+                      className="p-3 rounded-xl bg-[#090b18] border border-red-950 hover:border-red-900/60 flex items-center justify-between gap-3 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-full bg-red-950/80 border border-red-700/60 flex items-center justify-center text-red-400 font-bold text-xs flex-shrink-0">
+                          <Ban size={15} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-white truncate">
+                              {targetName}
+                            </span>
+                            <span className="text-[10px] text-neutral-500 font-mono truncate max-w-[100px]">
+                              {targetId}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-neutral-400 mt-0.5">
+                            <span className="text-red-400 truncate">
+                              Reason: {bUser.reason || "No reason"}
+                            </span>
+                            <span>•</span>
+                            <span className="text-indigo-300 flex items-center gap-1 flex-shrink-0">
+                              <Clock size={10} />
+                              {expiryText}
+                            </span>
+                          </div>
+                          {bUser.bannedBy && (
+                            <p className="text-[9px] text-neutral-500 mt-0.5">
+                              Banned by: {bUser.bannedBy}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUnbanUser(targetId)}
+                        disabled={isUnbanning}
+                        className="px-3 py-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95 flex-shrink-0 disabled:opacity-40"
+                        title={`Unban ${targetName}`}
+                      >
+                        <Unlock size={12} />
+                        <span>Unban</span>
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="pt-2 border-t border-indigo-950 flex justify-end flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowBannedModal(false)}
+                className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold text-xs cursor-pointer transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1091,15 +1091,37 @@ const PORT = 3000;
         // 3.5 Fetch Collection Snapshot over WebSockets (0ms RAM-cached query)
         if (msg.type === "fetch_collection" && msg.collection) {
           const col = msg.collection;
-          const colDataObj = memoryStore[col] || {};
-          const colDataArray = Object.values(colDataObj);
-          
-          ws.send(JSON.stringify({
-            type: "collection_snapshot",
-            collection: col,
-            requestId: msg.requestId,
-            data: colDataArray
-          }));
+          // Synchronize from DB if memoryStore is empty, otherwise serve from RAM
+          getDb().then(async (db) => {
+            let colDataArray: any[] = [];
+            if (memoryStore[col] && Object.keys(memoryStore[col]).length > 0) {
+              colDataArray = Object.values(memoryStore[col]);
+            } else {
+              const rows = await db.all("SELECT id, data FROM records WHERE collection = ?", [col]);
+              if (!memoryStore[col]) memoryStore[col] = {};
+              rows.forEach((r: any) => {
+                try {
+                  const parsed = JSON.parse(r.data);
+                  memoryStore[col][r.id] = parsed;
+                  colDataArray.push(parsed);
+                } catch (e) {}
+              });
+            }
+            ws.send(JSON.stringify({
+              type: "collection_snapshot",
+              collection: col,
+              requestId: msg.requestId,
+              data: colDataArray
+            }));
+          }).catch(() => {
+            const colDataObj = memoryStore[col] || {};
+            ws.send(JSON.stringify({
+              type: "collection_snapshot",
+              collection: col,
+              requestId: msg.requestId,
+              data: Object.values(colDataObj)
+            }));
+          });
           return;
         }
 
@@ -1108,6 +1130,21 @@ const PORT = 3000;
           const { op, collection: col, id, data } = msg;
           const ts = Date.now();
           let recordData = data;
+
+          // Immediately reflect in RAM memoryStore so subsequent queries/snapshots reflect it instantly
+          if (op === "delete") {
+            if (memoryStore[col]) {
+              delete memoryStore[col][id];
+            }
+          } else if (op === "update") {
+            if (!memoryStore[col]) memoryStore[col] = {};
+            recordData = { ...(memoryStore[col][id] || {}), ...data, id, updatedAt: ts };
+            memoryStore[col][id] = recordData;
+          } else {
+            if (!memoryStore[col]) memoryStore[col] = {};
+            recordData = { ...data, id, updatedAt: ts };
+            memoryStore[col][id] = recordData;
+          }
 
           // Asynchronously persist to database (Cloud SQL / Postgres / Local records table)
           getDb().then(async (db) => {
@@ -1485,17 +1522,24 @@ const PORT = 3000;
       let recordData = data;
 
       if (op === "delete") {
+        if (memoryStore[col]) {
+          delete memoryStore[col][id];
+        }
         await db.run("DELETE FROM records WHERE collection = ? AND id = ?", [col, id]);
       } else if (op === "update") {
         const row = await db.get("SELECT data FROM records WHERE collection = ? AND id = ?", [col, id]);
         const existing = row ? JSON.parse(row.data) : {};
-        recordData = { ...existing, ...data, id };
+        recordData = { ...existing, ...data, id, updatedAt: ts };
+        if (!memoryStore[col]) memoryStore[col] = {};
+        memoryStore[col][id] = recordData;
         await db.run(
           "INSERT OR REPLACE INTO records (collection, id, data, timestamp) VALUES (?, ?, ?, ?)",
           [col, id, JSON.stringify(recordData), ts]
         );
       } else {
-        recordData = { ...data, id };
+        recordData = { ...data, id, updatedAt: ts };
+        if (!memoryStore[col]) memoryStore[col] = {};
+        memoryStore[col][id] = recordData;
         await db.run(
           "INSERT OR REPLACE INTO records (collection, id, data, timestamp) VALUES (?, ?, ?, ?)",
           [col, id, JSON.stringify(recordData), ts]

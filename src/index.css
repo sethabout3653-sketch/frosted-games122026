@@ -363,3 +363,35 @@ iframe[title*="Soundboard"] {
   visibility: hidden !important;
   pointer-events: none !important;
 }
+
+/* YouTube Unified Player Inner Frame - Strips all YouTube native hover/click/play/pause icons */
+#yt-unified-iframe-inner,
+#yt-unified-iframe-inner iframe,
+#yt-unified-iframe-inner * {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  display: block !important;
+  background: transparent !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  outline: none !important;
+}
+
+@keyframes rippleFade {
+  0% {
+    opacity: 1;
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+}
+
+.animate-ripple-fade {
+  animation: rippleFade 0.45s ease-out forwards;
+}
+
+

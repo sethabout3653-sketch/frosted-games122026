@@ -43,9 +43,42 @@ type ListenerCallback = (snapshot: CollectionSnapshot) => void;
 class UniversalDatabaseManager {
   private static instance: UniversalDatabaseManager;
   private cache: Map<string, Map<string, any>> = new Map();
+  private tombstones: Map<string, Set<string>> = new Map();
   private listeners: Map<string, Set<{ cb: ListenerCallback; queryObj?: QueryObject }>> = new Map();
   private sseControllers: Map<string, AbortController> = new Map();
   private isInitialized = false;
+
+  private getTombstones(collection: string): Set<string> {
+    let set = this.tombstones.get(collection);
+    if (!set) {
+      set = new Set<string>();
+      try {
+        if (typeof localStorage !== "undefined") {
+          const raw = localStorage.getItem(`udb_tombstones_${collection}`);
+          if (raw) {
+            const arr = JSON.parse(raw);
+            if (Array.isArray(arr)) {
+              arr.forEach((id: string) => {
+                if (typeof id === "string") set!.add(id);
+              });
+            }
+          }
+        }
+      } catch (e) {}
+      this.tombstones.set(collection, set);
+    }
+    return set;
+  }
+
+  private saveTombstones(collection: string) {
+    try {
+      if (typeof localStorage !== "undefined") {
+        const set = this.getTombstones(collection);
+        const arr = Array.from(set).slice(-500);
+        localStorage.setItem(`udb_tombstones_${collection}`, JSON.stringify(arr));
+      }
+    } catch (e) {}
+  }
 
   private constructor() {
     if (typeof window !== "undefined") {
@@ -120,13 +153,18 @@ class UniversalDatabaseManager {
     if (existing) return existing;
 
     const map = new Map<string, any>();
+    const tombstones = this.getTombstones(colName);
     try {
       if (typeof localStorage !== "undefined") {
         const saved = localStorage.getItem(`udb_cache_${colName}`);
         if (saved) {
           const parsed = JSON.parse(saved);
           if (parsed && typeof parsed === "object") {
-            Object.entries(parsed).forEach(([k, v]) => map.set(k, v));
+            Object.entries(parsed).forEach(([k, v]) => {
+              if (!tombstones.has(k)) {
+                map.set(k, v);
+              }
+            });
           }
         }
       }
@@ -159,10 +197,18 @@ class UniversalDatabaseManager {
     broadcast = true
   ) {
     const map = this.loadLocalCache(collection);
+    const tombstones = this.getTombstones(collection);
 
     if (op === "delete") {
+      tombstones.add(id);
+      this.saveTombstones(collection);
       map.delete(id);
     } else {
+      // If was previously marked deleted, un-tombstone only if new explicit write
+      if (tombstones.has(id)) {
+        tombstones.delete(id);
+        this.saveTombstones(collection);
+      }
       const merged = { ...(map.get(id) || {}), ...(data || {}), id };
       map.set(id, merged);
     }
@@ -187,9 +233,23 @@ class UniversalDatabaseManager {
 
     colListeners.forEach(({ cb, queryObj }) => {
       try {
-        const filteredDocs = this.applyConstraints(rawList, queryObj?.constraints);
-        const snapshot = this.buildSnapshot(filteredDocs);
-        cb(snapshot);
+        const isDocSub = !!(queryObj && typeof queryObj === "object" && (queryObj as any).id);
+        if (isDocSub) {
+          const targetId = (queryObj as any).id;
+          const itemData = map.get(targetId);
+          const docSnap = {
+            id: targetId,
+            exists: () => !!itemData,
+            data: () => (itemData ? { ...itemData } : undefined),
+            empty: !itemData,
+            get: (field: string) => (itemData ? itemData[field] : undefined),
+          };
+          cb(docSnap as any);
+        } else {
+          const filteredDocs = this.applyConstraints(rawList, queryObj?.constraints);
+          const snapshot = this.buildSnapshot(filteredDocs);
+          cb(snapshot);
+        }
       } catch (err) {
         console.warn(`[UniversalDB] Listener notification error for ${collection}:`, err);
       }
@@ -250,24 +310,26 @@ class UniversalDatabaseManager {
 
   public async fetchCollection(collection: string): Promise<any[]> {
     const map = this.loadLocalCache(collection);
+    const tombstones = this.getTombstones(collection);
 
     // 1. Try pure WebSocket collection snapshot fetching (extremely fast, zero HTTP overhead)
     if (wsClient.isConnected()) {
       try {
         const items = await wsClient.fetchCollection(collection);
-        if (items && items.length > 0) {
+        if (items) {
+          const validItems = items.filter((it: any) => it && it.id && !tombstones.has(it.id));
           // Sync local map with retrieved items
           if (collection === "messages") {
-            const serverKeys = new Set(items.map((it) => it.id));
+            const serverKeys = new Set(validItems.map((it: any) => it.id));
             Array.from(map.keys()).forEach((key) => {
-              if (!serverKeys.has(key)) {
+              if (!serverKeys.has(key) || tombstones.has(key)) {
                 map.delete(key);
               }
             });
           }
-          items.forEach((item: any) => {
+          validItems.forEach((item: any) => {
             const id = item.id;
-            if (id) {
+            if (id && !tombstones.has(id)) {
               map.set(id, { ...item });
             }
           });
@@ -292,10 +354,10 @@ class UniversalDatabaseManager {
         const json = await res.json();
         const serverData = json.data || {};
         if (typeof serverData === "object") {
-          // Remove keys from local map that do not exist on the server (only for messages)
+          // Remove keys from local map that do not exist on the server (only for messages) or are in tombstones
           if (collection === "messages") {
             Array.from(map.keys()).forEach((key) => {
-              if (!(key in serverData)) {
+              if (!(key in serverData) || tombstones.has(key)) {
                 map.delete(key);
               }
             });
@@ -303,8 +365,10 @@ class UniversalDatabaseManager {
 
           // Insert/Update from server
           Object.entries(serverData).forEach(([k, v]) => {
-            const parsed = typeof v === "string" ? JSON.parse(v) : v;
-            map.set(k, { ...(parsed || {}), id: k });
+            if (!tombstones.has(k)) {
+              const parsed = typeof v === "string" ? JSON.parse(v) : v;
+              map.set(k, { ...(parsed || {}), id: k });
+            }
           });
           this.persistLocalCache(collection);
           this.notifyListeners(collection);
@@ -317,17 +381,19 @@ class UniversalDatabaseManager {
         if (res2.ok) {
           const serverData2 = await res2.json() || {};
           if (typeof serverData2 === "object") {
-            // Remove keys from local map that do not exist on the server (only for messages)
+            // Remove keys from local map that do not exist on the server (only for messages) or are in tombstones
             if (collection === "messages") {
               Array.from(map.keys()).forEach((key) => {
-                if (!(key in serverData2)) {
+                if (!(key in serverData2) || tombstones.has(key)) {
                   map.delete(key);
                 }
               });
             }
 
             Object.entries(serverData2).forEach(([k, v]: [string, any]) => {
-              map.set(k, { ...(v || {}), id: k });
+              if (!tombstones.has(k)) {
+                map.set(k, { ...(v || {}), id: k });
+              }
             });
             this.persistLocalCache(collection);
             this.notifyListeners(collection);
@@ -388,9 +454,11 @@ class UniversalDatabaseManager {
   }
 
   public subscribe(
-    queryObj: QueryObject | string,
+    queryObj: QueryObject | string | { colName: string; id: string },
     callback: ListenerCallback
   ): () => void {
+    const isDoc = !!(queryObj && typeof queryObj === "object" && (queryObj as any).id);
+    const docId = isDoc ? (queryObj as any).id : null;
     const colName = typeof queryObj === "string" ? queryObj : queryObj.colName;
     const queryObject = typeof queryObj === "string" ? { colName } : queryObj;
 
@@ -403,18 +471,46 @@ class UniversalDatabaseManager {
     this.listeners.get(colName)!.add(entry);
 
     // Immediate initial snapshot from cache
-    const cachedItems: any[] = [];
-    this.loadLocalCache(colName).forEach((v) => cachedItems.push(v));
-    const initialDocs = this.applyConstraints(cachedItems, queryObject.constraints);
-    try {
-      callback(this.buildSnapshot(initialDocs));
-    } catch (e) {}
+    if (isDoc && docId) {
+      const map = this.loadLocalCache(colName);
+      const itemData = map.get(docId);
+      const docSnap = {
+        id: docId,
+        exists: () => !!itemData,
+        data: () => (itemData ? { ...itemData } : undefined),
+        empty: !itemData,
+        get: (field: string) => (itemData ? itemData[field] : undefined),
+      };
+      try {
+        callback(docSnap as any);
+      } catch (e) {}
+    } else {
+      const constraints = "constraints" in queryObject ? (queryObject as QueryObject).constraints : [];
+      const cachedItems: any[] = [];
+      this.loadLocalCache(colName).forEach((v) => cachedItems.push(v));
+      const initialDocs = this.applyConstraints(cachedItems, constraints);
+      try {
+        callback(this.buildSnapshot(initialDocs));
+      } catch (e) {}
+    }
 
     // Async background refresh from serverless database
     this.fetchCollection(colName).then((items) => {
       try {
-        const freshDocs = this.applyConstraints(items, queryObject.constraints);
-        callback(this.buildSnapshot(freshDocs));
+        if (isDoc && docId) {
+          const item = items.find((it) => it.id === docId);
+          callback({
+            id: docId,
+            exists: () => !!item,
+            data: () => (item ? { ...item } : undefined),
+            empty: !item,
+            get: (field: string) => (item ? item[field] : undefined),
+          } as any);
+        } else {
+          const constraints = "constraints" in queryObject ? (queryObject as QueryObject).constraints : [];
+          const freshDocs = this.applyConstraints(items, constraints);
+          callback(this.buildSnapshot(freshDocs));
+        }
       } catch (e) {}
     });
 
@@ -808,9 +904,27 @@ export async function getDocs(queryObj: QueryObject | string): Promise<Collectio
   };
 }
 
+export async function getDoc(docRef: { colName: string; id: string }): Promise<{
+  id: string;
+  exists: () => boolean;
+  data: () => any;
+  empty: boolean;
+  get: (field: string) => any;
+}> {
+  const items = await universalDB.fetchCollection(docRef.colName);
+  const found = items.find((item) => item.id === docRef.id);
+  return {
+    id: docRef.id,
+    exists: () => !!found,
+    data: () => (found ? { ...found } : undefined),
+    empty: !found,
+    get: (field: string) => (found ? found[field] : undefined),
+  };
+}
+
 export function onSnapshot(
-  queryObj: QueryObject | string,
-  onNext: (snapshot: CollectionSnapshot) => void,
+  queryObj: any,
+  onNext: (snapshot: any) => void,
   _onError?: (err: any) => void
 ): () => void {
   return universalDB.subscribe(queryObj, onNext);
