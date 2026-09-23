@@ -49,6 +49,7 @@ import { SmartVoiceDetector } from "../utils/audioVAD";
 import { extractDominantColor } from "../utils/colorExtractor";
 import { getCurrentActivity, onActivityChanged, setVoiceState } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
+import { ICE_SERVERS } from "../lib/webrtc-config";
 
 interface VoiceChannelProps {
   profile: ChatProfile;
@@ -66,54 +67,6 @@ interface Participant extends ChatProfile {
   isScreenAudioOn?: boolean;
   channelId?: string;
 }
-
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
-    { urls: "stun:stun3.l.google.com:19302" },
-    { urls: "stun:stun4.l.google.com:19302" },
-    { urls: "stun:stun.cloudflare.com:3478" },
-    { urls: "stun:stun.twilio.com:3478" },
-    {
-      urls: [
-        "turn:openrelay.metered.ca:80",
-        "turn:openrelay.metered.ca:443",
-        "turn:openrelay.metered.ca:443?transport=tcp",
-      ],
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: [
-        "turn:relay.metered.ca:80",
-        "turn:relay.metered.ca:443",
-        "turn:relay.metered.ca:443?transport=tcp",
-      ],
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: [
-        "turn:freestun.net:3478",
-        "turn:freestun.net:3478?transport=tcp",
-      ],
-      username: "free",
-      credential: "free",
-    },
-    {
-      urls: [
-        "turn:numb.viagenie.ca",
-      ],
-      username: "sethabout3653@gmail.com",
-      credential: "password123",
-    }
-  ],
-  iceCandidatePoolSize: 10,
-  bundlePolicy: "max-bundle",
-  rtcpMuxPolicy: "require",
-};
 
 // Ultra Studio Quality Opus audio SDP optimizer:
 // - 510000 bps maximum uncompressed Opus studio bitrate
@@ -2523,8 +2476,8 @@ export default function VoiceChannel({
               <span className="text-[11px] font-bold text-indigo-400 tracking-wide truncate">
                 Voice Connected
               </span>
-              <span className="text-[10px] text-neutral-400 truncate">
-                • General
+              <span className="text-[10px] text-emerald-400 font-semibold truncate flex items-center gap-1">
+                • Port 443 Encrypted
               </span>
             </div>
             {onExpand && (
