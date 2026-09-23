@@ -666,11 +666,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   const params = s.getParameters();
                   if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
                   if (s.track?.kind === "video") {
-                    params.encodings[0].maxBitrate = 5000000;
+                    params.encodings[0].maxBitrate = 1200000;
                     params.encodings[0].priority = "high";
                     params.encodings[0].networkPriority = "high";
                   } else if (s.track?.kind === "audio") {
-                    params.encodings[0].maxBitrate = 510000;
+                    params.encodings[0].maxBitrate = 96000;
                     params.encodings[0].priority = "high";
                   }
                   s.setParameters(params).catch(() => {});
@@ -798,7 +798,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     try {
                       const params = videoSender.getParameters();
                       if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-                      params.encodings[0].maxBitrate = 5000000;
+                      params.encodings[0].maxBitrate = 1200000;
                       params.encodings[0].priority = "high";
                       params.encodings[0].networkPriority = "high";
                       await videoSender.setParameters(params).catch(() => {});
@@ -872,9 +872,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             video:
               type === "video"
                 ? {
-                    width: { ideal: 1920, min: 1280 },
-                    height: { ideal: 1080, min: 720 },
-                    frameRate: { ideal: 60, min: 30 },
+                    width: { ideal: 1280, max: 1280 },
+                    height: { ideal: 720, max: 720 },
+                    frameRate: { ideal: 30, max: 30 },
                   }
                 : false,
           });
@@ -993,9 +993,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           video:
             currentInc.callType === "video"
               ? {
-                  width: { ideal: 1920, min: 1280 },
-                  height: { ideal: 1080, min: 720 },
-                  frameRate: { ideal: 60, min: 30 },
+                  width: { ideal: 1280, max: 1280 },
+                  height: { ideal: 720, max: 720 },
+                  frameRate: { ideal: 30, max: 30 },
                 }
               : false,
         });
@@ -1164,9 +1164,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           videoStream = await navigator.mediaDevices.getUserMedia({
             video: {
-              width: { ideal: 1920, min: 1280 },
-              height: { ideal: 1080, min: 720 },
-              frameRate: { ideal: 60, min: 30 },
+              width: { ideal: 1280, max: 1280 },
+              height: { ideal: 720, max: 720 },
+              frameRate: { ideal: 30, max: 30 },
             },
           });
         } catch {
@@ -1318,9 +1318,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          width: { ideal: 1920, max: 1920 },
-          height: { ideal: 1080, max: 1080 },
-          frameRate: { ideal: 60, max: 60 },
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          frameRate: { ideal: 30, max: 30 },
         },
         audio: {
           suppressLocalAudioPlayback: false,

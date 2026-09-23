@@ -46,7 +46,7 @@ import {
 } from "../supabase-adapter";
 import { ChatProfile, VoiceSignal } from "../types";
 import { SmartVoiceDetector } from "../utils/audioVAD";
-import { extractDominantColor } from "../utils/colorExtractor";
+import { extractDominantColor, getFallbackColor, parseHexToRgb } from "../utils/colorExtractor";
 import { getCurrentActivity, onActivityChanged, setVoiceState } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
 import { ICE_SERVERS } from "../lib/webrtc-config";
@@ -130,32 +130,18 @@ export default function VoiceChannel({
   const localVadRef = useRef<SmartVoiceDetector>(new SmartVoiceDetector());
   const remoteVadMapRef = useRef<{ [uid: string]: SmartVoiceDetector }>({});
 
-  // Dynamic AI Profile Picture Color state
-  const [userColors, setUserColors] = useState<{
-    [uid: string]: { hex: string; rgb: [number, number, number]; glow: string; border: string; ring: string };
-  }>({});
-
-  // Asynchronously extract and cache dominant base colors from profile pictures
-  useEffect(() => {
-    let isCancelled = false;
-    extractDominantColor(profile.photoURL, profile.username).then((col) => {
-      if (!isCancelled) {
-        setUserColors((prev) => ({ ...prev, [profile.uid]: col }));
-      }
-    });
-
-    participants.forEach((p) => {
-      extractDominantColor(p.photoURL, p.username).then((col) => {
-        if (!isCancelled) {
-          setUserColors((prev) => ({ ...prev, [p.uid]: col }));
-        }
-      });
-    });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [profile.photoURL, profile.username, profile.uid, participants]);
+  // Fast synchronous color resolver (zero canvas/CORS CPU overhead)
+function getUserColorSync(photoURL?: string | null, username: string = "User") {
+  const hex = getFallbackColor(username);
+  const rgb = parseHexToRgb(hex);
+  return {
+    hex,
+    rgb,
+    glow: `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.45)`,
+    border: `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.85)`,
+    ring: `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.35)`,
+  };
+}
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const rawStreamRef = useRef<MediaStream | null>(null);
@@ -543,16 +529,16 @@ export default function VoiceChannel({
     let canvas = dummyCanvasRef.current;
     if (!canvas) {
       canvas = document.createElement("canvas");
-      canvas.width = 16;
-      canvas.height = 16;
+      canvas.width = 2;
+      canvas.height = 2;
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.fillStyle = "#0a0a0a";
-        ctx.fillRect(0, 0, 16, 16);
+        ctx.fillRect(0, 0, 2, 2);
       }
       dummyCanvasRef.current = canvas;
     }
-    const canvasStream = canvas.captureStream(5);
+    const canvasStream = canvas.captureStream(0);
     const track = canvasStream.getVideoTracks()[0];
     track.enabled = true;
     dummyTrackRef.current = track;
@@ -566,16 +552,16 @@ export default function VoiceChannel({
     let canvas = dummyScreenCanvasRef.current;
     if (!canvas) {
       canvas = document.createElement("canvas");
-      canvas.width = 16;
-      canvas.height = 16;
+      canvas.width = 2;
+      canvas.height = 2;
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.fillStyle = "#030303";
-        ctx.fillRect(0, 0, 16, 16);
+        ctx.fillRect(0, 0, 2, 2);
       }
       dummyScreenCanvasRef.current = canvas;
     }
-    const canvasStream = canvas.captureStream(5);
+    const canvasStream = canvas.captureStream(0);
     const track = canvasStream.getVideoTracks()[0];
     track.enabled = true;
     dummyScreenTrackRef.current = track;
@@ -1036,7 +1022,7 @@ export default function VoiceChannel({
           if (!params.encodings || params.encodings.length === 0) {
             params.encodings = [{}];
           }
-          params.encodings[0].maxBitrate = 510000;
+          params.encodings[0].maxBitrate = 96000;
           params.encodings[0].priority = "high";
           params.encodings[0].networkPriority = "high";
           audioSender.setParameters(params).catch(() => {});
@@ -1052,6 +1038,16 @@ export default function VoiceChannel({
       const cameraSender = pc.addTrack(cameraTrack, cameraStream);
       cameraSendersRef.current[partnerUid] = cameraSender;
 
+      if (cameraSender && cameraSender.setParameters) {
+        try {
+          const params = cameraSender.getParameters();
+          if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+          params.encodings[0].maxBitrate = 800000;
+          params.encodings[0].priority = "high";
+          cameraSender.setParameters(params).catch(() => {});
+        } catch (e) {}
+      }
+
       // 3. Add screen share track (transceiver 2) with dedicated screen stream
       const realScreenTrack = screenStreamRef.current?.getVideoTracks()[0];
       const screenTrack = realScreenTrack && realScreenTrack.readyState === "live"
@@ -1060,6 +1056,16 @@ export default function VoiceChannel({
       const screenStream = screenStreamRef.current || new MediaStream([screenTrack]);
       const screenSender = pc.addTrack(screenTrack, screenStream);
       screenSendersRef.current[partnerUid] = screenSender;
+
+      if (screenSender && screenSender.setParameters) {
+        try {
+          const params = screenSender.getParameters();
+          if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+          params.encodings[0].maxBitrate = 1200000;
+          params.encodings[0].priority = "high";
+          screenSender.setParameters(params).catch(() => {});
+        } catch (e) {}
+      }
 
       // Ensure transceivers are configured to bidirectional sendrecv
       pc.getTransceivers().forEach((t) => {
@@ -2670,31 +2676,34 @@ export default function VoiceChannel({
           <div className="p-3 bg-[#111214] flex items-center justify-center gap-2.5">
             <div className="flex flex-col items-center gap-1">
               <div className="relative">
-                {profile.photoURL ? (
-                  <img
-                    src={profile.photoURL}
-                    alt={profile.username}
-                    className="w-10 h-10 rounded-full object-cover border-2 transition-all"
-                    style={{
-                      borderColor: isLocalSpeaking && !isMuted ? userColors[profile.uid]?.border || "#5865F2" : "#2b2d31",
-                      boxShadow: isLocalSpeaking && !isMuted ? `0 0 0 2px ${userColors[profile.uid]?.ring || "rgba(88,101,242,0.3)"}, 0 0 8px ${userColors[profile.uid]?.glow || "rgba(88,101,242,0.4)"}` : undefined,
-                      transform: isLocalSpeaking && !isMuted ? "scale(1.06)" : "scale(1)",
-                    }}
-                  />
-                ) : (
-                  <div
-                    className="w-10 h-10 rounded-full border-2 flex items-center justify-center text-xs font-bold text-white transition-all"
-                    style={{
-                      backgroundColor: (userColors[profile.uid]?.hex || "#5865F2") + "22",
-                      borderColor: isLocalSpeaking && !isMuted ? userColors[profile.uid]?.border || "#5865F2" : "#2b2d31",
-                      color: userColors[profile.uid]?.hex || "#5865F2",
-                      boxShadow: isLocalSpeaking && !isMuted ? `0 0 0 2px ${userColors[profile.uid]?.ring || "rgba(88,101,242,0.3)"}, 0 0 8px ${userColors[profile.uid]?.glow || "rgba(88,101,242,0.4)"}` : undefined,
-                      transform: isLocalSpeaking && !isMuted ? "scale(1.06)" : "scale(1)",
-                    }}
-                  >
-                    {(profile?.username || "?").charAt(0).toUpperCase()}
-                  </div>
-                )}
+                {(() => {
+                  const localCol = getUserColorSync(profile.photoURL, profile.username);
+                  return profile.photoURL ? (
+                    <img
+                      src={profile.photoURL}
+                      alt={profile.username}
+                      className="w-10 h-10 rounded-full object-cover border-2 transition-all"
+                      style={{
+                        borderColor: isLocalSpeaking && !isMuted ? localCol.border : "#2b2d31",
+                        boxShadow: isLocalSpeaking && !isMuted ? `0 0 0 2px ${localCol.ring}, 0 0 8px ${localCol.glow}` : undefined,
+                        transform: isLocalSpeaking && !isMuted ? "scale(1.06)" : "scale(1)",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      className="w-10 h-10 rounded-full border-2 flex items-center justify-center text-xs font-bold text-white transition-all"
+                      style={{
+                        backgroundColor: localCol.hex + "22",
+                        borderColor: isLocalSpeaking && !isMuted ? localCol.border : "#2b2d31",
+                        color: localCol.hex,
+                        boxShadow: isLocalSpeaking && !isMuted ? `0 0 0 2px ${localCol.ring}, 0 0 8px ${localCol.glow}` : undefined,
+                        transform: isLocalSpeaking && !isMuted ? "scale(1.06)" : "scale(1)",
+                      }}
+                    >
+                      {(profile?.username || "?").charAt(0).toUpperCase()}
+                    </div>
+                  );
+                })()}
                 {isMuted && (
                   <div className="absolute -bottom-1 -right-1 bg-red-600 p-0.5 rounded-full text-white shadow">
                     <MicOff size={10} />
@@ -2708,7 +2717,7 @@ export default function VoiceChannel({
 
             {activeParticipants.slice(0, 3).map((p, pIdx) => {
               const isRemoteSpeaking = !!remoteSpeaking[p.uid] && !p.isMuted;
-              const pColor = userColors[p.uid] || { hex: "#5865F2", glow: "rgba(88,101,242,0.4)", border: "rgba(88,101,242,0.85)", ring: "rgba(88,101,242,0.3)" };
+              const pColor = getUserColorSync(p.photoURL, p.username);
               return (
                 <div key={`${p.uid || "peer"}-${pIdx}`} className="flex flex-col items-center gap-1">
                   <div className="relative">
@@ -2849,13 +2858,7 @@ export default function VoiceChannel({
       {/* Helper to render participant camera/avatar tiles */}
       {(() => {
         const renderLocalTile = (compact = false) => {
-          const localColor = userColors[profile.uid] || {
-            hex: "#5865F2",
-            rgb: [88, 101, 242] as [number, number, number],
-            glow: "rgba(88, 101, 242, 0.45)",
-            border: "rgba(88, 101, 242, 0.85)",
-            ring: "rgba(88, 101, 242, 0.35)",
-          };
+          const localColor = getUserColorSync(profile.photoURL, profile.username);
 
           return (
             <div
@@ -2872,7 +2875,7 @@ export default function VoiceChannel({
             >
               {/* Audio Status Badge */}
               {(isMuted || isLocalSpeaking) && (
-                <div className="absolute top-2 left-2 bg-[#030617]/90 backdrop-blur-md px-2 py-0.5 rounded-lg border border-indigo-900/60 flex items-center gap-1.5 z-20 animate-in fade-in duration-150">
+                <div className="absolute top-2 left-2 bg-[#030617]/95 px-2 py-0.5 rounded-lg border border-indigo-900/60 flex items-center gap-1.5 z-20 animate-in fade-in duration-150">
                   <div
                     className="w-1.5 h-1.5 rounded-full transition-colors"
                     style={{
@@ -2985,13 +2988,7 @@ export default function VoiceChannel({
 
         const renderRemoteTile = (p: Participant, compact = false, idx = 0) => {
           const isSpeaking = !!remoteSpeaking[p.uid] && !p.isMuted;
-          const pColor = userColors[p.uid] || {
-            hex: "#5865F2",
-            rgb: [88, 101, 242] as [number, number, number],
-            glow: "rgba(88, 101, 242, 0.45)",
-            border: "rgba(88, 101, 242, 0.85)",
-            ring: "rgba(88, 101, 242, 0.35)",
-          };
+          const pColor = getUserColorSync(p.photoURL, p.username);
           const isCameraShowing = !!p.isVideoOn;
 
           return (
@@ -3009,7 +3006,7 @@ export default function VoiceChannel({
             >
               {/* Audio Status Badge */}
               {(p.isMuted || isSpeaking) && (
-                <div className="absolute top-2 left-2 bg-[#030617]/90 backdrop-blur-md px-2 py-0.5 rounded-lg border border-indigo-900/60 flex items-center gap-1.5 z-20 animate-in fade-in duration-150">
+                <div className="absolute top-2 left-2 bg-[#030617]/95 px-2 py-0.5 rounded-lg border border-indigo-900/60 flex items-center gap-1.5 z-20 animate-in fade-in duration-150">
                   <div
                     className="w-1.5 h-1.5 rounded-full transition-colors"
                     style={{
