@@ -442,12 +442,12 @@ export default function ChatPanel({
     // 2. Real-time WebRTC / WebSocket broadcast signal listener for instant 0ms enforcement
     const unsubSignals = subscribeBroadcastSignals(profile.uid, (sig: any) => {
       if (!sig) return;
-      if (sig.type === "moderation_action") {
-        const myUid = profile.uid;
-        const myName = (profile.username || "").toLowerCase();
-        const targetUid = sig.targetUid;
-        const targetName = (sig.targetUsername || "").toLowerCase();
+      const myUid = profile.uid;
+      const myName = (profile.username || "").toLowerCase();
+      const targetUid = sig.targetUid;
+      const targetName = (sig.targetUsername || "").toLowerCase();
 
+      if (sig.type === "moderation_action") {
         if (targetUid === myUid || (targetName && targetName === myName)) {
           setActiveModeration({
             type: sig.action || sig.type,
@@ -458,13 +458,47 @@ export default function ChatPanel({
           });
         }
       } else if (sig.type === "moderation_unban") {
-        const myUid = profile.uid;
-        const myName = (profile.username || "").toLowerCase();
-        const targetUid = sig.targetUid;
-        const targetName = (sig.targetUsername || "").toLowerCase();
-
         if (targetUid === myUid || (targetName && targetName === myName)) {
           setActiveModeration(null);
+        }
+      } else if (sig.type === "warning") {
+        if (targetUid === myUid || (targetName && targetName === myName) || targetUid === "all") {
+          showModerationAlert("⚠️ Moderator Warning", `Warning from @${sig.moderator || "Moderator"}: ${sig.reason || "Please follow community guidelines"}`);
+        }
+      } else if (sig.type === "mute") {
+        if (targetUid === myUid || (targetName && targetName === myName)) {
+          showModerationAlert("🔇 Account Muted", `You have been muted by @${sig.moderator || "Moderator"}. Reason: ${sig.reason || "Violated guidelines"}`);
+        }
+      } else if (sig.type === "unmute") {
+        if (targetUid === myUid || (targetName && targetName === myName)) {
+          showModerationAlert("🔊 Unmuted", `You have been unmuted by @${sig.moderator || "Moderator"}.`);
+        }
+      } else if (sig.type === "purge_chat" || sig.type === "clear_chat") {
+        const count = sig.count || 50;
+        setMessages((prev) => {
+          const updated = prev.slice(0, Math.max(0, prev.length - count));
+          saveCachedMessages(updated);
+          return updated;
+        });
+      } else if (sig.type === "chat_lock_changed") {
+        setIsChatLocked(Boolean(sig.isLocked));
+      } else if (sig.type === "slowmode_changed") {
+        setSlowmodeCooldown(Number(sig.seconds || 0));
+      } else if (sig.type === "mod_announcement") {
+        showModerationAlert(`📣 Announcement from @${sig.moderator || "Moderator"}`, sig.text || sig.reason);
+      }
+    });
+
+    // 3. Real-time global chat settings listener (Chat Lock & Slowmode over WebSockets/DB)
+    const unsubChatSettings = onSnapshot(doc(db, "chat_settings", "global"), (snap: any) => {
+      const exists = typeof snap?.exists === "function" ? snap.exists() : !!snap?.exists;
+      if (exists) {
+        const data = typeof snap.data === "function" ? snap.data() : (snap.data || snap);
+        if (typeof data?.isLocked === "boolean") {
+          setIsChatLocked(data.isLocked);
+        }
+        if (typeof data?.slowmode === "number") {
+          setSlowmodeCooldown(data.slowmode);
         }
       }
     });
@@ -472,6 +506,7 @@ export default function ChatPanel({
     return () => {
       unsubUid();
       unsubSignals();
+      unsubChatSettings();
     };
   }, [profile?.uid, profile?.username]);
 
@@ -3674,18 +3709,43 @@ export default function ChatPanel({
           const toDelete = messages.slice(-count);
           for (const m of toDelete) {
             await deleteDoc(doc(db, "messages", m.id)).catch(() => {});
+            wsClient.sendChange("delete", "messages", m.id);
           }
-          setMessages((prev) => prev.slice(0, Math.max(0, prev.length - count)));
+          setMessages((prev) => {
+            const updated = prev.slice(0, Math.max(0, prev.length - count));
+            saveCachedMessages(updated);
+            return updated;
+          });
+          sendBroadcastSignal({
+            type: "purge_chat",
+            count,
+            moderator: profile.username,
+            timestamp: Date.now(),
+          });
         }}
         onToggleChatLock={async (locked) => {
           setIsChatLocked(locked);
           await setDoc(doc(db, "chat_settings", "global"), { isLocked: locked, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+          wsClient.sendChange("set", "chat_settings", "global", { isLocked: locked, updatedAt: Date.now() });
+          sendBroadcastSignal({
+            type: "chat_lock_changed",
+            isLocked: locked,
+            moderator: profile.username,
+            timestamp: Date.now(),
+          });
         }}
         isChatLocked={isChatLocked}
         slowmodeCooldown={slowmodeCooldown}
         onSetSlowmode={async (sec) => {
           setSlowmodeCooldown(sec);
           await setDoc(doc(db, "chat_settings", "global"), { slowmode: sec, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+          wsClient.sendChange("set", "chat_settings", "global", { slowmode: sec, updatedAt: Date.now() });
+          sendBroadcastSignal({
+            type: "slowmode_changed",
+            seconds: sec,
+            moderator: profile.username,
+            timestamp: Date.now(),
+          });
         }}
       />
     </div>

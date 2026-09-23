@@ -60,6 +60,7 @@ export default function ModeratorPanelModal({
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [blacklistedWords, setBlacklistedWords] = useState<string[]>([]);
   const [newBlacklistWord, setNewBlacklistWord] = useState("");
+  const [announcementText, setAnnouncementText] = useState("");
 
   // Target action modal state
   const [selectedUser, setSelectedUser] = useState<MemberUser | null>(null);
@@ -144,6 +145,7 @@ export default function ModeratorPanelModal({
 
         const warnId = "warn_" + now + "_" + Math.random().toString(36).substring(2, 6);
         await setDoc(doc(db, "user_warnings", warnId), warnPayload);
+        wsClient.sendChange("set", "user_warnings", warnId, warnPayload);
 
         // Real-time broadcast signal
         sendBroadcastSignal(warnPayload);
@@ -166,6 +168,7 @@ export default function ModeratorPanelModal({
         };
 
         await setDoc(doc(db, "user_mutes", targetUid), mutePayload);
+        wsClient.sendChange("set", "user_mutes", targetUid, mutePayload);
 
         sendBroadcastSignal(mutePayload);
         try {
@@ -185,8 +188,10 @@ export default function ModeratorPanelModal({
         };
 
         await setDoc(doc(db, "moderation_actions", targetUid), { type: "kick", ...kickPayload });
+        wsClient.sendChange("set", "moderation_actions", targetUid, { type: "kick", ...kickPayload });
         if (targetUsername) {
           await setDoc(doc(db, "moderation_banned_names", targetUsername.trim().toLowerCase()), { type: "kick", ...kickPayload });
+          wsClient.sendChange("set", "moderation_banned_names", targetUsername.trim().toLowerCase(), { type: "kick", ...kickPayload });
         }
 
         const signalPayload = { type: "moderation_action", action: "kick", ...kickPayload };
@@ -209,9 +214,12 @@ export default function ModeratorPanelModal({
         };
 
         await setDoc(doc(db, "banned_users", targetUid), { type: "ban", ...banPayload });
+        wsClient.sendChange("set", "banned_users", targetUid, { type: "ban", ...banPayload });
         await setDoc(doc(db, "moderation_actions", targetUid), { type: "ban", ...banPayload });
+        wsClient.sendChange("set", "moderation_actions", targetUid, { type: "ban", ...banPayload });
         if (targetUsername) {
           await setDoc(doc(db, "moderation_banned_names", targetUsername.trim().toLowerCase()), { type: "ban", ...banPayload });
+          wsClient.sendChange("set", "moderation_banned_names", targetUsername.trim().toLowerCase(), { type: "ban", ...banPayload });
         }
 
         const signalPayload = { type: "moderation_action", action: "ban", ...banPayload };
@@ -244,11 +252,13 @@ export default function ModeratorPanelModal({
 
     try {
       const wordId = word.replace(/[^a-z0-9]/g, "_");
-      await setDoc(doc(db, "mod_blacklist_words", wordId), {
+      const wordPayload = {
         word,
         addedBy: profile.username,
         timestamp: Date.now(),
-      });
+      };
+      await setDoc(doc(db, "mod_blacklist_words", wordId), wordPayload);
+      wsClient.sendChange("set", "mod_blacklist_words", wordId, wordPayload);
       await recordAuditLog("Added Blacklisted Word", word, `Word: "${word}"`);
       setNewBlacklistWord("");
       showToast(`Added "${word}" to auto-mod blacklist`);
@@ -261,6 +271,7 @@ export default function ModeratorPanelModal({
     try {
       const wordId = word.replace(/[^a-z0-9]/g, "_");
       await deleteDoc(doc(db, "mod_blacklist_words", wordId));
+      wsClient.sendChange("delete", "mod_blacklist_words", wordId);
       await recordAuditLog("Removed Blacklisted Word", word, `Word: "${word}"`);
       showToast(`Removed "${word}" from blacklist`);
     } catch (err) {
@@ -657,6 +668,57 @@ export default function ModeratorPanelModal({
                   >
                     {isChatLocked ? "Unlock Chat" : "Lock Chat"}
                   </button>
+                </div>
+
+                {/* Broadcast System Announcement */}
+                <div className="p-4 rounded-xl bg-[#080b1a] border border-white/10 space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={16} className="text-indigo-400" />
+                    <div>
+                      <h4 className="text-xs font-bold text-white">Broadcast System Announcement</h4>
+                      <p className="text-[11px] text-neutral-400">Sends an instant real-time banner alert to all connected members over WebSockets</p>
+                    </div>
+                  </div>
+
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const text = announcementText.trim();
+                      if (!text) return;
+
+                      const annPayload = {
+                        type: "mod_announcement",
+                        text,
+                        moderator: profile.username,
+                        timestamp: Date.now(),
+                      };
+
+                      sendBroadcastSignal(annPayload);
+                      try {
+                        wsClient.sendSignal(annPayload);
+                      } catch (err) {}
+
+                      await recordAuditLog("Broadcast Announcement", "Community", text);
+                      setAnnouncementText("");
+                      showToast("Broadcast announcement sent to all members over WebSockets!");
+                    }}
+                    className="flex gap-2 pt-1"
+                  >
+                    <input
+                      type="text"
+                      value={announcementText}
+                      onChange={(e) => setAnnouncementText(e.target.value)}
+                      placeholder="Type announcement message to broadcast live..."
+                      className="flex-1 bg-[#0f132a] border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!announcementText.trim()}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold text-xs transition-all cursor-pointer shadow-md active:scale-95 flex-shrink-0"
+                    >
+                      Broadcast
+                    </button>
+                  </form>
                 </div>
               </div>
             )}
