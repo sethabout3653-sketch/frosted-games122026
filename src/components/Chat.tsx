@@ -371,6 +371,10 @@ export default function Chat({
       username: p.username,
       photoURL: p.photoURL,
     };
+    try {
+      localStorage.setItem("frosted_has_signed_in", "true");
+      sessionStorage.setItem("frosted_has_signed_in", "true");
+    } catch (e) {}
     setProfile(newProfile);
     saveUserProfile(newProfile);
     setActiveTab("chat");
@@ -401,6 +405,8 @@ export default function Chat({
     try {
       localStorage.removeItem("frosted_chat_profile");
       sessionStorage.removeItem("frosted_chat_profile");
+      localStorage.removeItem("frosted_has_signed_in");
+      sessionStorage.removeItem("frosted_has_signed_in");
     } catch (e) {}
     setProfile(null);
     setActiveTab("profile");
