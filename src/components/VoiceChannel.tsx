@@ -322,7 +322,7 @@ export default function VoiceChannel({
       const uNameClean = uName.toLowerCase();
 
       // Filter out invalid/anonymous users
-      if (!uName || uNameClean === "anonymous" || uNameClean === "guest") {
+      if (!uName || uNameClean === "anonymous") {
         return;
       }
 
@@ -1476,7 +1476,7 @@ export default function VoiceChannel({
 
         // Register self as active participant (strictly reject anonymous/empty username)
         const myCleanUsername = (profile.username || "").trim();
-        if (!myCleanUsername || myCleanUsername.toLowerCase() === "anonymous" || myCleanUsername.toLowerCase() === "guest") {
+        if (!myCleanUsername || myCleanUsername.toLowerCase() === "anonymous") {
           console.warn("Cannot join voice channel with anonymous username.");
           stopAllMediaTracks();
           return;
@@ -1541,7 +1541,7 @@ export default function VoiceChannel({
             const u = d.data() as Participant;
             const uName = (u?.username || "").trim();
             const uNameClean = uName.toLowerCase();
-            if (!u?.uid || !uName || uNameClean === "anonymous" || uNameClean === "guest") {
+            if (!u?.uid || !uName || uNameClean === "anonymous") {
               return;
             }
             let ts = toTimestampMs(u.timestamp || (u as any).lastSeen);
@@ -1560,7 +1560,7 @@ export default function VoiceChannel({
             const pData = d.data();
             const uName = (pData?.username || "").trim();
             const uNameClean = uName.toLowerCase();
-            if (!pData?.uid || !uName || uNameClean === "anonymous" || uNameClean === "guest") {
+            if (!pData?.uid || !uName || uNameClean === "anonymous") {
               return;
             }
             if (pData.inVoice) {

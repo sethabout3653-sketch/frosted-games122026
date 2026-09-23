@@ -2,11 +2,11 @@ import { db, collection, getDocs, deleteDoc, doc } from "../supabase-adapter";
 
 export const ALLOWED_USERNAMES = new Set(["giggity", "sethplayz12", "logicgatesobviously"]);
 
-export function isAllowedUsername(username?: string, uid?: string, currentUid?: string): boolean {
-  if (uid && currentUid && uid === currentUid) return true;
+export function isAllowedUsername(username?: string, _uid?: string, _currentUid?: string): boolean {
   if (!username) return false;
   const clean = username.trim().toLowerCase();
-  return ALLOWED_USERNAMES.has(clean);
+  if (!clean || clean === "anonymous") return false;
+  return true;
 }
 
 export function isGuestUser(username?: string): boolean {
@@ -26,35 +26,30 @@ export function isGuestUser(username?: string): boolean {
     }
   } catch (e) {}
 
-  // If match one of the allowed usernames, they are allowed
   if (ALLOWED_USERNAMES.has(clean)) {
     return false;
   }
 
-  // Also, check if it matches the default auto-generated format like Adjective_Noun_123
   const parts = clean.split("_");
   if (parts.length === 3 && !isNaN(Number(parts[2]))) {
     return true;
   }
 
-  return false;
+  return true;
 }
 
 /**
- * Purges all users from database collections except "giggity", "SethPlayz12", and "logicgatesobviously"
+ * Clean up expired stale temporary presence or voice docs older than 2 hours (without purging active guests)
  */
 export async function purgeNonAllowedUsers(): Promise<number> {
   let totalDeleted = 0;
   const targetCollections = [
     "presence",
     "voice_users",
-    "user_profiles",
-    "banned_users",
-    "moderation_actions",
-    "moderation_banned_names",
-    "user_mutes",
-    "user_warnings",
   ];
+
+  const now = Date.now();
+  const cutoff = now - 2 * 60 * 60 * 1000; // 2 hours stale
 
   for (const colName of targetCollections) {
     try {
@@ -66,10 +61,10 @@ export async function purgeNonAllowedUsers(): Promise<number> {
       snap.forEach((docSnap: any) => {
         const data = typeof docSnap.data === "function" ? docSnap.data() : (docSnap.data || docSnap);
         const docId = docSnap.id || "";
-        const username = (data?.username || data?.targetUsername || data?.bannedBy || docId || "").toString().trim().toLowerCase();
+        const lastSeen = Number(data?.lastSeen || data?.timestamp || 0);
 
-        // If not in allowed set, delete permanently
-        if (username && !ALLOWED_USERNAMES.has(username) && !ALLOWED_USERNAMES.has(docId.toLowerCase())) {
+        // Only delete genuinely abandoned/stale docs older than 2 hours
+        if (lastSeen > 0 && lastSeen < cutoff) {
           deletePromises.push(
             deleteDoc(doc(db, colName, docId)).then(() => {
               totalDeleted++;
@@ -80,7 +75,7 @@ export async function purgeNonAllowedUsers(): Promise<number> {
 
       await Promise.all(deletePromises);
     } catch (e) {
-      console.warn(`Purge error on collection ${colName}:`, e);
+      console.warn(`Clean-up note on collection ${colName}:`, e);
     }
   }
 

@@ -236,7 +236,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data = d.data();
         const uname = (data.username || "").trim();
         const unameClean = uname.toLowerCase();
-        if (!uname || unameClean === "anonymous" || unameClean === "guest" || !isAllowedUsername(uname, data.uid, myUid)) return;
+        if (!uname || unameClean === "anonymous" || !isAllowedUsername(uname, data.uid, myUid)) return;
         if (data.uid === myUid || unameClean === myName) return;
 
         const ts = toTimestampMs(data.lastSeen || data.timestamp);
