@@ -25,8 +25,6 @@ import {
   getSavedRingtone,
   setSavedRingtone,
   previewRingtone,
-  saveUploadedRingtone,
-  deleteUploadedRingtone,
   RingtoneDefinition,
 } from "../lib/ringtone-synthesizer";
 import {
@@ -67,8 +65,6 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
   const [ringtones, setRingtones] = useState<RingtoneDefinition[]>(() => getAllRingtones());
   const [currentRingtone, setCurrentRingtone] = useState<string>(() => getSavedRingtone());
   const [previewingRingtone, setPreviewingRingtone] = useState<string | null>(null);
-  const [isUploadingRingtone, setIsUploadingRingtone] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const previewStopRef = useRef<(() => void) | null>(null);
   const previewTimeoutRef = useRef<any>(null);
 
@@ -152,49 +148,6 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
       });
       previewStopRef.current = stop;
     }
-  };
-
-  const handleUploadRingtone = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploadingRingtone(true);
-    setUploadError(null);
-
-    try {
-      const newRt = await saveUploadedRingtone(file);
-      setRingtones(getAllRingtones());
-      setCurrentRingtone(newRt.id);
-      setSavedRingtone(newRt.id);
-      // Stop preview when uploading
-      if (previewStopRef.current) {
-        previewStopRef.current();
-        previewStopRef.current = null;
-      }
-      if (previewTimeoutRef.current) {
-        clearTimeout(previewTimeoutRef.current);
-        previewTimeoutRef.current = null;
-      }
-      setPreviewingRingtone(null);
-    } catch (err: any) {
-      console.error("Upload ringtone error:", err);
-      setUploadError(err.message || "Failed to upload audio file");
-    } finally {
-      setIsUploadingRingtone(false);
-      e.target.value = "";
-    }
-  };
-
-  const handleDeleteRingtone = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (previewingRingtone === id && previewStopRef.current) {
-      previewStopRef.current();
-      previewStopRef.current = null;
-      setPreviewingRingtone(null);
-    }
-    await deleteUploadedRingtone(id);
-    setRingtones(getAllRingtones());
-    setCurrentRingtone(getSavedRingtone());
   };
 
   // Handle ESC key to close
@@ -387,40 +340,8 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
                 </div>
 
                 <p className="text-xs text-neutral-300 leading-relaxed">
-                  Choose your ringtone for incoming calls, or upload your own MP3 audio file.
+                  Choose your preferred built-in ringtone for incoming audio/video calls. The default is a custom piano melody synthesized live on a piano!
                 </p>
-
-                {/* Upload Button & Error Display */}
-                <div className="space-y-2">
-                  <label
-                    style={{
-                      borderColor: "var(--theme-border)",
-                      backgroundColor: "var(--theme-darkest)",
-                    }}
-                    className="flex items-center justify-center gap-2.5 p-3 rounded-xl border border-dashed hover:border-[var(--theme-border-strong)] transition-all cursor-pointer group text-center"
-                  >
-                    <Upload size={14} className="text-[var(--theme-text-accent)] group-hover:scale-110 transition-transform" />
-                    <span className="text-xs font-semibold text-white">
-                      {isUploadingRingtone ? "Saving Custom MP3..." : "Upload MP3 Ringtone"}
-                    </span>
-                    <span className="text-[10px] text-neutral-400">
-                      (Saved to your device)
-                    </span>
-                    <input
-                      type="file"
-                      accept="audio/*,.mp3,.wav,.ogg,.m4a"
-                      onChange={handleUploadRingtone}
-                      disabled={isUploadingRingtone}
-                      className="hidden"
-                    />
-                  </label>
-
-                  {uploadError && (
-                    <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-xl">
-                      {uploadError}
-                    </p>
-                  )}
-                </div>
 
                 {/* Ringtone List */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
@@ -457,18 +378,6 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
-                          {/* Delete custom ringtone button */}
-                          {rt.isCustom && (
-                            <button
-                              type="button"
-                              onClick={(e) => handleDeleteRingtone(rt.id, e)}
-                              className="p-1.5 rounded-lg border border-white/5 bg-white/5 text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/30 transition-all cursor-pointer"
-                              title="Delete this uploaded ringtone"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          )}
-
                           {/* Preview Play/Stop button */}
                           <button
                             type="button"

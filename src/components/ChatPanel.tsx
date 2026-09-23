@@ -30,6 +30,7 @@ import ActivityBadge from "./ActivityBadge";
 import ModeratorPanelModal from "./ModeratorPanelModal";
 import { checkTextModeration } from "../utils/moderation";
 import { useCall } from "../context/CallContext";
+import { playChatSound } from "../lib/ringtone-synthesizer";
 import {
   Send,
   Image as ImageIcon,
@@ -317,6 +318,7 @@ export default function ChatPanel({
     reason?: string, 
     mediaType?: string
   ) => {
+    playChatSound("warning");
     setModerationWarning({
       open: true,
       title: title || "Hold on a second",
@@ -1163,6 +1165,9 @@ export default function ChatPanel({
           if (latestTimestamp > lastKnownLatestMsgTimestampRef.current) {
             lastKnownLatestMsgTimestampRef.current = latestTimestamp;
           }
+          if (isNewIncomingMessage && latestMessage.uid !== profile.uid) {
+            playChatSound("receive");
+          }
         }
 
         // 4. CRITICAL: When scrolling or reading through older messages,
@@ -1191,6 +1196,7 @@ export default function ChatPanel({
       if (change.op === "delete") {
         deletedMessageIdsRef.current.add(change.id);
         saveDeletedMessageId(change.id);
+        playChatSound("delete");
         setMessages((prev) => {
           const updated = prev.filter((m) => m.id !== change.id);
           saveCachedMessages(updated);
@@ -1314,6 +1320,7 @@ export default function ChatPanel({
     }
 
     try {
+      playChatSound("delete");
       await deleteDoc(doc(db, "messages", msgId));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `messages/${msgId}`);
@@ -1325,6 +1332,8 @@ export default function ChatPanel({
     if (!cleanKey) return;
     const msg = messages.find((m) => m.id === msgId);
     if (!msg) return;
+
+    playChatSound("reaction");
 
     const currentReactions = msg.reactions || {};
     const users = currentReactions[cleanKey] || [];
@@ -1506,6 +1515,7 @@ export default function ChatPanel({
     setMessages((prev) =>
       [...prev.filter((m) => m.id !== msgId), optimisticMsg].sort(compareMessagesChronological)
     );
+    playChatSound("send");
     setText("");
     if (isLocalTyping) {
       updateTypingStatus(false);

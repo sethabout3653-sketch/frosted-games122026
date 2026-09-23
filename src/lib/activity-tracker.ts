@@ -94,6 +94,11 @@ let currentGlobalActivity: UserActivity = {
   timestamp: Date.now(),
 };
 
+let lastPlayingTimestamp = 0;
+let activeCurrentView: "home" | "game" | "chat" | "youtube" = "home";
+let cachedSelectedGame: { name: string; cover?: string } | null = null;
+let cachedVideoTitle: string | null = null;
+
 // Global in-memory voice state
 let currentVoiceState = {
   inVoice: false,
@@ -133,6 +138,16 @@ export function onVoiceStateChanged(cb: (vs: typeof currentVoiceState) => void):
 export function updateGlobalActivity(activity: Partial<UserActivity>) {
   const now = Date.now();
   const prev = currentGlobalActivity;
+
+  // Anti-flicker Hysteresis: Protect active 'playing' state from micro-glitches
+  if (activity.type === "playing") {
+    lastPlayingTimestamp = now;
+  } else if (prev.type === "playing" && (now - lastPlayingTimestamp < 2500 || activeCurrentView === "game" || activeCurrentView === "youtube")) {
+    // Hold the playing state to prevent millisecond glitching back to scrolling/chatting
+    if (activity.type === "scrolling" || activity.type === "searching") {
+      return;
+    }
+  }
 
   let computedText = activity.text;
   if (!computedText) {
@@ -264,23 +279,31 @@ export function useActivityTracker({
 
   // Sync state changes to global activity
   useEffect(() => {
+    activeCurrentView = currentView;
+    if (selectedGame) cachedSelectedGame = selectedGame;
+    if (activeVideoTitle) cachedVideoTitle = activeVideoTitle;
+
     if (currentView === "youtube") {
+      const musicTitle = activeVideoTitle || cachedVideoTitle;
       updateGlobalActivity({
         type: "playing",
-        gameName: activeVideoTitle ? `Frosted Music: ${activeVideoTitle}` : "Frosted Music",
-        text: activeVideoTitle ? `Listening to: ${activeVideoTitle}` : "Listening to Frosted Music",
+        gameName: musicTitle ? `Frosted Music: ${musicTitle}` : "Frosted Music",
+        text: musicTitle ? `Listening to: ${musicTitle}` : "Listening to Frosted Music",
       });
       return;
     }
 
-    if (currentView === "game" && selectedGame) {
-      updateGlobalActivity({
-        type: "playing",
-        gameName: selectedGame.name,
-        gameCover: selectedGame.cover,
-        text: `Playing ${selectedGame.name}`,
-      });
-      return;
+    if (currentView === "game") {
+      const gameToUse = selectedGame || cachedSelectedGame;
+      if (gameToUse) {
+        updateGlobalActivity({
+          type: "playing",
+          gameName: gameToUse.name,
+          gameCover: gameToUse.cover,
+          text: `Playing ${gameToUse.name}`,
+        });
+        return;
+      }
     }
 
     if (currentView === "chat") {
