@@ -873,6 +873,10 @@ export async function getDocs(queryObj: QueryObject | string): Promise<Collectio
           if (c.op === "<") return val < c.value;
           if (c.op === ">=") return val >= c.value;
           if (c.op === "<=") return val <= c.value;
+          if (c.op === "in") return Array.isArray(c.value) ? c.value.includes(val) : false;
+          if (c.op === "not-in") return Array.isArray(c.value) ? !c.value.includes(val) : true;
+          if (c.op === "array-contains") return Array.isArray(val) ? val.includes(c.value) : false;
+          if (c.op === "array-contains-any") return Array.isArray(val) && Array.isArray(c.value) ? c.value.some((v) => val.includes(v)) : false;
           return true;
         });
       } else if (c.type === "orderBy" && c.field) {

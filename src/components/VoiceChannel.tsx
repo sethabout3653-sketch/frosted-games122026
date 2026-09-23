@@ -68,13 +68,14 @@ interface Participant extends ChatProfile {
   channelId?: string;
 }
 
-// Ultra Studio Quality Opus audio SDP optimizer:
-// - 510000 bps maximum uncompressed Opus studio bitrate
+// Optimized Opus audio SDP for crystal clear voice and low CPU / network footprint:
+// - 96000 bps maximum studio-quality voice bitrate
 // - Full stereo channel audio with studio soundstage
 // - maxplaybackrate=48000 for full 48kHz frequency response
-// - minptime=10 for ultra-low latency
+// - minptime=20 (standard WebRTC packetization to eliminate buffer underruns on Chromebooks)
 // - useinbandfec=1 for forward error correction
-// - usedtx=0 and cbr=1 to guarantee pristine continuous vocal fidelity
+// - usedtx=1 (DTX: discontinuous transmission when silent to save CPU/bandwidth)
+// - cbr=0 (variable bitrate adaptation)
 function optimizeAudioSdp(sdp: string): string {
   const lines = sdp.split("\r\n");
   let opusPayloadType: string | null = null;
@@ -93,7 +94,7 @@ function optimizeAudioSdp(sdp: string): string {
         (line.startsWith("a=fmtp:") && line.toLowerCase().includes("opus"))
       ) {
         const base = line.split(";")[0];
-        return `${base};maxaveragebitrate=510000;stereo=1;sprop-stereo=1;maxplaybackrate=48000;minptime=10;useinbandfec=1;usedtx=0;cbr=1`;
+        return `${base};maxaveragebitrate=96000;stereo=1;sprop-stereo=1;maxplaybackrate=48000;minptime=20;useinbandfec=1;usedtx=1;cbr=0`;
       }
       return line;
     })
@@ -471,37 +472,48 @@ export default function VoiceChannel({
         source.connect(micGain);
         micGain.connect(mixedDest);
 
-        // Monitor real-time volume levels & speech/sound activity for local user and remote participants
+        // Monitor volume levels & speech activity with throttled state updates (10 FPS max) to prevent UI frame lag on low-end CPUs
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        let lastVadFrameTime = 0;
+        let prevLocalSpeaking = false;
+
         const updateLevel = () => {
           if (!isMountedRef.current) return;
 
-          // Local microphone: sound & voice detection
+          const now = performance.now();
+          const shouldUpdateUi = now - lastVadFrameTime >= 90; // ~10 FPS update rate
+
           analyser.getByteFrequencyData(dataArray);
           const vadRes = localVadRef.current.analyze(dataArray, ctx.sampleRate);
-          setAudioLevel(vadRes.energy);
+          const isCurrentlySpeaking = vadRes.isSpeaking && !isMutedRef.current;
 
-          if (vadRes.isSpeaking && !isMutedRef.current) {
-            setIsLocalSpeaking(true);
-          } else {
-            setIsLocalSpeaking(false);
+          if (shouldUpdateUi) {
+            lastVadFrameTime = now;
+            setAudioLevel(Math.round(vadRes.energy * 20) / 20); // Quantize level steps
+          }
+
+          if (isCurrentlySpeaking !== prevLocalSpeaking) {
+            prevLocalSpeaking = isCurrentlySpeaking;
+            setIsLocalSpeaking(isCurrentlySpeaking);
           }
 
           // Evaluate speech for remote participants using SmartVoiceDetector
-          const remoteMap: { [uid: string]: { analyser: AnalyserNode; source: MediaStreamAudioSourceNode } } = remoteAnalysersRef.current;
-          for (const [pUid, rData] of Object.entries(remoteMap)) {
-            if (rData && rData.analyser) {
-              if (!remoteVadMapRef.current[pUid]) {
-                remoteVadMapRef.current[pUid] = new SmartVoiceDetector();
-              }
-              const rArray = new Uint8Array(rData.analyser.frequencyBinCount);
-              rData.analyser.getByteFrequencyData(rArray);
-              const rVad = remoteVadMapRef.current[pUid].analyze(rArray, ctx.sampleRate);
+          if (shouldUpdateUi) {
+            const remoteMap: { [uid: string]: { analyser: AnalyserNode; source: MediaStreamAudioSourceNode } } = remoteAnalysersRef.current;
+            for (const [pUid, rData] of Object.entries(remoteMap)) {
+              if (rData && rData.analyser) {
+                if (!remoteVadMapRef.current[pUid]) {
+                  remoteVadMapRef.current[pUid] = new SmartVoiceDetector();
+                }
+                const rArray = new Uint8Array(rData.analyser.frequencyBinCount);
+                rData.analyser.getByteFrequencyData(rArray);
+                const rVad = remoteVadMapRef.current[pUid].analyze(rArray, ctx.sampleRate);
 
-              if (rVad.isSpeaking) {
-                setRemoteSpeaking((prev) => (prev[pUid] ? prev : { ...prev, [pUid]: true }));
-              } else {
-                setRemoteSpeaking((prev) => (prev[pUid] ? { ...prev, [pUid]: false } : prev));
+                if (rVad.isSpeaking) {
+                  setRemoteSpeaking((prev) => (prev[pUid] ? prev : { ...prev, [pUid]: true }));
+                } else {
+                  setRemoteSpeaking((prev) => (prev[pUid] ? { ...prev, [pUid]: false } : prev));
+                }
               }
             }
           }
@@ -1219,7 +1231,7 @@ export default function VoiceChannel({
             try {
               await pc.setLocalDescription({ type: "rollback" });
             } catch (e) {
-              // Rollback may not be supported or necessary; continue with current PC
+              pc = createPeerConnection(partnerUid, micStream);
             }
           }
 
@@ -1911,24 +1923,24 @@ export default function VoiceChannel({
           lastSeen: Date.now(),
         }).catch(() => {});
 
-        // 1. Request camera stream from user's hardware with 1080p 60fps high fidelity
+        // 1. Request camera stream from user's hardware (optimized HD 720p 30fps for smooth performance on all hardware)
         let videoStream: MediaStream;
         try {
           videoStream = await navigator.mediaDevices.getUserMedia({
             video: {
-              width: { ideal: 1920, min: 1280 },
-              height: { ideal: 1080, min: 720 },
-              frameRate: { ideal: 60, min: 30 },
+              width: { ideal: 1280, max: 1280 },
+              height: { ideal: 720, max: 720 },
+              frameRate: { ideal: 30, max: 30 },
             },
             audio: false,
           });
         } catch {
-          // Hardware fallback if 1080p 60fps is not supported by device webcam
+          // Hardware fallback for low-power webcams
           videoStream = await navigator.mediaDevices.getUserMedia({
             video: {
-              width: { ideal: 1280, min: 640 },
-              height: { ideal: 720, min: 480 },
-              frameRate: { ideal: 30 },
+              width: { ideal: 640, max: 854 },
+              height: { ideal: 360, max: 480 },
+              frameRate: { ideal: 24, max: 30 },
             },
             audio: false,
           });

@@ -147,97 +147,88 @@ export default function ActiveCallModal() {
 
   if (!activeCall) return null;
 
-  // MINIMIZED FLOATING PILL
-  if (isMinimized) {
-    return (
-      <motion.div
-        id="active-call-minimized-widget"
-        initial={{ opacity: 0, y: 50, scale: 0.9 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 50, scale: 0.9 }}
-        className="fixed bottom-6 right-6 z-[9998] flex items-center gap-3 px-4 py-2.5 rounded-2xl border border-white/15 bg-neutral-900/95 text-white shadow-2xl backdrop-blur-xl"
-        style={{
-          boxShadow: "0 20px 40px -15px rgba(0, 0, 0, 0.7), 0 0 20px rgba(16, 185, 129, 0.2)",
-        }}
-      >
-        <audio
-          ref={remoteAudioRef}
-          autoPlay
-          playsInline
-        />
-
-        <div className="flex items-center gap-2.5">
-          <div className="relative w-8 h-8 rounded-full overflow-hidden border border-emerald-400 shrink-0">
-            <img
-              src={
-                activeCall.partnerPhotoURL ||
-                `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(activeCall.partnerName)}`
-              }
-              alt={activeCall.partnerName}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-            <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-white tracking-tight truncate max-w-[100px]">
-              {activeCall.partnerName}
-            </p>
-            <p className="text-[10px] text-neutral-400 font-mono">{callDuration}</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 ml-2 border-l border-white/10 pl-2">
-          <button
-            type="button"
-            onClick={toggleMute}
-            className={`p-1.5 rounded-lg text-xs transition-colors ${
-              activeCall.isMuted
-                ? "bg-rose-500/20 text-rose-300"
-                : "bg-neutral-800 hover:bg-neutral-700 text-neutral-300"
-            }`}
-            title={activeCall.isMuted ? "Unmute" : "Mute"}
-          >
-            {activeCall.isMuted ? <MicOff size={13} /> : <Mic size={13} />}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsMinimized(false)}
-            className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition-colors"
-            title="Expand Call"
-          >
-            <ShieldCheck size={13} />
-          </button>
-
-          <button
-            type="button"
-            onClick={endActiveCall}
-            className="p-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white transition-colors"
-            title="End Call"
-          >
-            <PhoneOff size={13} />
-          </button>
-        </div>
-      </motion.div>
-    );
-  }
-
-  // FULL ACTIVE CALL MODAL
   return (
-    <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md">
-      {/* Single dedicated audio player for remote call stream */}
+    <>
+      {/* Persistent Audio Player - never unmounted when minimizing/expanding */}
       <audio
         ref={remoteAudioRef}
         autoPlay
         playsInline
+        className="hidden"
       />
 
-      <motion.div
-        id="active-call-dialog"
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
+      {isMinimized ? (
+        <motion.div
+          id="active-call-minimized-widget"
+          initial={{ opacity: 0, y: 50, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 50, scale: 0.9 }}
+          className="fixed bottom-6 right-6 z-[9998] flex items-center gap-3 px-4 py-2.5 rounded-2xl border border-white/15 bg-neutral-900/95 text-white shadow-2xl backdrop-blur-xl"
+          style={{
+            boxShadow: "0 20px 40px -15px rgba(0, 0, 0, 0.7), 0 0 20px rgba(16, 185, 129, 0.2)",
+          }}
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="relative w-8 h-8 rounded-full overflow-hidden border border-emerald-400 shrink-0">
+              <img
+                src={
+                  activeCall.partnerPhotoURL ||
+                  `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(activeCall.partnerName)}`
+                }
+                alt={activeCall.partnerName}
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
+              <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-white tracking-tight truncate max-w-[100px]">
+                {activeCall.partnerName}
+              </p>
+              <p className="text-[10px] text-neutral-400 font-mono">{callDuration}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 ml-2 border-l border-white/10 pl-2">
+            <button
+              type="button"
+              onClick={toggleMute}
+              className={`p-1.5 rounded-lg text-xs transition-colors ${
+                activeCall.isMuted
+                  ? "bg-rose-500/20 text-rose-300"
+                  : "bg-neutral-800 hover:bg-neutral-700 text-neutral-300"
+              }`}
+              title={activeCall.isMuted ? "Unmute" : "Mute"}
+            >
+              {activeCall.isMuted ? <MicOff size={13} /> : <Mic size={13} />}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsMinimized(false)}
+              className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition-colors"
+              title="Expand Call"
+            >
+              <ShieldCheck size={13} />
+            </button>
+
+            <button
+              type="button"
+              onClick={endActiveCall}
+              className="p-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white transition-colors"
+              title="End Call"
+            >
+              <PhoneOff size={13} />
+            </button>
+          </div>
+        </motion.div>
+      ) : (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md">
+          <motion.div
+            id="active-call-dialog"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
         className="w-full max-w-2xl rounded-3xl border border-white/15 bg-neutral-900/95 text-white shadow-2xl overflow-hidden flex flex-col relative"
         style={{
           maxHeight: "calc(100vh - 3rem)",
@@ -543,5 +534,7 @@ export default function ActiveCallModal() {
         </div>
       </motion.div>
     </div>
+      )}
+    </>
   );
 }

@@ -9,7 +9,7 @@ import {
 } from "../lib/ringtone-synthesizer";
 import { collection, onSnapshot, query, db, toTimestampMs } from "../supabase-adapter";
 
-// Ultra Studio Quality Opus audio SDP optimizer for 1-on-1 direct calls:
+// Optimized Opus audio SDP for crystal clear voice and low CPU / network footprint:
 function optimizeAudioSdp(sdp: string): string {
   const lines = sdp.split("\r\n");
   let opusPayloadType: string | null = null;
@@ -28,7 +28,7 @@ function optimizeAudioSdp(sdp: string): string {
         (line.startsWith("a=fmtp:") && line.toLowerCase().includes("opus"))
       ) {
         const base = line.split(";")[0];
-        return `${base};maxaveragebitrate=510000;stereo=1;sprop-stereo=1;maxplaybackrate=48000;minptime=10;useinbandfec=1;usedtx=0;cbr=1`;
+        return `${base};maxaveragebitrate=96000;stereo=1;sprop-stereo=1;maxplaybackrate=48000;minptime=20;useinbandfec=1;usedtx=1;cbr=0`;
       }
       return line;
     })
@@ -567,11 +567,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     const params = s.getParameters();
                     if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
                     if (s.track?.kind === "video") {
-                      params.encodings[0].maxBitrate = 5000000;
+                      params.encodings[0].maxBitrate = 1200000;
                       params.encodings[0].priority = "high";
                       params.encodings[0].networkPriority = "high";
                     } else if (s.track?.kind === "audio") {
-                      params.encodings[0].maxBitrate = 510000;
+                      params.encodings[0].maxBitrate = 96000;
                       params.encodings[0].priority = "high";
                     }
                     s.setParameters(params).catch(() => {});
