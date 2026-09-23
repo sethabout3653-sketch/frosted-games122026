@@ -2569,7 +2569,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                       <video
                         ref={(el) => {
                           remoteVideoRefs.current[activeRemoteWithVideo.uid] = el;
-                          const stream = remoteStreamsRef.current[activeRemoteWithVideo.uid];
+                          const stream = remoteCameraStreamsRef.current[activeRemoteWithVideo.uid] || remoteStreamsRef.current[activeRemoteWithVideo.uid];
                           if (el && stream && el.srcObject !== stream) {
                             el.srcObject = stream;
                             el.muted = true;
@@ -2609,7 +2609,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                 <video
                   ref={(el) => {
                     remoteVideoRefs.current[activeRemoteWithVideo.uid] = el;
-                    const stream = remoteStreamsRef.current[activeRemoteWithVideo.uid];
+                    const stream = remoteCameraStreamsRef.current[activeRemoteWithVideo.uid] || remoteStreamsRef.current[activeRemoteWithVideo.uid];
                     if (el && stream && el.srcObject !== stream) {
                       el.srcObject = stream;
                       el.muted = true;

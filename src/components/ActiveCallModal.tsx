@@ -84,7 +84,7 @@ export default function ActiveCallModal() {
       remoteVideoRef.current.defaultMuted = true;
       remoteVideoRef.current.play().catch(() => {});
     }
-  }, [remoteStream, activeCall?.callType]);
+  }, [remoteStream, activeCall?.callType, isScreenSharing]);
 
   useEffect(() => {
     if (localVideoRef.current && localStream) {
@@ -95,7 +95,7 @@ export default function ActiveCallModal() {
       localVideoRef.current.defaultMuted = true;
       localVideoRef.current.play().catch(() => {});
     }
-  }, [localStream, activeCall?.callType, activeCall?.isCameraOn]);
+  }, [localStream, activeCall?.callType, activeCall?.isCameraOn, isScreenSharing]);
 
   // OUTGOING CALL MODAL
   if (outgoingCall && !activeCall) {
@@ -266,30 +266,106 @@ export default function ActiveCallModal() {
         {/* Call Main Stage (Video, Screen Share, or Audio Visualizer) */}
         <div className="relative flex-1 bg-neutral-950 flex items-center justify-center overflow-hidden min-h-[320px] sm:min-h-[400px] group">
           {isScreenSharing ? (
-            // Local Screen Sharing status box (prevents hall-of-mirrors / mirror loop / live preview clutter)
+            // Local Screen Sharing status box with live Remote User Camera overlay
             <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
-              <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
-                <MonitorUp size={32} />
-              </div>
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
-                <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
-                  LIVE
-                </span>
-              </div>
-              <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
-                Your screen is being broadcast to {activeCall.partnerName} in high definition.
-              </p>
-              <div className="flex items-center gap-2">
+              {/* Center status message */}
+              <div className="flex flex-col items-center justify-center z-10">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-2.5 shadow-xl shadow-indigo-950/50 animate-pulse">
+                  <MonitorUp size={28} />
+                </div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
+                  <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
+                    LIVE
+                  </span>
+                </div>
+                <p className="text-xs text-indigo-200/80 max-w-xs mb-3.5 leading-relaxed font-medium">
+                  Your screen is being broadcast to {activeCall.partnerName} in high definition.
+                </p>
                 <button
                   type="button"
                   onClick={stopScreenShare}
-                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
                 >
                   <ScreenShareOff size={14} />
                   <span>Stop Sharing</span>
                 </button>
               </div>
+
+              {/* Remote User Camera / Live Tile Overlay - always visible when sharing screen */}
+              <div className="absolute top-4 right-4 sm:top-6 sm:right-6 w-44 sm:w-56 aspect-video rounded-2xl overflow-hidden border-2 border-indigo-500/50 bg-neutral-900 shadow-2xl z-20 flex flex-col items-center justify-center">
+                {remoteStream && remoteStream.getVideoTracks().some((t) => t.readyState === "live" && t.enabled) ? (
+                  <video
+                    ref={(el) => {
+                      remoteVideoRef.current = el;
+                      if (el && remoteStream) {
+                        if (el.srcObject !== remoteStream) {
+                          el.srcObject = remoteStream;
+                        }
+                        el.muted = true;
+                        el.defaultMuted = true;
+                        el.volume = 0;
+                        el.play().catch(() => {});
+                      }
+                    }}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-neutral-950/90 p-2.5">
+                    <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-emerald-500/50 mb-1 shadow-lg">
+                      <img
+                        src={
+                          activeCall.partnerPhotoURL ||
+                          `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(activeCall.partnerName)}`
+                        }
+                        alt={activeCall.partnerName}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <span className="text-[11px] font-bold text-white truncate max-w-[120px]">
+                      {activeCall.partnerName}
+                    </span>
+                  </div>
+                )}
+
+                {/* Badge on Remote Tile */}
+                <div className="absolute bottom-2 left-2 bg-black/85 backdrop-blur-md px-2 py-0.5 rounded-lg border border-white/10 flex items-center gap-1 text-[10px] font-semibold text-white">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="truncate max-w-[100px]">{activeCall.partnerName}</span>
+                </div>
+              </div>
+
+              {/* Local Camera Tile (if local camera is active) */}
+              {activeCall.isCameraOn && (
+                <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 w-28 sm:w-36 aspect-video rounded-xl overflow-hidden border border-white/20 bg-neutral-900 shadow-xl z-20">
+                  <video
+                    ref={(el) => {
+                      localVideoRef.current = el;
+                      if (el && localStream) {
+                        if (el.srcObject !== localStream) {
+                          el.srcObject = localStream;
+                        }
+                        el.muted = true;
+                        el.defaultMuted = true;
+                        el.volume = 0;
+                        el.play().catch(() => {});
+                      }
+                    }}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover mirror"
+                    style={{ transform: "scaleX(-1)" }}
+                  />
+                  <div className="absolute bottom-1 left-1 bg-black/80 px-1.5 py-0.2 rounded text-[9px] font-bold text-white">
+                    You
+                  </div>
+                </div>
+              )}
             </div>
           ) : activeCall.callType === "video" || (remoteStream && remoteStream.getVideoTracks().length > 0) ? (
             // Video or Remote Screen Share View
