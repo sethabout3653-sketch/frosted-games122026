@@ -1887,8 +1887,8 @@ export default function ChatPanel({
       if (!m.text && !m.attachment && !m.gif) {
         return false;
       }
-      // If message has channelId, ensure it belongs to activeChannel
-      if (m.channelId && activeChannel && m.channelId !== activeChannel) {
+      // If message has channelId, ensure it belongs to activeChannel (case-insensitive)
+      if (m.channelId && activeChannel && m.channelId.toLowerCase() !== activeChannel.toLowerCase()) {
         return false;
       }
       return true;
@@ -1952,7 +1952,7 @@ export default function ChatPanel({
 
     candidates.forEach((u) => {
       const uNameClean = (u.username || "").trim().toLowerCase();
-      if (!uNameClean || uNameClean === "anonymous" || uNameClean === "guest" || !isAllowedUsername(uNameClean, u.uid, profile.uid)) return;
+      if (!uNameClean || uNameClean === "anonymous" || !isAllowedUsername(uNameClean, u.uid, profile.uid)) return;
 
       const isMe = u.uid === profile.uid || uNameClean === myNameClean;
       const lastSeenMs = toTimestampMs(u.lastSeen);

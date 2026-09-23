@@ -894,8 +894,10 @@ export default function VoiceChannel({
         candidate: type === "candidate" ? data : undefined,
         timestamp: Date.now(),
       };
-      // 1. Instant delivery via Supabase Realtime Broadcast & DB fallback
+      // 1. Instant delivery via Supabase Realtime Broadcast & WebSocket
       sendBroadcastSignal(payload);
+      // 2. Guaranteed database collection signal write for cross-client P2P connection
+      addDoc("signals", payload).catch(() => {});
     },
     [profile.uid]
   );

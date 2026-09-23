@@ -12,30 +12,8 @@ export function isAllowedUsername(username?: string, _uid?: string, _currentUid?
 export function isGuestUser(username?: string): boolean {
   if (!username) return true;
   const clean = username.trim().toLowerCase();
-  
-  if (clean === "anonymous" || clean === "guest" || clean.startsWith("guest_") || clean.startsWith("player_")) {
-    return true;
-  }
-
-  // If explicitly signed in, they are NOT a guest!
-  try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      if (window.localStorage.getItem("frosted_has_signed_in") === "true") {
-        return false;
-      }
-    }
-  } catch (e) {}
-
-  if (ALLOWED_USERNAMES.has(clean)) {
-    return false;
-  }
-
-  const parts = clean.split("_");
-  if (parts.length === 3 && !isNaN(Number(parts[2]))) {
-    return true;
-  }
-
-  return true;
+  if (!clean || clean === "anonymous") return true;
+  return false;
 }
 
 /**

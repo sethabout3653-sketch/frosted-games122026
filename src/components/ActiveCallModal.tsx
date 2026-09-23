@@ -274,67 +274,31 @@ export default function ActiveCallModal() {
         {/* Call Main Stage (Video, Screen Share, or Audio Visualizer) */}
         <div className="relative flex-1 bg-neutral-950 flex items-center justify-center overflow-hidden min-h-[320px] sm:min-h-[400px] group">
           {isScreenSharing ? (
-            screenStream ? (
-              <div className="relative w-full h-full flex items-center justify-center bg-black">
-                <video
-                  ref={(el) => {
-                    if (el && screenStream) {
-                      if (el.srcObject !== screenStream) {
-                        el.srcObject = screenStream;
-                      }
-                      el.muted = true;
-                      el.defaultMuted = true;
-                      el.volume = 0;
-                      el.play().catch(() => {});
-                    }
-                  }}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-contain max-h-[500px]"
-                />
-                <div className="absolute top-3 left-3 z-10 flex items-center gap-2 bg-neutral-900/90 border border-indigo-500/40 px-3 py-1.5 rounded-full text-xs text-white shadow-xl backdrop-blur-md">
-                  <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                  <span className="font-semibold text-[11px]">Your Screen (Live Preview)</span>
-                </div>
-                <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={stopScreenShare}
-                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
-                  >
-                    <ScreenShareOff size={14} />
-                    <span>Stop Sharing</span>
-                  </button>
-                </div>
+            // Local Screen Sharing status box (prevents hall-of-mirrors / mirror loop / live preview clutter)
+            <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
+                <MonitorUp size={32} />
               </div>
-            ) : (
-              // Local Screen Sharing status box (prevents hall-of-mirrors / mirror loop)
-              <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#0a0f2b] via-[#050717] to-[#02030a] select-none relative">
-                <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-xl shadow-indigo-950/50 animate-pulse">
-                  <MonitorUp size={32} />
-                </div>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
-                  <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
-                    LIVE
-                  </span>
-                </div>
-                <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
-                  Your screen is live for {activeCall.partnerName} in high definition.
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={stopScreenShare}
-                    className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
-                  >
-                    <ScreenShareOff size={14} />
-                    <span>Stop Sharing</span>
-                  </button>
-                </div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-sm font-extrabold text-white tracking-wide">You are sharing your screen</span>
+                <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse shadow">
+                  LIVE
+                </span>
               </div>
-            )
+              <p className="text-xs text-indigo-200/80 max-w-sm mb-4 leading-relaxed font-medium">
+                Your screen is being broadcast to {activeCall.partnerName} in high definition.
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={stopScreenShare}
+                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg flex items-center gap-1.5 active:scale-95"
+                >
+                  <ScreenShareOff size={14} />
+                  <span>Stop Sharing</span>
+                </button>
+              </div>
+            </div>
           ) : activeCall.callType === "video" || (remoteStream && remoteStream.getVideoTracks().length > 0) ? (
             // Video or Remote Screen Share View
             <div className="relative w-full h-full flex items-center justify-center bg-black">
