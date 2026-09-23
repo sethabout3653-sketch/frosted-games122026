@@ -35,6 +35,8 @@ function optimizeAudioSdp(sdp: string): string {
     .join("\r\n");
 }
 
+import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
+
 export interface CallUser {
   uid: string;
   username: string;
@@ -201,6 +203,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let count = 0;
         snapshot.docs.forEach((d: any) => {
           const data = d.data();
+          const uname = (data?.username || "").trim();
+          if (!isAllowedUsername(uname, data?.uid, myProfile?.uid)) return;
           const ts = toTimestampMs(data?.timestamp || data?.lastSeen);
           if (ts > 0 && now - ts <= 30000) {
             count++;
@@ -232,7 +236,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data = d.data();
         const uname = (data.username || "").trim();
         const unameClean = uname.toLowerCase();
-        if (!uname || unameClean === "anonymous" || unameClean === "guest") return;
+        if (!uname || unameClean === "anonymous" || unameClean === "guest" || !isAllowedUsername(uname, data.uid, myUid)) return;
         if (data.uid === myUid || unameClean === myName) return;
 
         const ts = toTimestampMs(data.lastSeen || data.timestamp);
@@ -422,6 +426,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       switch (sig.type) {
         case "direct_call_invite": {
+          if (isGuestUser(myProf.username)) return;
           // If already in an active or outgoing call, auto-decline as busy
           if (activeCallRef.current || outgoingCallRef.current) {
             sendBroadcastSignal({
@@ -845,6 +850,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const startDirectCall = useCallback(
     async (targetUser: CallUser, type: "audio" | "video") => {
       const myProf = getMyProfile();
+      if (isGuestUser(myProf?.username)) {
+        alert("Guest accounts do not have access to phone, video, or voice calls.");
+        return;
+      }
       cleanupCall();
       const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -951,6 +960,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const answerIncomingCall = useCallback(async () => {
     const currentInc = incomingCallRef.current;
     const myProf = getMyProfile();
+    if (isGuestUser(myProf?.username)) {
+      alert("Guest accounts do not have access to calls.");
+      return;
+    }
     if (!currentInc || !myProf?.uid) return;
 
     if (ringtoneStopRef.current) {

@@ -25,6 +25,7 @@ import {
 import { ChatMessage, ChatProfile, UserActivity } from "../types";
 import { wsClient } from "../lib/websocket-client";
 import { getCurrentActivity, onActivityChanged, getVoiceState, broadcastPresenceUpdate } from "../lib/activity-tracker";
+import { isAllowedUsername, isGuestUser, purgeNonAllowedUsers } from "../lib/user-filter";
 import ActivityBadge from "./ActivityBadge";
 import ModeratorPanelModal from "./ModeratorPanelModal";
 import { checkTextModeration } from "../utils/moderation";
@@ -342,18 +343,13 @@ export default function ChatPanel({
   const [isDeletingAllUsers, setIsDeletingAllUsers] = useState(false);
 
   const handleDeleteAllUsers = async () => {
-    if (!window.confirm("Are you sure you want to delete and reset all stored user presence profiles? This will clear all offline/stale players and force active users to re-broadcast their status.")) {
+    if (!window.confirm("Are you sure you want to delete all stored users except 'giggity', 'SethPlayz12', and 'logicgatesobviously'?")) {
       return;
     }
     setIsDeletingAllUsers(true);
     try {
-      const querySnapshot = await getDocs(collection(db, "presence"));
-      const deletePromises: Promise<void>[] = [];
-      querySnapshot.forEach((docSnap: any) => {
-        deletePromises.push(deleteDoc(doc(db, "presence", docSnap.id)).catch(() => {}));
-      });
-      await Promise.all(deletePromises);
-      alert("All presence user profiles have been deleted and cleaned from database!");
+      const count = await purgeNonAllowedUsers();
+      alert(`User database cleanup complete! Removed ${count} non-allowed profile records.`);
     } catch (err: any) {
       console.error("Error clearing users:", err);
       alert("Error clearing users: " + err.message);
@@ -964,7 +960,7 @@ export default function ChatPanel({
         snapshot.forEach((docSnap: any) => {
           const data = docSnap.data() as any;
           const uname = (data.username || "").trim();
-          if (!uname) {
+          if (!uname || !isAllowedUsername(uname, docSnap.id, profile?.uid)) {
             return;
           }
           const unameClean = uname.toLowerCase();
@@ -1366,6 +1362,12 @@ export default function ChatPanel({
           await deleteDoc(doc(db, "messages", msg.id)).catch(() => {});
         }
       } catch (err) {}
+      return;
+    }
+
+    // Check if user is a guest
+    if (isGuestUser(profile.username)) {
+      showModerationAlert("Guest Access Restricted", "Guest users do not have access to chat or calls. Please log in with an authorized account.");
       return;
     }
 
@@ -1905,7 +1907,7 @@ export default function ChatPanel({
 
     candidates.forEach((u) => {
       const uNameClean = (u.username || "").trim().toLowerCase();
-      if (!uNameClean || uNameClean === "anonymous" || uNameClean === "guest") return;
+      if (!uNameClean || uNameClean === "anonymous" || uNameClean === "guest" || !isAllowedUsername(uNameClean, u.uid, profile.uid)) return;
 
       const isMe = u.uid === profile.uid || uNameClean === myNameClean;
       const lastSeenMs = toTimestampMs(u.lastSeen);

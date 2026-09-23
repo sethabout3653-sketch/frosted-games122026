@@ -19,6 +19,7 @@ import { CallProvider, useCall } from "./context/CallContext";
 import IncomingCallNotification from "./components/IncomingCallNotification";
 import ActiveCallModal from "./components/ActiveCallModal";
 import { useFavorites } from "./lib/favorites";
+import { purgeNonAllowedUsers } from "./lib/user-filter";
 
 const SOUNDBOARD_GAME: Game = {
   id: "soundboard",
@@ -119,6 +120,9 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
+    // Purge any users outside allowed set ("giggity", "SethPlayz12", "logicgatesobviously")
+    purgeNonAllowedUsers().catch(() => {});
+
     // Safety fallback timeout to ensure app is always accessible
     const safetyTimeout = window.setTimeout(() => setShowStartup(false), 6000);
     return () => window.clearTimeout(safetyTimeout);
