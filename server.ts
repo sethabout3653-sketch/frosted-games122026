@@ -1593,80 +1593,119 @@ const PORT = Number(process.env.PORT) || 3000;
   // High-Resilience AI Inference Proxy Config
   // ==========================================
   app.get("/api/ai/config", (req, res) => {
-    const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN);
+    const hasKey = Boolean(process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY);
     res.json({
       hasEnvKey: hasKey,
-      defaultModel: "gemini-3.7-flash",
-      endpoint: "https://models.github.ai/inference",
+      defaultModel: "llama-3.3-70b-versatile",
+      endpoint: "https://api.groq.com/openai/v1",
+      provider: "groq",
+      models: [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "deepseek-r1-distill-llama-70b",
+        "qwen-2.5-32b",
+        "gemma2-9b-it",
+        "mixtral-8x7b-32768",
+        "llama-3.2-11b-vision-preview",
+        "llama-3.2-3b-preview",
+        "llama-3.2-1b-preview"
+      ]
     });
   });
 
   app.post("/api/ai/test", async (req, res) => {
     try {
       let authHeader = req.headers.authorization || "";
-      const effectiveKey = authHeader.replace(/^Bearer\s+/i, "").trim() || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || "";
+      const effectiveKey = authHeader.replace(/^Bearer\s+/i, "").trim() || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY || "";
       const { endpoint } = req.body || {};
 
-      const candidateEndpoints = [
-        (endpoint || "https://models.github.ai/inference").replace(/\/+$/, "") + "/chat/completions",
-        "https://models.github.ai/inference/chat/completions",
-        "https://models.inference.ai.azure.com/chat/completions",
-      ];
-      const uniqueEndpoints = Array.from(new Set(candidateEndpoints));
+      // 1. Prioritize Groq free test
+      const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (effectiveKey && !effectiveKey.startsWith("ghp_") && !effectiveKey.startsWith("github_pat_") && !effectiveKey.startsWith("AIza") ? effectiveKey : "");
+      if (groqKey) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-      if (effectiveKey) {
-        for (const targetUrl of uniqueEndpoints) {
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const upstreamRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${groqKey}`,
+            },
+            body: JSON.stringify({
+              model: "llama-3.1-8b-instant",
+              messages: [{ role: "user", content: "Say 'Groq AI is active!' in 4 words." }],
+              max_tokens: 15,
+            }),
+            signal: controller.signal,
+          });
 
-            const upstreamRes = await fetch(targetUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${effectiveKey}`,
-              },
-              body: JSON.stringify({
-                model: "gpt-4o-mini",
-                messages: [{ role: "user", content: "Say 'AI is active!' in 4 words." }],
-                max_tokens: 15,
-              }),
-              signal: controller.signal,
-            });
+          clearTimeout(timeoutId);
 
-            clearTimeout(timeoutId);
+          if (upstreamRes.ok) {
+            const data = await upstreamRes.json();
+            return res.json({ success: true, provider: "groq", model: "llama-3.1-8b-instant", data });
+          }
+        } catch (groqErr) {}
+      }
 
-            if (upstreamRes.ok) {
-              const data = await upstreamRes.json();
-              return res.json({ success: true, data });
-            }
-          } catch (e) {}
+      // 2. Fallback to GitHub Models test if key is present
+      const isGithub = effectiveKey.startsWith("ghp_") || effectiveKey.startsWith("github_pat_");
+      if (isGithub || (effectiveKey && endpoint && (endpoint.includes("github") || endpoint.includes("azure")))) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const ghRes = await fetch("https://models.inference.ai.azure.com/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${effectiveKey}`,
+            },
+            body: JSON.stringify({
+              model: "gpt-4o-mini",
+              messages: [{ role: "user", content: "Say 'AI active!' in 2 words." }],
+              max_tokens: 15,
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (ghRes.ok) {
+            const data = await ghRes.json();
+            return res.json({ success: true, provider: "github-models", data });
+          }
+        } catch (e) {}
+      }
+
+      // 3. Fallback test via Gemini
+      const geminiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
+      if (geminiKey) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: geminiKey });
+          const result = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [{ role: "user", parts: [{ text: "Say 'AI is ready!' in 4 words." }] }],
+          });
+          return res.json({
+            success: true,
+            provider: "google-gemini",
+            data: {
+              choices: [
+                {
+                  message: {
+                    content: result.text || "AI connection active!",
+                  },
+                },
+              ],
+            },
+          });
+        } catch (geminiErr: any) {
+          return res.status(500).json({ error: geminiErr.message });
         }
       }
 
-      // Fallback test via Gemini
-      try {
-        const geminiKey = process.env.GEMINI_API_KEY || process.env.AI_API_KEY;
-        const ai = new GoogleGenAI(geminiKey ? { apiKey: geminiKey } : {});
-        const result = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: [{ role: "user", parts: [{ text: "Say 'AI is ready!' in 4 words." }] }],
-        });
-        return res.json({
-          success: true,
-          data: {
-            choices: [
-              {
-                message: {
-                  content: result.text || "AI connection active!",
-                },
-              },
-            ],
-          },
-        });
-      } catch (geminiErr: any) {
-        return res.status(500).json({ error: geminiErr.message });
-      }
+      return res.status(400).json({
+        error: "No active AI key found. Please set GROQ_API_KEY in your environment variables.",
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -2194,14 +2233,15 @@ const PORT = Number(process.env.PORT) || 3000;
   }
 
   // 🛡️ Core Groq & Gemini Safety Engine with High-Speed Inference Routing
-  const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || "";
+  const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") || "";
   
   const GROQ_MODELS = [
-    "openai/gpt-oss-120b",
-    "groq/compound",
-    "qwen/qwen3.8-27b",
-    "openai/gpt-oss-20b",
-    "groq/compound-mini"
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "deepseek-r1-distill-llama-70b",
+    "qwen-2.5-32b",
+    "gemma2-9b-it",
+    "mixtral-8x7b-32768"
   ];
 
   const GEMINI_MODELS_CASCADE = [
@@ -3143,13 +3183,18 @@ Respond strictly in valid JSON:
 
     res.json({
       models: [
-        { id: "openai/gpt-oss-120b", name: "GPT OSS 120B (Groq LPU)" },
-        { id: "groq/compound", name: "Groq Compound Engine" },
-        { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B Vision (Groq)" },
-        { id: "openai/gpt-oss-20b", name: "GPT OSS 20B (Groq LPU)" },
-        { id: "groq/compound-mini", name: "Groq Compound Mini" }
+        { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B Versatile", provider: "Groq", badge: "Flagship", description: "Meta's flagship 70B model with high reasoning, math, and code capabilities." },
+        { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant", provider: "Groq", badge: "Ultra Fast", description: "Blazing-fast token speeds with a massive 128k context window." },
+        { id: "deepseek-r1-distill-llama-70b", name: "DeepSeek R1 Distill 70B", provider: "Groq", badge: "Deep Reasoning", description: "Advanced reasoning model with real-time thinking process." },
+        { id: "qwen-2.5-32b", name: "Qwen 2.5 32B", provider: "Groq", badge: "Smart", description: "Alibaba's high-intelligence multilingual model for complex problem solving." },
+        { id: "gemma2-9b-it", name: "Gemma 2 9B", provider: "Groq", badge: "Fast", description: "Google's open weights optimized for high throughput on Groq LPUs." },
+        { id: "mixtral-8x7b-32768", name: "Mixtral 8x7B (32k)", provider: "Groq", badge: "32k Context", description: "Mixture-of-experts model with extended 32k context." },
+        { id: "llama-3.2-11b-vision-preview", name: "Llama 3.2 11B Vision", provider: "Groq", badge: "Vision", description: "Multimodal image and text reasoning on Groq LPUs." },
+        { id: "llama-3.2-3b-preview", name: "Llama 3.2 3B Instant", provider: "Groq", badge: "Instant", description: "Compact and instantaneous responses for fast homework lookups." },
+        { id: "llama-3.2-1b-preview", name: "Llama 3.2 1B Turbo", provider: "Groq", badge: "Turbo", description: "Ultra-compact token generation on Groq hardware." }
       ],
-      hasServerKey: !!GROQ_API_KEY,
+      hasServerKey: Boolean(process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY),
+      provider: "groq",
     });
   });
 
@@ -3163,28 +3208,112 @@ Respond strictly in valid JSON:
   }): Promise<{ text: string; model: string; provider: string }> {
     const {
       messages = [],
-      model = "gemini-3.7-flash",
+      model = "llama-3.3-70b-versatile",
       systemPrompt = "You are a helpful, clear, and friendly AI study assistant. Provide accurate, well-structured, detailed answers using clean Markdown.",
       temperature = 0.7,
       customKey = "",
-      endpoint = "https://models.inference.ai.azure.com"
+      endpoint = "https://api.groq.com/openai/v1"
     } = opts || {};
 
-    const effectiveKey = customKey || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY || "";
+    const groqKey = customKey || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") || "";
+
+    // 1. Primary: Groq Free Forever Models Engine
+    if (groqKey) {
+      let targetGroqModel = "llama-3.3-70b-versatile";
+      const mLower = (model || "").toLowerCase();
+      if (mLower.includes("deepseek") || mLower.includes("r1")) {
+        targetGroqModel = "deepseek-r1-distill-llama-70b";
+      } else if (mLower.includes("8b") || mLower.includes("instant")) {
+        targetGroqModel = "llama-3.1-8b-instant";
+      } else if (mLower.includes("qwen")) {
+        targetGroqModel = "qwen-2.5-32b";
+      } else if (mLower.includes("gemma")) {
+        targetGroqModel = "gemma2-9b-it";
+      } else if (mLower.includes("mixtral") || mLower.includes("8x7b")) {
+        targetGroqModel = "mixtral-8x7b-32768";
+      } else if (mLower.includes("vision")) {
+        targetGroqModel = "llama-3.2-11b-vision-preview";
+      } else if (mLower.includes("3b")) {
+        targetGroqModel = "llama-3.2-3b-preview";
+      } else if (mLower.includes("1b") || mLower.includes("turbo")) {
+        targetGroqModel = "llama-3.2-1b-preview";
+      } else if (mLower.includes("70b") || mLower.includes("versatile") || mLower.includes("llama")) {
+        targetGroqModel = "llama-3.3-70b-versatile";
+      }
+
+      const candidateModels = Array.from(new Set([
+        targetGroqModel,
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it"
+      ]));
+
+      const groqMessages: any[] = [];
+      if (systemPrompt && !messages.some((m: any) => m.role === "system")) {
+        groqMessages.push({ role: "system", content: systemPrompt });
+      }
+      for (const m of messages) {
+        groqMessages.push({
+          role: m.role === "model" ? "assistant" : (m.role || "user"),
+          content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+        });
+      }
+
+      for (const cand of candidateModels) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 12000);
+
+          const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${groqKey}`,
+            },
+            body: JSON.stringify({
+              model: cand,
+              messages: groqMessages,
+              temperature: Math.min(1.0, Math.max(0.1, temperature)),
+              stream: false,
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+
+          if (res.ok) {
+            const data: any = await res.json();
+            const choice = data.choices?.[0];
+            const reasoning = choice?.message?.reasoning_content || choice?.message?.reasoning || "";
+            const content = choice?.message?.content || "";
+            let text = content;
+            if (reasoning) {
+              text = `<think>\n${reasoning.trim()}\n</think>\n\n${content.trim()}`;
+            }
+            if (text) {
+              return { text, model: cand, provider: "groq" };
+            }
+          }
+        } catch (groqErr) {
+          // try next candidate
+        }
+      }
+    }
+
+    // 2. Secondary Fallback: GitHub Models if token available
+    const effectiveKey = customKey || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || "";
     const isGithubToken = typeof effectiveKey === "string" && (effectiveKey.startsWith("github_pat_") || effectiveKey.startsWith("ghp_"));
 
-    if (isGithubToken || (effectiveKey && (endpoint.includes("github.ai") || endpoint.includes("azure.com")))) {
+    if (isGithubToken || (effectiveKey && endpoint && (endpoint.includes("github.ai") || endpoint.includes("azure.com")))) {
       try {
-        const ghEndpoint = endpoint && endpoint.startsWith("http") ? endpoint : "https://models.inference.ai.azure.com";
+        const ghEndpoint = endpoint && endpoint.startsWith("http") && !endpoint.includes("groq") ? endpoint : "https://models.inference.ai.azure.com";
         const client = new OpenAI({
           baseURL: ghEndpoint,
           apiKey: effectiveKey,
         });
 
         let targetGhModel = "gpt-4o-mini";
-        if (model.includes("3.7") || model.includes("3.8") || model.includes("gpt-4o")) {
-          targetGhModel = "gpt-4o";
-        } else if (model.includes("llama")) {
+        if (model.includes("llama")) {
           targetGhModel = "Meta-Llama-3.3-70B-Instruct";
         } else if (model.includes("deepseek")) {
           targetGhModel = "DeepSeek-R1";
@@ -3216,61 +3345,37 @@ Respond strictly in valid JSON:
             provider: "github-models"
           };
         }
-      } catch (ghErr: any) {
-        console.warn("GitHub Models execute failed, falling over to Gemini:", ghErr?.message);
-      }
+      } catch (ghErr: any) {}
     }
 
-    const geminiApiKey = (!isGithubToken && effectiveKey) || process.env.GEMINI_API_KEY || (process.env.AI_API_KEY && !isGithubToken ? process.env.AI_API_KEY : undefined);
-    const ai = new GoogleGenAI(geminiApiKey ? { apiKey: geminiApiKey } : {});
-
-    let candidateModels = ["gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"];
-    if (model.includes("3.8")) {
-      candidateModels = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash"];
-    } else if (model.includes("3.6")) {
-      candidateModels = ["gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-2.5-flash"];
-    } else if (model.includes("3.5")) {
-      candidateModels = ["gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-1.5-flash"];
-    }
-
-    const conversationContents: any[] = [];
-    for (const m of messages) {
-      if (m.role === "system") continue;
-      const textContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-      conversationContents.push({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: textContent }]
-      });
-    }
-
-    if (conversationContents.length === 0) {
-      conversationContents.push({ role: "user", parts: [{ text: "Hello!" }] });
-    }
-
-    for (const candidateModel of candidateModels) {
+    // 3. Tertiary Fallback: Google Gemini
+    const geminiApiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
+    if (geminiApiKey) {
       try {
-        const nonStreamResult = await ai.models.generateContent({
-          model: candidateModel,
-          contents: conversationContents,
-          config: {
-            systemInstruction: systemPrompt || undefined,
-            temperature: Math.min(1.0, Math.max(0.1, temperature)),
-          }
-        });
-
-        if (nonStreamResult && nonStreamResult.text) {
-          return {
-            text: nonStreamResult.text,
-            model: candidateModel,
-            provider: "google-gemini"
-          };
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+        const conversationContents: any[] = [];
+        for (const m of messages) {
+          if (m.role === "system") continue;
+          conversationContents.push({
+            role: m.role === "assistant" ? "model" : "user",
+            parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }]
+          });
         }
-      } catch (modelErr: any) {
-        console.warn(`Gemini model ${candidateModel} non-stream failed, trying next...`, modelErr?.message);
-      }
+        if (conversationContents.length === 0) {
+          conversationContents.push({ role: "user", parts: [{ text: "Hello!" }] });
+        }
+        const nonStreamResult = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: conversationContents,
+          config: { systemInstruction: systemPrompt || undefined, temperature: Math.min(1.0, Math.max(0.1, temperature)) }
+        });
+        if (nonStreamResult?.text) {
+          return { text: nonStreamResult.text, model: "gemini-2.5-flash", provider: "google-gemini" };
+        }
+      } catch (gemErr) {}
     }
 
-    throw new Error("Unable to generate AI completion from available model backends.");
+    throw new Error("Unable to generate AI completion from available model backends. Please configure GROQ_API_KEY.");
   }
 
   app.post("/api/ai/chat", async (req, res) => {
@@ -3284,12 +3389,12 @@ Respond strictly in valid JSON:
 
       const {
         messages = [],
-        model = "gemini-3.7-flash",
-        systemPrompt = "You are a helpful, clear, and friendly AI study assistant. Always begin your response by thinking through the problem thoroughly inside <think>...</think> tags, detailing your reasoning, key concepts, and solution approach before presenting the final answer. Then provide your complete, well-structured, detailed response in clean Markdown.",
+        model = "llama-3.3-70b-versatile",
+        systemPrompt = "You are a helpful, clear, and friendly AI study assistant. Provide accurate, thoroughly explained, step-by-step reasoning in clean Markdown.",
         temperature = 0.7,
         customKey = "",
         stream = false,
-        endpoint = "https://models.inference.ai.azure.com"
+        endpoint = "https://api.groq.com/openai/v1"
       } = body || {};
 
       if (!Array.isArray(messages) || messages.length === 0) {
@@ -3300,24 +3405,191 @@ Respond strictly in valid JSON:
 
       const authHeader = req.headers.authorization || "";
       const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
-      const effectiveKey = customKey || bearerToken || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY || "";
+      const groqKey = (customKey && !customKey.startsWith("ghp_") && !customKey.startsWith("AIza") ? customKey : "") ||
+        (bearerToken && !bearerToken.startsWith("ghp_") && !bearerToken.startsWith("AIza") ? bearerToken : "") ||
+        process.env.GROQ_API_KEY ||
+        process.env.VITE_GROQ_API_KEY ||
+        (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") ||
+        "";
 
+      // Determine target Groq model
+      let targetGroqModel = "llama-3.3-70b-versatile";
+      const mLower = (model || "").toLowerCase();
+      if (mLower.includes("deepseek") || mLower.includes("r1")) {
+        targetGroqModel = "deepseek-r1-distill-llama-70b";
+      } else if (mLower.includes("8b") || mLower.includes("instant")) {
+        targetGroqModel = "llama-3.1-8b-instant";
+      } else if (mLower.includes("qwen")) {
+        targetGroqModel = "qwen-2.5-32b";
+      } else if (mLower.includes("gemma")) {
+        targetGroqModel = "gemma2-9b-it";
+      } else if (mLower.includes("mixtral") || mLower.includes("8x7b")) {
+        targetGroqModel = "mixtral-8x7b-32768";
+      } else if (mLower.includes("vision")) {
+        targetGroqModel = "llama-3.2-11b-vision-preview";
+      } else if (mLower.includes("3b")) {
+        targetGroqModel = "llama-3.2-3b-preview";
+      } else if (mLower.includes("1b") || mLower.includes("turbo")) {
+        targetGroqModel = "llama-3.2-1b-preview";
+      } else if (mLower.includes("70b") || mLower.includes("versatile") || mLower.includes("llama")) {
+        targetGroqModel = "llama-3.3-70b-versatile";
+      }
+
+      const groqCandidateModels = Array.from(new Set([
+        targetGroqModel,
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it"
+      ]));
+
+      // Build OpenAI-compatible messages for Groq
+      const groqMessages: any[] = [];
+      if (systemPrompt && !messages.some((m: any) => m.role === "system")) {
+        groqMessages.push({ role: "system", content: systemPrompt });
+      }
+      for (const m of messages) {
+        groqMessages.push({
+          role: m.role === "model" ? "assistant" : (m.role || "user"),
+          content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+        });
+      }
+
+      // =========================================================================
+      // 1. PRIMARY ENGINE: Groq High-Speed LPU Inference (All Free Forever Models)
+      // =========================================================================
+      if (groqKey) {
+        for (const candModel of groqCandidateModels) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+            const upstreamRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${groqKey}`,
+                "User-Agent": "FrostedAI-Groq/1.0",
+              },
+              body: JSON.stringify({
+                model: candModel,
+                messages: groqMessages,
+                temperature: Math.min(1.0, Math.max(0.1, temperature)),
+                stream: Boolean(isStream),
+              }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+
+            if (!upstreamRes.ok) {
+              const errBody = await upstreamRes.text().catch(() => "");
+              console.warn(`Groq model ${candModel} returned ${upstreamRes.status}:`, errBody.slice(0, 150));
+              continue;
+            }
+
+            if (isStream && upstreamRes.body) {
+              res.setHeader("Content-Type", "text/event-stream");
+              res.setHeader("Cache-Control", "no-cache");
+              res.setHeader("Connection", "keep-alive");
+
+              const reader = upstreamRes.body.getReader();
+              const decoder = new TextDecoder("utf-8");
+              let buffer = "";
+              let inThoughtMode = false;
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed.startsWith(":")) continue;
+                  if (trimmed === "data: [DONE]") {
+                    if (inThoughtMode) {
+                      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" } }] })}\n\n`);
+                      inThoughtMode = false;
+                    }
+                    res.write("data: [DONE]\n\n");
+                    return res.end();
+                  }
+                  if (trimmed.startsWith("data: ")) {
+                    const jsonStr = trimmed.slice(6);
+                    try {
+                      const parsed = JSON.parse(jsonStr);
+                      const delta = parsed.choices?.[0]?.delta;
+                      const reasoning = delta?.reasoning_content || delta?.reasoning || "";
+                      const content = delta?.content || "";
+
+                      if (reasoning) {
+                        if (!inThoughtMode) {
+                          inThoughtMode = true;
+                          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "<think>\n" + reasoning } }] })}\n\n`);
+                        } else {
+                          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: reasoning } }] })}\n\n`);
+                        }
+                      } else if (content) {
+                        if (inThoughtMode) {
+                          inThoughtMode = false;
+                          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" + content } }] })}\n\n`);
+                        } else {
+                          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: content } }] })}\n\n`);
+                        }
+                      }
+                    } catch (e) {
+                      // Pass raw stream chunk if parse fails
+                      res.write(`${line}\n\n`);
+                    }
+                  }
+                }
+              }
+
+              if (inThoughtMode) {
+                res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" } }] })}\n\n`);
+              }
+              res.write("data: [DONE]\n\n");
+              return res.end();
+            } else {
+              const data: any = await upstreamRes.json();
+              const choice = data?.choices?.[0];
+              const reasoning = choice?.message?.reasoning_content || choice?.message?.reasoning || "";
+              const content = choice?.message?.content || "";
+              let text = content;
+              if (reasoning) {
+                text = `<think>\n${reasoning.trim()}\n</think>\n\n${content.trim()}`;
+              }
+              return res.json({
+                text,
+                choices: [{ message: { content: text } }],
+                model: candModel,
+                provider: "groq"
+              });
+            }
+          } catch (modelErr: any) {
+            console.warn(`Groq candidate ${candModel} failed, trying next candidate:`, modelErr?.message);
+          }
+        }
+      }
+
+      // =========================================================================
+      // 2. SECONDARY ENGINE: GitHub Models Fallback (if token provided)
+      // =========================================================================
+      const effectiveKey = customKey || bearerToken || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || "";
       const isGithubToken = typeof effectiveKey === "string" && (effectiveKey.startsWith("github_pat_") || effectiveKey.startsWith("ghp_"));
 
-      // 1. If GitHub PAT or GitHub endpoint is explicitly targeted and we have a token
-      if (isGithubToken || (effectiveKey && (endpoint.includes("github.ai") || endpoint.includes("azure.com")))) {
+      if (isGithubToken || (effectiveKey && endpoint && (endpoint.includes("github.ai") || endpoint.includes("azure.com")))) {
         try {
-          const ghEndpoint = endpoint && endpoint.startsWith("http") ? endpoint : "https://models.inference.ai.azure.com";
+          const ghEndpoint = endpoint && endpoint.startsWith("http") && !endpoint.includes("groq") ? endpoint : "https://models.inference.ai.azure.com";
           const client = new OpenAI({
             baseURL: ghEndpoint,
             apiKey: effectiveKey,
           });
 
-          // Map user model to GitHub models catalog
           let targetGhModel = "gpt-4o-mini";
-          if (model.includes("3.7") || model.includes("3.8") || model.includes("gpt-4o")) {
-            targetGhModel = "gpt-4o";
-          } else if (model.includes("llama")) {
+          if (model.includes("llama")) {
             targetGhModel = "Meta-Llama-3.3-70B-Instruct";
           } else if (model.includes("deepseek")) {
             targetGhModel = "DeepSeek-R1";
@@ -3395,174 +3667,71 @@ Respond strictly in valid JSON:
             });
           }
         } catch (ghErr: any) {
-          console.warn("GitHub Models call failed, failing over to Gemini:", ghErr?.message);
+          console.warn("GitHub Models fallback failed:", ghErr?.message);
         }
       }
 
-      // 2. Google Gemini Models Engine with Thinking Configuration
-      const geminiApiKey = (!isGithubToken && effectiveKey) || process.env.GEMINI_API_KEY || (process.env.AI_API_KEY && !isGithubToken ? process.env.AI_API_KEY : undefined);
-      const ai = new GoogleGenAI(geminiApiKey ? { apiKey: geminiApiKey } : {});
-
-      // Map models to candidates
-      let candidateModels = ["gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"];
-      if (model.includes("3.8")) {
-        candidateModels = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash"];
-      } else if (model.includes("3.6")) {
-        candidateModels = ["gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-2.5-flash"];
-      } else if (model.includes("3.5")) {
-        candidateModels = ["gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-1.5-flash"];
-      }
-
-      // Build conversation contents
-      const conversationContents: any[] = [];
-      for (const m of messages) {
-        if (m.role === "system") continue;
-        const textContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-        conversationContents.push({
-          role: m.role === "assistant" ? "model" : "user",
-          parts: [{ text: textContent }]
-        });
-      }
-
-      if (conversationContents.length === 0) {
-        conversationContents.push({ role: "user", parts: [{ text: "Hello!" }] });
-      }
-
-      for (const candidateModel of candidateModels) {
+      // =========================================================================
+      // 3. TERTIARY ENGINE: Gemini Fallback
+      // =========================================================================
+      const geminiApiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
+      if (geminiApiKey) {
         try {
-          const genConfig: any = {
-            systemInstruction: systemPrompt || undefined,
-            temperature: Math.min(1.0, Math.max(0.1, temperature)),
-          };
-
-          // Enable native thinking for models that support it
-          if (candidateModel.includes("3.7") || candidateModel.includes("3.8") || candidateModel.includes("2.5") || candidateModel.includes("flash")) {
-            genConfig.thinkingConfig = {
-              thinkingBudget: 2048,
-            };
+          const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+          const conversationContents: any[] = [];
+          for (const m of messages) {
+            if (m.role === "system") continue;
+            conversationContents.push({
+              role: m.role === "assistant" ? "model" : "user",
+              parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }]
+            });
+          }
+          if (conversationContents.length === 0) {
+            conversationContents.push({ role: "user", parts: [{ text: "Hello!" }] });
           }
 
           if (isStream) {
             const streamResult = await ai.models.generateContentStream({
-              model: candidateModel,
+              model: "gemini-2.5-flash",
               contents: conversationContents,
-              config: genConfig
+              config: { systemInstruction: systemPrompt || undefined, temperature: Math.min(1.0, Math.max(0.1, temperature)) }
             });
-
             res.setHeader("Content-Type", "text/event-stream");
             res.setHeader("Cache-Control", "no-cache");
             res.setHeader("Connection", "keep-alive");
-
-            let hasEmitted = false;
-            let inGeminiThoughtMode = false;
-
             for await (const chunk of streamResult) {
-              const candidate = (chunk as any).candidates?.[0];
-              const parts = candidate?.content?.parts;
-
-              if (Array.isArray(parts) && parts.length > 0) {
-                for (const part of parts) {
-                  const isThought = part.thought === true;
-                  const partText = part.text || "";
-                  if (!partText) continue;
-
-                  if (isThought) {
-                    if (!inGeminiThoughtMode) {
-                      inGeminiThoughtMode = true;
-                      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "<think>\n" + partText } }] })}\n\n`);
-                    } else {
-                      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: partText } }] })}\n\n`);
-                    }
-                  } else {
-                    if (inGeminiThoughtMode) {
-                      inGeminiThoughtMode = false;
-                      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" + partText } }] })}\n\n`);
-                    } else {
-                      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: partText } }] })}\n\n`);
-                    }
-                  }
-                  hasEmitted = true;
-                }
-              } else {
-                const delta = chunk.text || "";
-                if (delta) {
-                  if (inGeminiThoughtMode) {
-                    inGeminiThoughtMode = false;
-                    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" + delta } }] })}\n\n`);
-                  } else {
-                    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n\n`);
-                  }
-                  hasEmitted = true;
-                }
+              const delta = chunk.text || "";
+              if (delta) {
+                res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n\n`);
               }
             }
-
-            if (inGeminiThoughtMode) {
-              res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" } }] })}\n\n`);
-            }
-
-            if (hasEmitted) {
-              res.write("data: [DONE]\n\n");
-              return res.end();
-            }
+            res.write("data: [DONE]\n\n");
+            return res.end();
+          } else {
+            const nonStreamResult = await ai.models.generateContent({
+              model: "gemini-2.5-flash",
+              contents: conversationContents,
+              config: { systemInstruction: systemPrompt || undefined, temperature: Math.min(1.0, Math.max(0.1, temperature)) }
+            });
+            const text = nonStreamResult.text || "";
+            return res.json({
+              text,
+              choices: [{ message: { content: text } }],
+              model: "gemini-2.5-flash",
+              provider: "google-gemini"
+            });
           }
+        } catch (gemErr: any) {}
+      }
 
-          // Non-stream or if stream produced no chunks
-          const nonStreamResult = await ai.models.generateContent({
-            model: candidateModel,
-            contents: conversationContents,
-            config: genConfig
-          });
-
-          if (nonStreamResult) {
-            let finalFormattedText = "";
-            const candidate = (nonStreamResult as any).candidates?.[0];
-            const parts = candidate?.content?.parts;
-
-            if (Array.isArray(parts) && parts.some((p: any) => p.thought === true)) {
-              let thoughtText = "";
-              let ansText = "";
-              for (const p of parts) {
-                if (p.thought === true) {
-                  thoughtText += p.text || "";
-                } else {
-                  ansText += p.text || "";
-                }
-              }
-              if (thoughtText) {
-                finalFormattedText = `<think>\n${thoughtText.trim()}\n</think>\n\n${ansText.trim()}`;
-              } else {
-                finalFormattedText = ansText || nonStreamResult.text || "";
-              }
-            } else {
-              finalFormattedText = nonStreamResult.text || "";
-            }
-
-            if (finalFormattedText) {
-              if (isStream) {
-                res.setHeader("Content-Type", "text/event-stream");
-                res.setHeader("Cache-Control", "no-cache");
-                res.setHeader("Connection", "keep-alive");
-                res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: finalFormattedText } }] })}\n\n`);
-                res.write("data: [DONE]\n\n");
-                return res.end();
-              } else {
-                return res.json({
-                  text: finalFormattedText,
-                  choices: [{ message: { content: finalFormattedText } }],
-                  model: candidateModel,
-                  provider: "google-gemini"
-                });
-              }
-            }
-          }
-        } catch (modelErr: any) {
-          console.warn(`Gemini model ${candidateModel} failed, trying next...`, modelErr?.message);
-        }
+      if (!groqKey) {
+        return res.status(400).json({
+          error: "Groq API key is required. Please set the GROQ_API_KEY environment variable.",
+        });
       }
 
       return res.status(502).json({
-        error: "AI model generation currently unavailable. Please verify API credentials or try again."
+        error: "All Groq model requests failed. Please check GROQ_API_KEY quota and connection."
       });
     } catch (err: any) {
       console.error("AI chat fatal error:", err);

@@ -137,36 +137,73 @@ export interface AIModelOption {
   badge?: string;
 }
 
-const GITHUB_MODELS: AIModelOption[] = [
+const GROQ_FREE_MODELS: AIModelOption[] = [
   {
-    id: "gemini-3.5-flash",
-    name: "Gemini 3.5 Flash",
-    provider: "Google DeepMind",
-    description: "Ultra-fast multimodal flash model with lightning responses.",
+    id: "llama-3.3-70b-versatile",
+    name: "Llama 3.3 70B Versatile",
+    provider: "Groq (Meta)",
+    description: "Flagship 70B model with exceptional reasoning, coding, and comprehension.",
+    badge: "Free Forever • Flagship",
+  },
+  {
+    id: "llama-3.1-8b-instant",
+    name: "Llama 3.1 8B Instant",
+    provider: "Groq (Meta)",
+    description: "Ultra-fast token speed with a massive 128k context window.",
     badge: "Free Forever • Ultra Fast",
   },
   {
-    id: "gemini-3.6-flash",
-    name: "Gemini 3.6 Flash",
-    provider: "Google DeepMind",
-    description: "Optimized reasoning and coding intelligence flash tier.",
-    badge: "Free Forever • Balanced",
+    id: "deepseek-r1-distill-llama-70b",
+    name: "DeepSeek R1 Distill 70B",
+    provider: "Groq (DeepSeek)",
+    description: "Deep mathematical, logical, and code reasoning with live thinking traces.",
+    badge: "Free Forever • Deep Reasoning",
   },
   {
-    id: "gemini-3.7-flash",
-    name: "Gemini 3.7 Flash",
-    provider: "Google DeepMind",
-    description: "State-of-the-art hybrid thinking and complex problem solving.",
-    badge: "Free Forever • Smartest",
+    id: "qwen-2.5-32b",
+    name: "Qwen 2.5 32B",
+    provider: "Groq (Alibaba)",
+    description: "High-intelligence multilingual model tuned for problem solving and STEM.",
+    badge: "Free Forever • Smart",
   },
   {
-    id: "gemini-3.8-flash",
-    name: "Gemini 3.8 Flash",
-    provider: "Google DeepMind",
-    description: "Next-gen experimental Flash architecture for extreme depth.",
-    badge: "Free Forever • Experimental",
+    id: "gemma2-9b-it",
+    name: "Gemma 2 9B",
+    provider: "Groq (Google)",
+    description: "Google's open weights accelerated at ultra-high speeds on Groq LPUs.",
+    badge: "Free Forever • Fast",
+  },
+  {
+    id: "mixtral-8x7b-32768",
+    name: "Mixtral 8x7B (32k)",
+    provider: "Groq (Mistral)",
+    description: "High-throughput mixture-of-experts model with a 32,768 token context.",
+    badge: "Free Forever • 32k Context",
+  },
+  {
+    id: "llama-3.2-11b-vision-preview",
+    name: "Llama 3.2 11B Vision",
+    provider: "Groq (Meta)",
+    description: "Multimodal visual and text reasoning on Groq LPUs.",
+    badge: "Free Forever • Vision",
+  },
+  {
+    id: "llama-3.2-3b-preview",
+    name: "Llama 3.2 3B Instant",
+    provider: "Groq (Meta)",
+    description: "Compact, ultra-low latency model for instantaneous lookups.",
+    badge: "Free Forever • Instant",
+  },
+  {
+    id: "llama-3.2-1b-preview",
+    name: "Llama 3.2 1B Turbo",
+    provider: "Groq (Meta)",
+    description: "Smallest, fastest token generation on Groq hardware.",
+    badge: "Free Forever • Turbo",
   },
 ];
+
+const GITHUB_MODELS = GROQ_FREE_MODELS;
 
 const QUICK_STARTERS = [
   {
@@ -191,19 +228,19 @@ const QUICK_STARTERS = [
   },
 ];
 
-const DEFAULT_ENDPOINT = "https://models.github.ai/inference";
+const DEFAULT_ENDPOINT = "https://api.groq.com/openai/v1";
 export const DEFAULT_GITHUB_PAT = "";
 
 export default function AIAssistant() {
   // Config state - pre-configured with default key
-  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem("github_models_pat") || "");
-  const [endpoint, setEndpoint] = useState<string>(() => localStorage.getItem("github_models_endpoint") || DEFAULT_ENDPOINT);
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem("groq_api_key") || localStorage.getItem("github_models_pat") || "");
+  const [endpoint, setEndpoint] = useState<string>(() => localStorage.getItem("groq_endpoint") || localStorage.getItem("github_models_endpoint") || DEFAULT_ENDPOINT);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
-    const saved = localStorage.getItem("github_models_selected");
-    if (saved && (saved.includes("gemini-3.5") || saved.includes("gemini-3.6") || saved.includes("gemini-3.7") || saved.includes("gemini-3.8"))) {
+    const saved = localStorage.getItem("groq_model_selected") || localStorage.getItem("github_models_selected");
+    if (saved && GROQ_FREE_MODELS.some((m) => m.id === saved)) {
       return saved;
     }
-    return "gemini-3.7-flash";
+    return "llama-3.3-70b-versatile";
   });
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>("general");
   const [temperature, setTemperature] = useState<number>(0.7);
@@ -237,7 +274,7 @@ export default function AIAssistant() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
-      model: "gemini-3.7-flash",
+      model: "llama-3.3-70b-versatile",
       personaId: "general",
     };
     return [defaultThread];
@@ -906,6 +943,7 @@ export default function AIAssistant() {
                         key={model.id}
                         onClick={() => {
                           setSelectedModel(model.id);
+                          localStorage.setItem("groq_model_selected", model.id);
                           localStorage.setItem("github_models_selected", model.id);
                           setShowModelDropdown(false);
                         }}
@@ -999,7 +1037,7 @@ export default function AIAssistant() {
                 Frosted AI Study Assistant
               </h2>
               <p className="text-xs sm:text-sm text-neutral-400 mt-1 max-w-md">
-                100% Free Forever &bull; Unlimited Prompts &bull; Gemini 3.5 – 3.8 Flash Models. Ask homework questions, brainstorm topics, solve equations, or debug code.
+                100% Free Forever &bull; Unlimited Prompts &bull; Powered by Groq LPU Models (Llama 3.3 70B, DeepSeek R1, Qwen 2.5, Gemma 2, Mixtral). Ask homework questions, brainstorm topics, solve equations, or debug code.
               </p>
 
               {/* Quick Prompt Cards */}
@@ -1318,7 +1356,7 @@ export default function AIAssistant() {
                 <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
                 <span className="font-medium text-neutral-300">Frosted AI Companion &bull; {selectedModel}</span>
                 <span className="text-[10px] font-bold text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
-                  Free Forever &bull; Unlimited
+                  Groq Free Forever &bull; Ultra-Fast LPU
                 </span>
               </div>
 
