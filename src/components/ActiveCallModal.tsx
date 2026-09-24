@@ -14,6 +14,7 @@ import {
   MonitorUp,
   MonitorOff,
   ScreenShareOff,
+  Tv,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -44,6 +45,30 @@ export default function ActiveCallModal() {
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Auto Picture-in-Picture logic when screen sharing status changes
+  useEffect(() => {
+    const handleAutoPip = async () => {
+      if (isScreenSharing) {
+        if (remoteVideoRef.current && document.pictureInPictureEnabled) {
+          try {
+            if (document.pictureInPictureElement !== remoteVideoRef.current) {
+              await remoteVideoRef.current.requestPictureInPicture();
+            }
+          } catch (err) {
+            console.warn("Auto PiP error:", err);
+          }
+        }
+      } else {
+        if (document.pictureInPictureElement) {
+          try {
+            await document.exitPictureInPicture();
+          } catch (err) {}
+        }
+      }
+    };
+    handleAutoPip();
+  }, [isScreenSharing]);
 
   // Timer for active call duration
   useEffect(() => {
@@ -294,6 +319,28 @@ export default function ActiveCallModal() {
 
               {/* Remote User Camera / Live Tile Overlay - always visible when sharing screen */}
               <div className="absolute top-4 right-4 sm:top-6 sm:right-6 w-44 sm:w-56 aspect-video rounded-2xl overflow-hidden border-2 border-indigo-500/50 bg-neutral-900 shadow-2xl z-20 flex flex-col items-center justify-center">
+                {document.pictureInPictureEnabled && remoteStream && (
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        if (document.pictureInPictureElement) {
+                          await document.exitPictureInPicture();
+                        } else if (remoteVideoRef.current) {
+                          await remoteVideoRef.current.requestPictureInPicture();
+                        }
+                      } catch (err) {
+                        console.error("Picture-in-Picture failed:", err);
+                      }
+                    }}
+                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white/80 hover:text-white border border-white/10 transition-colors z-30 cursor-pointer"
+                    title="Toggle Floating Camera (Picture-in-Picture)"
+                  >
+                    <Tv size={12} />
+                  </button>
+                )}
+
                 {remoteStream && remoteStream.getVideoTracks().some((t) => t.readyState === "live" && t.enabled) ? (
                   <video
                     ref={(el) => {
@@ -370,6 +417,28 @@ export default function ActiveCallModal() {
           ) : activeCall.callType === "video" || (remoteStream && remoteStream.getVideoTracks().length > 0) ? (
             // Video or Remote Screen Share View
             <div className="relative w-full h-full flex items-center justify-center bg-black">
+              {document.pictureInPictureEnabled && remoteStream && remoteStream.getVideoTracks().length > 0 && (
+                <button
+                  type="button"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      if (document.pictureInPictureElement) {
+                        await document.exitPictureInPicture();
+                      } else if (remoteVideoRef.current) {
+                        await remoteVideoRef.current.requestPictureInPicture();
+                      }
+                    } catch (err) {
+                      console.error("Picture-in-Picture failed:", err);
+                    }
+                  }}
+                  className="absolute top-4 right-4 p-2 rounded-xl bg-black/60 hover:bg-black/85 text-white/90 border border-white/10 hover:border-white/20 transition-all z-20 cursor-pointer shadow-lg"
+                  title="Toggle Floating Camera (Picture-in-Picture)"
+                >
+                  <Tv size={15} />
+                </button>
+              )}
+
               {/* Remote Video / Shared Screen */}
               <video
                 ref={(el) => {

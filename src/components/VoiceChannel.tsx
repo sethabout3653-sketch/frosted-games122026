@@ -1004,7 +1004,12 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         delete peersRef.current[partnerUid];
       }
 
-      const pc = new RTCPeerConnection(ICE_SERVERS);
+      const fails = callFailCountRef.current[partnerUid] || 0;
+      const config: RTCConfiguration = {
+        ...ICE_SERVERS,
+        iceTransportPolicy: fails >= 1 ? "relay" : "all" as RTCIceTransportPolicy,
+      };
+      const pc = new RTCPeerConnection(config);
       peersRef.current[partnerUid] = pc;
       iceCandidateQueuesRef.current[partnerUid] = [];
 
@@ -1133,19 +1138,60 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       };
 
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === "connected") {
+        const state = pc.connectionState;
+        console.log(`Group call peer ${partnerUid} Connection State: ${state}`);
+        if (state === "connected") {
           callFailCountRef.current[partnerUid] = 0;
-        } else if (pc.connectionState === "failed") {
+        } else if (state === "failed") {
           callFailCountRef.current[partnerUid] = (callFailCountRef.current[partnerUid] || 0) + 1;
         }
       };
 
       pc.oniceconnectionstatechange = () => {
+        const iceState = pc.iceConnectionState;
+        console.log(`Group call peer ${partnerUid} ICE state: ${iceState}`);
+
+        if (iceState === "failed" || iceState === "disconnected") {
+          const fails = callFailCountRef.current[partnerUid] || 0;
+          if (fails < 3) {
+            callFailCountRef.current[partnerUid] = fails + 1;
+            console.warn(`ICE state with ${partnerUid} went to ${iceState}. Attempting WebRTC ICE Restart (Attempt ${fails + 1})...`);
+
+            // Standard polite/impolite role split: peer with lower UID triggers the offer to avoid collisions
+            const isInitiator = profile.uid < partnerUid;
+            if (isInitiator) {
+              try {
+                if (typeof pc.restartIce === "function") {
+                  pc.restartIce();
+                }
+                pc.createOffer({ iceRestart: true }).then((offer) => {
+                  const highQualityOffer = new RTCSessionDescription({
+                    type: offer.type,
+                    sdp: optimizeAudioSdp(offer.sdp || ""),
+                  });
+                  return pc.setLocalDescription(highQualityOffer).then(() => {
+                    sendSignal(partnerUid, "offer", JSON.stringify(highQualityOffer));
+                  });
+                }).catch((err) => {
+                  console.warn("ICE restart offer failed, recreating peer connection:", err);
+                  if (localStreamRef.current) {
+                    initiateCall(partnerUid, localStreamRef.current);
+                  }
+                });
+              } catch (e) {
+                if (localStreamRef.current) {
+                  initiateCall(partnerUid, localStreamRef.current);
+                }
+              }
+            }
+            return; // Exit early, do not clear peer connection yet!
+          }
+        }
+
         if (
-          pc.iceConnectionState === "failed" ||
-          pc.iceConnectionState === "closed"
+          iceState === "closed" ||
+          (iceState === "failed" && (callFailCountRef.current[partnerUid] || 0) >= 3)
         ) {
-          callFailCountRef.current[partnerUid] = (callFailCountRef.current[partnerUid] || 0) + 1;
           try {
             pc.close();
           } catch (e) {}
@@ -2111,6 +2157,13 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
     setIsScreenAudioOn(false);
     isScreenAudioOnRef.current = false;
 
+    // Exit Picture-in-Picture if active
+    if (document.pictureInPictureElement) {
+      try {
+        await document.exitPictureInPicture();
+      } catch (err) {}
+    }
+
     // 1. Update Firestore immediately to prevent phantom "LIVE" states if WebRTC throws
     await updateDoc(doc(db, "voice_users", profile.uid), {
       isScreenSharing: false,
@@ -2371,6 +2424,21 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       isScreenSharingRef.current = true;
       setIsScreenShareLoading(false);
       setTrackTrigger((v) => v + 1);
+
+      // Auto-pop out the first remote camera feed into Picture-in-Picture
+      if (document.pictureInPictureEnabled) {
+        const firstActiveRemoteVideo = activeParticipants.find((p) => p.isVideoOn);
+        if (firstActiveRemoteVideo) {
+          const el = remoteVideoRefs.current[firstActiveRemoteVideo.uid];
+          if (el && document.pictureInPictureElement !== el) {
+            try {
+              await el.requestPictureInPicture();
+            } catch (err) {
+              console.warn("Auto PiP failed:", err);
+            }
+          }
+        }
+      }
 
       await updateDoc(doc(db, "voice_users", profile.uid), {
         isScreenSharing: true,
@@ -3023,6 +3091,29 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
               {/* Video Element */}
               {isCameraShowing ? (
                 <div className="relative w-full h-full">
+                  {document.pictureInPictureEnabled && (
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const el = remoteVideoRefs.current[p.uid];
+                        try {
+                          if (document.pictureInPictureElement) {
+                            await document.exitPictureInPicture();
+                          } else if (el) {
+                            await el.requestPictureInPicture();
+                          }
+                        } catch (err) {
+                          console.error("PiP trigger error:", err);
+                        }
+                      }}
+                      className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/75 hover:bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white transition-colors z-30 cursor-pointer"
+                      title="Floating Camera (Picture-in-Picture)"
+                    >
+                      <Eye size={12} />
+                    </button>
+                  )}
+
                   <video
                     ref={(el) => {
                       remoteVideoRefs.current[p.uid] = el;

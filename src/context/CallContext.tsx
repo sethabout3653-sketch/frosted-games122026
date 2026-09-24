@@ -152,6 +152,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const currentCallIdRef = useRef<string | null>(null);
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const onlineUsersRef = useRef<CallUser[]>([]);
+  const directCallFailCountRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     activeCallRef.current = activeCall;
@@ -331,7 +332,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       currentCallIdRef.current = callId;
       pendingIceCandidatesRef.current = [];
 
-      const pc = new RTCPeerConnection(ICE_SERVERS);
+      const failCount = directCallFailCountRef.current[partnerUid] || 0;
+      const config = {
+        ...ICE_SERVERS,
+        iceTransportPolicy: failCount >= 1 ? "relay" : "all" as RTCIceTransportPolicy,
+      };
+      const pc = new RTCPeerConnection(config);
       peerConnectionRef.current = pc;
 
       // Handle ICE candidates
@@ -374,9 +380,82 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === "failed") {
-          playCallTone("declined");
-          cleanupCall();
+        const state = pc.connectionState;
+        console.log(`Direct Connection State: ${state}`);
+        if (state === "connected") {
+          directCallFailCountRef.current[partnerUid] = 0;
+        }
+        if (state === "failed") {
+          console.warn("Direct WebRTC connection failed. Initiating ICE Restart fallback...");
+          directCallFailCountRef.current[partnerUid] = (directCallFailCountRef.current[partnerUid] || 0) + 1;
+          if (activeCallRef.current) {
+            try {
+              if (typeof pc.restartIce === "function") {
+                pc.restartIce();
+              }
+              pc.createOffer({ iceRestart: true }).then((offer) => {
+                const optOfferSdp = optimizeAudioSdp(offer.sdp || "");
+                return pc.setLocalDescription({ type: "offer", sdp: optOfferSdp }).then(() => {
+                  const prof = getSavedProfile();
+                  sendBroadcastSignal({
+                    type: "direct_call_offer",
+                    uid: prof.uid,
+                    targetUid: partnerUid,
+                    callId,
+                    sdp: JSON.stringify({ type: "offer", sdp: optOfferSdp }),
+                  });
+                });
+              }).catch((err) => {
+                console.error("Direct ICE Restart offer failed, cleaning up call:", err);
+                playCallTone("declined");
+                cleanupCall();
+              });
+            } catch (err) {
+              console.error("Failed to trigger direct call ICE restart:", err);
+              playCallTone("declined");
+              cleanupCall();
+            }
+          } else {
+            playCallTone("declined");
+            cleanupCall();
+          }
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        const iceState = pc.iceConnectionState;
+        console.log(`Direct ICE Connection State: ${iceState}`);
+        if (iceState === "failed" || iceState === "disconnected") {
+          if (activeCallRef.current) {
+            // Wait 2.5 seconds to see if connection naturally recovers, otherwise trigger restart
+            setTimeout(() => {
+              if (
+                peerConnectionRef.current === pc &&
+                (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") &&
+                pc.connectionState !== "connected"
+              ) {
+                console.warn("ICE connection remains disconnected. Triggering ICE Restart...");
+                try {
+                  if (typeof pc.restartIce === "function") {
+                    pc.restartIce();
+                  }
+                  pc.createOffer({ iceRestart: true }).then((offer) => {
+                    const optOfferSdp = optimizeAudioSdp(offer.sdp || "");
+                    return pc.setLocalDescription({ type: "offer", sdp: optOfferSdp }).then(() => {
+                      const prof = getSavedProfile();
+                      sendBroadcastSignal({
+                        type: "direct_call_offer",
+                        uid: prof.uid,
+                        targetUid: partnerUid,
+                        callId,
+                        sdp: JSON.stringify({ type: "offer", sdp: optOfferSdp }),
+                      });
+                    });
+                  }).catch(() => {});
+                } catch (e) {}
+              }
+            }, 2500);
+          }
         }
       };
 
