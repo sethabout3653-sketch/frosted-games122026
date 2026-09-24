@@ -1589,123 +1589,170 @@ const PORT = Number(process.env.PORT) || 3000;
     res.json({ success: true, message: "CQL Execution Simulated." });
   });
 
+  function sanitizeApiKey(raw: any): string {
+    if (!raw || typeof raw !== "string") return "";
+    let s = raw.trim();
+    // Strip wrapping quotes
+    s = s.replace(/^["'`]+|["'`]+$/g, "").trim();
+    // Strip variable assignment prefix like `GROQ_API_KEY = ` or `export GROQ_API_KEY=`
+    s = s.replace(/^(?:export\s+)?[A-Z0-9_]+\s*=\s*/i, "").trim();
+    // Strip Bearer prefix
+    s = s.replace(/^Bearer\s+/i, "").trim();
+    // Strip quotes again
+    s = s.replace(/^["'`]+|["'`]+$/g, "").trim();
+    if (s === "undefined" || s === "null" || s === "[object Object]") return "";
+    return s;
+  }
+
+  function findGroqApiKey(): string {
+    const directKeys = [
+      process.env.GROQ_API_KEY,
+      process.env.GROQ_KEY,
+      process.env.GROQ_TOKEN,
+      process.env.GROQ_API,
+      process.env.GROQ_SECRET,
+      process.env.GROQ_SECRET_KEY,
+      process.env.VITE_GROQ_API_KEY,
+      process.env.AI_API_KEY,
+      process.env.GROQ,
+    ];
+    for (const k of directKeys) {
+      const sanitized = sanitizeApiKey(k);
+      if (sanitized && !sanitized.startsWith("ghp_") && !sanitized.startsWith("AIza")) {
+        return sanitized;
+      }
+    }
+    // Scan all process.env keys for any containing "GROQ"
+    for (const [k, v] of Object.entries(process.env)) {
+      if (k.toUpperCase().includes("GROQ")) {
+        const sanitized = sanitizeApiKey(v);
+        if (sanitized && !sanitized.startsWith("ghp_") && !sanitized.startsWith("AIza")) {
+          return sanitized;
+        }
+      }
+    }
+    return "";
+  }
+
   // ==========================================
   // High-Resilience AI Inference Proxy Config
   // ==========================================
   app.get("/api/ai/config", (req, res) => {
-    const hasKey = Boolean(process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY);
+    const serverKey = findGroqApiKey();
     res.json({
-      hasEnvKey: hasKey,
+      hasEnvKey: Boolean(serverKey || process.env.GEMINI_API_KEY),
+      hasGroqKey: Boolean(serverKey),
+      keyMasked: serverKey ? `${serverKey.slice(0, 7)}...${serverKey.slice(-4)}` : null,
+      provider: serverKey ? "groq" : "gemini",
       defaultModel: "openai/gpt-oss-120b",
       endpoint: "https://api.groq.com/openai/v1",
-      provider: "groq",
       models: [
         "openai/gpt-oss-120b",
         "openai/gpt-oss-20b",
         "qwen/qwen3.8-27b",
-        "groq/compound",
-        "groq/compound-mini"
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "llama-3.3-70b-specdec",
+        "llama-3.2-11b-vision-preview",
+        "llama-3.2-3b-preview",
+        "llama-3.2-1b-preview"
       ]
     });
   });
 
   app.post("/api/ai/test", async (req, res) => {
     try {
-      let authHeader = req.headers.authorization || "";
-      const effectiveKey = authHeader.replace(/^Bearer\s+/i, "").trim() || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY || "";
-      const { endpoint } = req.body || {};
+      const authHeader = req.headers.authorization || "";
+      const bearerToken = sanitizeApiKey(authHeader.replace(/^Bearer\s+/i, ""));
+      const bodyKey = sanitizeApiKey(req.body?.customKey);
+      const serverKey = findGroqApiKey();
+      const groqKey = bodyKey || bearerToken || serverKey;
 
-      // 1. Prioritize Groq free test with active model
-      const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (effectiveKey && !effectiveKey.startsWith("ghp_") && !effectiveKey.startsWith("github_pat_") && !effectiveKey.startsWith("AIza") ? effectiveKey : "");
-      if (groqKey) {
-        for (const testModel of ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "groq/compound-mini", "qwen/qwen3.8-27b"]) {
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-            const upstreamRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${groqKey}`,
-              },
-              body: JSON.stringify({
-                model: testModel,
-                messages: [{ role: "user", content: "Say 'Groq AI is active!' in 4 words." }],
-                max_tokens: 15,
-              }),
-              signal: controller.signal,
-            });
-
-            clearTimeout(timeoutId);
-
-            if (upstreamRes.ok) {
-              const data = await upstreamRes.json();
-              return res.json({ success: true, provider: "groq", model: testModel, data });
-            }
-          } catch (groqErr) {}
-        }
+      if (!groqKey) {
+        return res.status(400).json({
+          ok: false,
+          success: false,
+          error: "No Groq API key found. Please add GROQ_API_KEY in Render environment settings or enter a key in the modal."
+        });
       }
 
-      // 2. Fallback to GitHub Models test if key is present
-      const isGithub = effectiveKey.startsWith("ghp_") || effectiveKey.startsWith("github_pat_");
-      if (isGithub || (effectiveKey && endpoint && (endpoint.includes("github") || endpoint.includes("azure")))) {
+      const startTime = Date.now();
+
+      // Check key against Groq models endpoint first
+      try {
+        const checkRes = await fetch("https://api.groq.com/openai/v1/models", {
+          headers: { Authorization: `Bearer ${groqKey}` },
+          signal: AbortSignal.timeout(6000)
+        });
+
+        if (!checkRes.ok) {
+          const errText = await checkRes.text().catch(() => "");
+          let reason = `Groq rejected key (HTTP ${checkRes.status})`;
+          if (checkRes.status === 401) reason = "Invalid API key (HTTP 401). Please verify key at console.groq.com/keys";
+          return res.status(checkRes.status).json({
+            ok: false,
+            success: false,
+            error: `${reason}: ${errText.slice(0, 160)}`
+          });
+        }
+      } catch (e: any) {
+        // Continue to completion test if models endpoint timed out
+      }
+
+      // Quick test completion
+      const testCandidates = [
+        "openai/gpt-oss-20b",
+        "openai/gpt-oss-120b",
+        "qwen/qwen3.8-27b",
+        "llama3-8b-8192",
+        "llama3-70b-8192",
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant"
+      ];
+
+      for (const m of testCandidates) {
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          const ghRes = await fetch("https://models.inference.ai.azure.com/chat/completions", {
+          const compRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${effectiveKey}`,
+              Authorization: `Bearer ${groqKey}`
             },
             body: JSON.stringify({
-              model: "gpt-4o-mini",
-              messages: [{ role: "user", content: "Say 'AI active!' in 2 words." }],
-              max_tokens: 15,
+              model: m,
+              messages: [{ role: "user", content: "Respond with 'Groq Online' in 2 words." }],
+              max_tokens: 10
             }),
-            signal: controller.signal,
+            signal: AbortSignal.timeout(6000)
           });
-          clearTimeout(timeoutId);
-          if (ghRes.ok) {
-            const data = await ghRes.json();
-            return res.json({ success: true, provider: "github-models", data });
+
+          if (compRes.ok) {
+            const data = await compRes.json();
+            const latencyMs = Date.now() - startTime;
+            const reply = data.choices?.[0]?.message?.content || "Groq Online";
+            return res.json({
+              ok: true,
+              success: true,
+              latencyMs,
+              modelUsed: m,
+              reply,
+              message: `Groq connected in ${latencyMs}ms using ${m}!`
+            });
           }
         } catch (e) {}
       }
 
-      // 3. Fallback test via Gemini
-      const geminiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
-      if (geminiKey) {
-        try {
-          const ai = new GoogleGenAI({ apiKey: geminiKey });
-          const result = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: [{ role: "user", parts: [{ text: "Say 'AI is ready!' in 4 words." }] }],
-          });
-          return res.json({
-            success: true,
-            provider: "google-gemini",
-            data: {
-              choices: [
-                {
-                  message: {
-                    content: result.text || "AI connection active!",
-                  },
-                },
-              ],
-            },
-          });
-        } catch (geminiErr: any) {
-          return res.status(500).json({ error: geminiErr.message });
-        }
-      }
-
-      return res.status(400).json({
-        error: "No active AI key found. Please set GROQ_API_KEY in your environment variables.",
+      return res.status(502).json({
+        ok: false,
+        success: false,
+        error: "Groq key was verified, but candidate test models were temporarily busy. Please try sending a message in chat."
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      return res.status(500).json({
+        ok: false,
+        success: false,
+        error: err.message || "Failed to test Groq connection."
+      });
     }
   });
 
@@ -3241,11 +3288,6 @@ Respond strictly in valid JSON:
     });
   });
 
-  function sanitizeApiKey(raw: any): string {
-    if (!raw || typeof raw !== "string") return "";
-    return raw.trim().replace(/^["']|["']$/g, "").trim();
-  }
-
   async function executeAiCompletion(opts: {
     messages: any[];
     model?: string;
@@ -3443,8 +3485,11 @@ Respond strictly in valid JSON:
       const isClientGithub = cleanCustomKey.startsWith("ghp_") || cleanCustomKey.startsWith("github_pat_") || bearerToken.startsWith("ghp_") || bearerToken.startsWith("github_pat_");
       const isClientGemini = cleanCustomKey.startsWith("AIza") || bearerToken.startsWith("AIza");
 
-      const serverGroqKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.GROQ_TOKEN || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
-      const groqKey = isClientGroq ? (cleanCustomKey || bearerToken) : (serverGroqKey || (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : ""));
+      const serverGroqKey = findGroqApiKey();
+      const clientGroqKey = isClientGroq ? (cleanCustomKey || bearerToken) : "";
+      const groqKey = clientGroqKey || serverGroqKey || (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : "");
+
+      console.log(`[AI Chat] Model: ${model} | Server Groq Key: ${Boolean(serverGroqKey)} | Client Groq Key: ${Boolean(clientGroqKey)}`);
 
       // Build OpenAI-compatible messages for Groq
       const groqMessages: any[] = [];
@@ -3458,6 +3503,9 @@ Respond strictly in valid JSON:
         });
       }
 
+      let lastGroqStatus = 0;
+      let lastGroqErrorText = "";
+
       // =========================================================================
       // 1. PRIMARY ENGINE: Groq High-Speed LPU Inference
       // =========================================================================
@@ -3466,7 +3514,16 @@ Respond strictly in valid JSON:
         const mappedModel = GROQ_MODEL_ALIASES[model] || model || "openai/gpt-oss-120b";
         const groqCandidateModels = Array.from(new Set([
           mappedModel,
-          model,
+          "openai/gpt-oss-120b",
+          "openai/gpt-oss-20b",
+          "qwen/qwen3.8-27b",
+          "llama3-70b-8192",
+          "llama3-8b-8192",
+          "llama-3.3-70b-specdec",
+          "llama-3.2-11b-vision-preview",
+          "llama-3.2-3b-preview",
+          "llama-3.3-70b-versatile",
+          "llama-3.1-8b-instant",
           ...liveGroqModels,
           ...FALLBACK_GROQ_MODELS
         ])).filter(Boolean);
@@ -3494,8 +3551,13 @@ Respond strictly in valid JSON:
             clearTimeout(timeoutId);
 
             if (!upstreamRes.ok) {
-              const errBody = await upstreamRes.text().catch(() => "");
-              console.warn(`Groq model ${candModel} returned ${upstreamRes.status}:`, errBody.slice(0, 150));
+              lastGroqStatus = upstreamRes.status;
+              lastGroqErrorText = await upstreamRes.text().catch(() => "");
+              console.warn(`[Groq] ${candModel} returned ${upstreamRes.status}:`, lastGroqErrorText.slice(0, 150));
+              if (upstreamRes.status === 401) {
+                // Invalid API key - all other candidates will fail identically
+                break;
+              }
               continue;
             }
 
@@ -3702,8 +3764,17 @@ Respond strictly in valid JSON:
         } catch (ghErr: any) {}
       }
 
-      // 4. Graceful Diagnostic Response (Never crash with 500/502)
-      const noticeText = `⚠️ **Groq AI Connection Setup Required**\n\nFrosted AI was unable to reach a working AI provider. To enable ultra-fast Groq LPU responses on your live app:\n\n1. Go to your **Render Dashboard** → Your Web Service → **Environment** tab.\n2. Add the environment variable: \`GROQ_API_KEY = gsk_...\`\n3. Click **Manual Deploy** → **Deploy latest commit** so Render applies the new key.\n4. You can also paste your Groq API key directly using the **API Key** settings button above.\n\n*(Get a free Groq key in 30 seconds at [console.groq.com/keys](https://console.groq.com/keys)).*`;
+      // 4. Graceful Diagnostic Response with exact troubleshooting
+      let noticeText = "";
+      if (lastGroqStatus === 401) {
+        noticeText = `⚠️ **Groq API Key Authentication Failed (HTTP 401)**\n\nThe Groq key provided on your server or in your browser was rejected by Groq as invalid, expired, or revoked.\n\n**How to fix:**\n1. Go to [console.groq.com/keys](https://console.groq.com/keys) and generate a new key (it starts with \`gsk_\`).\n2. Click the **API Key** button in the header at the top right of this chat and paste it to connect immediately.\n3. On **Render**, update \`GROQ_API_KEY\` in your **Environment** tab, then click **Manual Deploy → Deploy latest commit**.`;
+      } else if (lastGroqStatus === 429) {
+        noticeText = `⚠️ **Groq Rate Limit Exceeded (HTTP 429)**\n\nYour Groq free tier per-minute token rate limit was reached. Please wait 30 seconds and send your message again.`;
+      } else if (!groqKey) {
+        noticeText = `⚠️ **Groq API Key Not Detected on Server**\n\nFrosted AI could not find an active \`GROQ_API_KEY\` in the environment.\n\n**To resolve:**\n1. In your **Render Dashboard** → Your Web Service → **Environment** tab:\n   - Add Key: \`GROQ_API_KEY\`\n   - Value: \`gsk_...\`\n2. **Important:** Click **Manual Deploy → Deploy latest commit** so Render restarts with the new variable applied.\n3. **Immediate Option:** Click the **API Key** button at the top right of this page to paste your \`gsk_...\` key and start chatting instantly!`;
+      } else {
+        noticeText = `⚠️ **Groq Inference Notice (${lastGroqStatus ? `HTTP ${lastGroqStatus}` : "Unavailable"})**\n\n${lastGroqErrorText ? `*Groq message:* \`${lastGroqErrorText.slice(0, 200)}\`\n\n` : ""}Please verify your key in the **API Key** settings modal at the top right or try sending your message again.`;
+      }
 
       if (isStream) {
         res.setHeader("Content-Type", "text/event-stream");

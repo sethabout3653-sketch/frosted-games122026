@@ -348,8 +348,22 @@ export default function AIAssistant() {
   }, [activeThreadId]);
 
   const activeThread = useMemo(() => {
-    return threads.find((t) => t.id === activeThreadId) || threads[0];
+    return threads.find((t) => t.id === activeThreadId) || threads[0] || {
+      id: "thread-" + Date.now(),
+      title: "New Conversation",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [],
+      model: "openai/gpt-oss-120b",
+      personaId: "general",
+    };
   }, [threads, activeThreadId]);
+
+  useEffect(() => {
+    if (activeThread && activeThread.id !== activeThreadId) {
+      setActiveThreadId(activeThread.id);
+    }
+  }, [activeThread, activeThreadId]);
 
   const activePersona = useMemo(() => {
     return PERSONAS.find((p) => p.id === selectedPersonaId) || PERSONAS[0];
@@ -465,7 +479,10 @@ export default function AIAssistant() {
     if (!rawContent || isGenerating) return;
 
     const effectiveKey = apiKey.trim() || DEFAULT_GITHUB_PAT;
-    const currentTargetThreadId = activeThreadId;
+    const currentTargetThreadId = activeThread?.id || activeThreadId || ("thread-" + Date.now());
+    if (activeThreadId !== currentTargetThreadId) {
+      setActiveThreadId(currentTargetThreadId);
+    }
 
     setInputPrompt("");
 
@@ -486,14 +503,27 @@ export default function AIAssistant() {
     };
 
     // Update title if first message
-    const currentThreadMessages = activeThread.id === currentTargetThreadId ? activeThread.messages : [];
+    const currentThreadMessages = activeThread?.messages || [];
     const shouldUpdateTitle = currentThreadMessages.length === 0;
     const cleanTitle = shouldUpdateTitle
       ? rawContent.slice(0, 36) + (rawContent.length > 36 ? "..." : "")
       : (activeThread.title || "Conversation");
 
-    setThreads((prev) =>
-      prev.map((t) => {
+    setThreads((prev) => {
+      const exists = prev.some((t) => t.id === currentTargetThreadId);
+      if (!exists) {
+        const newThread: ChatThread = {
+          id: currentTargetThreadId,
+          title: cleanTitle,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          messages: [userMessage, initialAssistantMessage],
+          model: selectedModel,
+          personaId: selectedPersonaId,
+        };
+        return [newThread, ...prev];
+      }
+      return prev.map((t) => {
         if (t.id === currentTargetThreadId) {
           return {
             ...t,
@@ -503,8 +533,8 @@ export default function AIAssistant() {
           };
         }
         return t;
-      })
-    );
+      });
+    });
 
     setIsGenerating(true);
     const controller = new AbortController();
