@@ -1176,24 +1176,6 @@ export default function AIAssistant() {
             </button>
 
             <button
-              onClick={() => {
-                setTempApiKey(apiKey);
-                setTestResult(null);
-                setShowSettingsModal(true);
-              }}
-              style={{
-                backgroundColor: "var(--theme-surface)",
-                borderColor: "var(--theme-border)",
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-neutral-300 hover:text-white hover:bg-white/10 transition-all cursor-pointer shadow-sm active:scale-95"
-              title="Groq API Key & Provider Settings"
-            >
-              <Key size={13} className={hasServerKey || apiKey ? "text-emerald-400" : "text-amber-400"} />
-              <span className="hidden md:inline">{hasServerKey ? "Groq Connected" : (apiKey ? "Custom Key" : "API Key")}</span>
-              <span className={`h-1.5 w-1.5 rounded-full ${hasServerKey || apiKey ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
-            </button>
-
-            <button
               onClick={handleCreateNewThread}
               style={{
                 backgroundColor: "var(--theme-surface)",
