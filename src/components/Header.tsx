@@ -11,10 +11,11 @@ interface HeaderProps {
   selectedTag: string;
   setSelectedTag: (tag: string) => void;
   tags: string[];
-  currentView?: "home" | "game" | "chat" | "youtube";
+  currentView?: "home" | "game" | "chat" | "youtube" | "assistant";
   onGoHome?: () => void;
   onChatClick?: () => void;
   onYouTubeClick?: () => void;
+  onAssistantClick?: () => void;
   onOpenSettings?: () => void;
   onOpenTheme?: () => void;
 }
@@ -29,6 +30,7 @@ const Header = memo(function Header({
   onGoHome,
   onChatClick,
   onYouTubeClick,
+  onAssistantClick,
   onOpenSettings,
   onOpenTheme,
 }: HeaderProps) {
@@ -77,6 +79,7 @@ const Header = memo(function Header({
   const isHome = currentView === "home" || currentView === "game";
   const isChat = currentView === "chat";
   const isYouTube = currentView === "youtube";
+  const isAssistant = currentView === "assistant";
 
   return (
     <header
@@ -120,7 +123,7 @@ const Header = memo(function Header({
               backgroundColor: "var(--theme-surface)",
               borderColor: "var(--theme-border-subtle)",
             }}
-            className="flex items-center gap-1 p-1 rounded-2xl border shadow-inner"
+            className="flex items-center gap-1 p-1 rounded-2xl border shadow-inner flex-wrap sm:flex-nowrap"
           >
             {/* Games Hub Tab */}
             <button
@@ -159,6 +162,26 @@ const Header = memo(function Header({
             >
               <MessageSquare size={14} className={isChat ? "text-[var(--theme-text-accent)]" : ""} />
               <span>Chat</span>
+            </button>
+
+            {/* AI Assistant Tab */}
+            <button
+              id="nav-ai-btn"
+              type="button"
+              onClick={onAssistantClick}
+              style={{
+                backgroundColor: isAssistant ? "var(--theme-accent)" : "transparent",
+                borderColor: isAssistant ? "var(--theme-border)" : "transparent",
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all duration-150 cursor-pointer ${
+                isAssistant
+                  ? "text-white shadow-md ring-1 ring-white/15"
+                  : "text-neutral-400 hover:text-white hover:bg-white/5"
+              }`}
+              title="AI Study Assistant (Powered by GitHub Models)"
+            >
+              <Sparkles size={14} className={isAssistant ? "text-amber-300" : "text-[var(--theme-text-accent)]"} />
+              <span>AI Assistant</span>
             </button>
 
             {/* Music Tab */}

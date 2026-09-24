@@ -268,7 +268,7 @@ export function useActivityTracker({
   activeChannel,
   activeVideoTitle,
 }: {
-  currentView: "home" | "game" | "chat" | "youtube";
+  currentView: "home" | "game" | "chat" | "youtube" | "assistant";
   selectedGame?: { name: string; cover?: string } | null;
   searchQuery?: string;
   selectedTag?: string;
@@ -279,9 +279,18 @@ export function useActivityTracker({
 
   // Sync state changes to global activity
   useEffect(() => {
-    activeCurrentView = currentView;
+    activeCurrentView = currentView as any;
     if (selectedGame) cachedSelectedGame = selectedGame;
     if (activeVideoTitle) cachedVideoTitle = activeVideoTitle;
+
+    if (currentView === "assistant") {
+      updateGlobalActivity({
+        type: "chatting",
+        channel: "ai-assistant",
+        text: "Using AI Study Assistant",
+      });
+      return;
+    }
 
     if (currentView === "youtube") {
       const musicTitle = activeVideoTitle || cachedVideoTitle;

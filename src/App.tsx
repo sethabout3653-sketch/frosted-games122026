@@ -8,6 +8,7 @@ import GameGrid from "./components/GameGrid";
 import GamePlayer from "./components/GamePlayer";
 import Chat from "./components/Chat";
 import YouTubeView from "./components/YouTubeView";
+import AIAssistant from "./components/AIAssistant";
 import BackgroundEditor, { DEFAULT_BACKGROUND, AppBackground } from "./components/BackgroundEditor";
 import SettingsModal from "./components/SettingsModal";
 import LoadingScreen from "./components/LoadingScreen";
@@ -73,7 +74,7 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
 }
 
 function AppContent() {
-  const [currentView, setCurrentView] = useState<"home" | "game" | "chat" | "youtube">("home");
+  const [currentView, setCurrentView] = useState<"home" | "game" | "chat" | "youtube" | "assistant">("home");
   const [chatInitialTab, setChatInitialTab] = useState<"chat" | "voice" | "profile">("chat");
   const [autoJoinVoice, setAutoJoinVoice] = useState(false);
   const [activeVideoTitle, setActiveVideoTitle] = useState<string | null>(null);
@@ -139,7 +140,7 @@ function AppContent() {
 
   // Manage scrolling state on document body
   useEffect(() => {
-    if (currentView === "chat" || currentView === "game") {
+    if (currentView === "chat" || currentView === "game" || currentView === "assistant") {
       document.body.style.overflow = "hidden";
       document.documentElement.style.overflow = "hidden";
     } else {
@@ -270,6 +271,10 @@ function AppContent() {
     setCurrentView("youtube");
   }, []);
 
+  const handleOpenAssistant = useCallback(() => {
+    setCurrentView("assistant");
+  }, []);
+
   // Ultra-fast pre-indexed filtering
   const processedGames = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase();
@@ -304,7 +309,7 @@ function AppContent() {
           <LoadingScreen onComplete={() => setShowStartup(false)} />
         )}
       </AnimatePresence>
-      <div id="app-root" className={`${(currentView === "game" && !isSoundboardActive) || currentView === "chat" ? "h-screen overflow-hidden" : "min-h-screen"} ${showStartup ? "pointer-events-none select-none" : ""} text-white antialiased font-sans flex flex-col selection:bg-white/20 selection:text-white`} style={{ background: background.type === "image" ? `url(${background.value}) center / cover fixed` : background.value }}>
+      <div id="app-root" className={`${(currentView === "game" && !isSoundboardActive) || currentView === "chat" || currentView === "assistant" ? "h-screen overflow-hidden" : "min-h-screen"} ${showStartup ? "pointer-events-none select-none" : ""} text-white antialiased font-sans flex flex-col selection:bg-white/20 selection:text-white`} style={{ background: background.type === "image" ? `url(${background.value}) center / cover fixed` : background.value }}>
       
       {/* Interactive Top Header Component */}
       <Header
@@ -317,6 +322,7 @@ function AppContent() {
         onGoHome={handleBackToHub}
         onChatClick={handleOpenChat}
         onYouTubeClick={handleOpenYouTube}
+        onAssistantClick={handleOpenAssistant}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenTheme={() => setIsThemeOpen(true)}
       />
@@ -433,6 +439,24 @@ function AppContent() {
             onVoiceSessionStarted={() => setAutoJoinVoice(false)}
             persistent
           />
+        </motion.div>
+
+        {/* AI Assistant View (GitHub Models) */}
+        <motion.div
+          animate={{
+            opacity: currentView === "assistant" ? 1 : 0,
+            y: currentView === "assistant" ? 0 : 16,
+            scale: currentView === "assistant" ? 1 : 0.99,
+          }}
+          initial={{ opacity: 0, y: 16, scale: 0.99 }}
+          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          style={{
+            pointerEvents: currentView === "assistant" ? "auto" : "none",
+            transform: "translateZ(0)",
+          }}
+          className={`flex-1 w-full flex flex-col min-h-0 ${currentView === "assistant" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
+        >
+          <AIAssistant />
         </motion.div>
       </main>
 
