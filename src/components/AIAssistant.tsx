@@ -1049,16 +1049,8 @@ export default function AIAssistant() {
 
         {/* Chat History List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-          <div className="px-2 py-1 flex items-center justify-between text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)]">
-            <span>Conversations</span>
-            <button
-              onClick={handleSaveAllChatsBackup}
-              className="flex items-center gap-1 text-[10px] text-neutral-400 hover:text-emerald-400 transition-colors cursor-pointer font-semibold"
-              title="Backup & Export All AI Conversations as JSON"
-            >
-              <FileJson size={11} />
-              <span>Backup All</span>
-            </button>
+          <div className="px-2 py-1 text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)]">
+            Conversations
           </div>
           {threads.map((thread) => {
             const isActive = thread.id === activeThread.id;
@@ -1208,19 +1200,6 @@ export default function AIAssistant() {
           {/* Right Action Icons */}
           <div className="flex items-center gap-1.5">
             <button
-              onClick={handleExportChat}
-              style={{
-                backgroundColor: "var(--theme-surface)",
-                borderColor: "var(--theme-border)",
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-white hover:bg-white/10 transition-all cursor-pointer shadow-sm active:scale-95"
-              title="Save current chat to browser storage & download file"
-            >
-              <Save size={14} className="text-emerald-400" />
-              <span className="hidden sm:inline">Save Chat</span>
-            </button>
-
-            <button
               onClick={() => setShowFriendsModal(true)}
               style={{
                 backgroundColor: "var(--theme-surface)",
@@ -1257,19 +1236,6 @@ export default function AIAssistant() {
             )}
           </div>
         </header>
-
-        {/* Save Toast Notification Banner */}
-        {saveToast && (
-          <div className="bg-emerald-500/20 border-b border-emerald-500/30 px-4 py-2 flex items-center justify-between text-xs font-bold text-emerald-300 animate-in fade-in duration-150">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 size={15} className="text-emerald-400" />
-              <span>{saveToast}</span>
-            </div>
-            <button onClick={() => setSaveToast(null)} className="text-emerald-400 hover:text-white cursor-pointer">
-              <X size={14} />
-            </button>
-          </div>
-        )}
 
         {/* Chat Scroll Area */}
         <div
