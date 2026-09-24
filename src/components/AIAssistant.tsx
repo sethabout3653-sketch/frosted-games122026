@@ -26,6 +26,13 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ArrowDown,
+  Key,
+  Settings,
+  Shield,
+  CheckCircle2,
+  AlertCircle,
+  ExternalLink,
+  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -160,17 +167,45 @@ const GROQ_FREE_MODELS: AIModelOption[] = [
     badge: "Free Forever • Multimodal",
   },
   {
-    id: "groq/compound",
-    name: "Groq Compound Engine",
-    provider: "Groq Compound",
-    description: "Groq's coordinated compound reasoning and agentic routing engine.",
-    badge: "Free Forever • Compound",
+    id: "llama3-70b-8192",
+    name: "Llama 3 70B",
+    provider: "Meta on Groq",
+    description: "Meta's high-capacity 70B open model with fast inference on Groq.",
+    badge: "Free Forever • Meta",
   },
   {
-    id: "groq/compound-mini",
-    name: "Groq Compound Mini",
-    provider: "Groq Compound",
-    description: "Lightweight, instant compound engine for quick tasks and study queries.",
+    id: "llama3-8b-8192",
+    name: "Llama 3 8B",
+    provider: "Meta on Groq",
+    description: "Ultra-fast 8B model with near-instantaneous response latency.",
+    badge: "Free Forever • Fast",
+  },
+  {
+    id: "llama-3.3-70b-specdec",
+    name: "Llama 3.3 70B SpecDec",
+    provider: "Meta on Groq",
+    description: "Speculative decoding high-speed reasoning model.",
+    badge: "Free Forever • SpecDec",
+  },
+  {
+    id: "llama-3.2-11b-vision-preview",
+    name: "Llama 3.2 11B Vision",
+    provider: "Meta on Groq",
+    description: "Multimodal vision & text understanding model on Groq hardware.",
+    badge: "Free Forever • Vision",
+  },
+  {
+    id: "llama-3.2-3b-preview",
+    name: "Llama 3.2 3B",
+    provider: "Meta on Groq",
+    description: "Lightweight, ultra-low latency model for study and rapid Q&A.",
+    badge: "Free Forever • Light",
+  },
+  {
+    id: "llama-3.2-1b-preview",
+    name: "Llama 3.2 1B",
+    provider: "Meta on Groq",
+    description: "Fastest lightweight model for sub-second responses.",
     badge: "Free Forever • Instant",
   },
 ];
@@ -207,15 +242,45 @@ export default function AIAssistant() {
   // Config state - pre-configured with default key
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem("groq_api_key") || localStorage.getItem("github_models_pat") || "");
   const [endpoint, setEndpoint] = useState<string>(() => localStorage.getItem("groq_endpoint") || localStorage.getItem("github_models_endpoint") || DEFAULT_ENDPOINT);
+  const [availableModels, setAvailableModels] = useState<AIModelOption[]>(GROQ_FREE_MODELS);
+  const [hasServerKey, setHasServerKey] = useState<boolean>(false);
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [tempApiKey, setTempApiKey] = useState<string>("");
+  const [testingKey, setTestingKey] = useState<boolean>(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const saved = localStorage.getItem("groq_model_selected") || localStorage.getItem("github_models_selected");
-    if (saved && GROQ_FREE_MODELS.some((m) => m.id === saved)) {
+    // Filter out 404 or decommissioned models immediately
+    if (saved && !saved.includes("versatile") && !saved.includes("instant") && !saved.includes("mixtral") && !saved.includes("gemma2") && GROQ_FREE_MODELS.some((m) => m.id === saved)) {
       return saved;
     }
     return "openai/gpt-oss-120b";
   });
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>("general");
   const [temperature, setTemperature] = useState<number>(0.7);
+
+  // Sync live available models from server and ensure valid selection
+  useEffect(() => {
+    fetch("/api/ai/models")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && Array.isArray(data.models) && data.models.length > 0) {
+          setAvailableModels(data.models);
+          const isCurrentValid = data.models.some((m: any) => m.id === selectedModel);
+          const isDeprecated = selectedModel.includes("versatile") || selectedModel.includes("instant") || selectedModel.includes("mixtral") || selectedModel.includes("gemma2");
+          if (!isCurrentValid || isDeprecated) {
+            const nextModel = data.models[0]?.id || "openai/gpt-oss-120b";
+            setSelectedModel(nextModel);
+            localStorage.setItem("groq_model_selected", nextModel);
+          }
+        }
+        if (data && typeof data.hasServerKey === "boolean") {
+          setHasServerKey(data.hasServerKey);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Modals & UI state
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
@@ -892,7 +957,9 @@ export default function AIAssistant() {
                 className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold text-white hover:bg-white/5 transition-all shadow-sm cursor-pointer"
               >
                 <Sparkles size={13} className="text-[var(--theme-text-accent)]" />
-                <span>{selectedModel}</span>
+                <span className="max-w-[130px] sm:max-w-[180px] truncate">
+                  {availableModels.find((m) => m.id === selectedModel)?.name || selectedModel}
+                </span>
                 <ChevronDown size={13} className="text-neutral-400" />
               </button>
 
@@ -904,13 +971,13 @@ export default function AIAssistant() {
                       backgroundColor: "var(--theme-darkest)",
                       borderColor: "var(--theme-border)",
                     }}
-                    className="absolute top-full left-0 mt-1.5 w-64 sm:w-72 z-50 p-1.5 rounded-2xl border shadow-2xl backdrop-blur-2xl space-y-1"
+                    className="absolute top-full left-0 mt-1.5 w-64 sm:w-72 z-50 p-1.5 rounded-2xl border shadow-2xl backdrop-blur-2xl space-y-1 max-h-80 overflow-y-auto custom-scrollbar"
                   >
                     <div className="px-2.5 py-1 text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)] flex items-center justify-between">
-                      <span>Available Models</span>
-                      <span className="text-emerald-400 font-semibold">Ready</span>
+                      <span>Groq Free Models</span>
+                      <span className="text-emerald-400 font-semibold">Active LPUs</span>
                     </div>
-                    {GITHUB_MODELS.map((model) => (
+                    {availableModels.map((model) => (
                       <button
                         key={model.id}
                         onClick={() => {
@@ -951,6 +1018,24 @@ export default function AIAssistant() {
 
           {/* Right Action Icons */}
           <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => {
+                setTempApiKey(apiKey);
+                setTestResult(null);
+                setShowSettingsModal(true);
+              }}
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border)",
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-neutral-300 hover:text-white hover:bg-white/10 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="Groq API Key & Provider Settings"
+            >
+              <Key size={13} className={hasServerKey || apiKey ? "text-emerald-400" : "text-amber-400"} />
+              <span className="hidden md:inline">{hasServerKey ? "Groq Connected" : (apiKey ? "Custom Key" : "API Key")}</span>
+              <span className={`h-1.5 w-1.5 rounded-full ${hasServerKey || apiKey ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+            </button>
+
             <button
               onClick={handleCreateNewThread}
               style={{
@@ -1345,6 +1430,181 @@ export default function AIAssistant() {
           </div>
         </div>
       </main>
+
+      {/* Groq Settings & API Key Modal */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-150">
+          <div
+            style={{
+              backgroundColor: "var(--theme-darkest)",
+              borderColor: "var(--theme-border)",
+            }}
+            className="w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden flex flex-col"
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-white/10 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Key size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white">Groq AI Engine Settings</h3>
+                  <p className="text-xs text-neutral-400">High-speed inference on Groq Language Processing Units</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSettingsModal(false)}
+                className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 space-y-4 text-xs">
+              {/* Server Status Box */}
+              <div className="p-3.5 rounded-xl border border-white/10 bg-white/5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-neutral-300">Server Key Status:</span>
+                  {hasServerKey ? (
+                    <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                      <CheckCircle2 size={13} /> Active on Server (Render)
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-amber-400 font-medium">
+                      <AlertCircle size={13} /> Not detected on Server
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-neutral-400 leading-relaxed">
+                  On Render, add <code className="text-emerald-300 bg-black/40 px-1 py-0.5 rounded">GROQ_API_KEY</code> in your Web Service <strong>Environment</strong> tab. You can also save a key directly below in your browser.
+                </p>
+              </div>
+
+              {/* Custom Key Input */}
+              <div className="space-y-1.5">
+                <label className="font-semibold text-neutral-200 block">
+                  Groq API Key (Optional Client Override)
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={tempApiKey}
+                    onChange={(e) => setTempApiKey(e.target.value)}
+                    placeholder="gsk_..."
+                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/15 text-white placeholder-neutral-500 text-xs focus:outline-none focus:border-emerald-400/50"
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-neutral-400 pt-0.5">
+                  <span>Keys are stored safely in your browser localStorage.</span>
+                  <a
+                    href="https://console.groq.com/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-400 hover:underline flex items-center gap-1 font-semibold"
+                  >
+                    Get Free Key <ExternalLink size={10} />
+                  </a>
+                </div>
+              </div>
+
+              {/* Test Status Banner */}
+              {testResult && (
+                <div
+                  className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                    testResult.ok
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                      : "bg-rose-500/10 border-rose-500/30 text-rose-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold mb-0.5">
+                    {testResult.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                    <span>{testResult.ok ? "Connection Successful" : "Connection Test Failed"}</span>
+                  </div>
+                  <p className="text-[11px]">{testResult.msg}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 sm:p-5 border-t border-white/10 bg-black/20 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                disabled={testingKey}
+                onClick={async () => {
+                  setTestingKey(true);
+                  setTestResult(null);
+                  try {
+                    const keyToTest = tempApiKey.trim() || apiKey.trim();
+                    const headers: Record<string, string> = { "Content-Type": "application/json" };
+                    if (keyToTest) headers["Authorization"] = `Bearer ${keyToTest}`;
+                    const res = await fetch("/api/ai/test", {
+                      method: "POST",
+                      headers,
+                      body: JSON.stringify({ customKey: keyToTest || undefined }),
+                    });
+                    const data = await res.json();
+                    if (data.ok) {
+                      setTestResult({
+                        ok: true,
+                        msg: `Groq answered in ${data.latencyMs}ms using model: ${data.modelUsed || "Groq LPU"}!`,
+                      });
+                      setHasServerKey(true);
+                    } else {
+                      setTestResult({
+                        ok: false,
+                        msg: data.error || "Failed to reach Groq. Verify your key and try again.",
+                      });
+                    }
+                  } catch (e: any) {
+                    setTestResult({
+                      ok: false,
+                      msg: e.message || "Network test failed.",
+                    });
+                  } finally {
+                    setTestingKey(false);
+                  }
+                }}
+                className="px-3 py-2 rounded-xl border border-white/15 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/5 transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                {testingKey ? <Loader2 size={12} className="animate-spin" /> : <Shield size={12} />}
+                <span>{testingKey ? "Testing..." : "Test Connection"}</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                {apiKey && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.removeItem("groq_api_key");
+                      setApiKey("");
+                      setTempApiKey("");
+                      setTestResult(null);
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                  >
+                    Clear Key
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const trimmed = tempApiKey.trim();
+                    if (trimmed) {
+                      localStorage.setItem("groq_api_key", trimmed);
+                      setApiKey(trimmed);
+                    }
+                    setShowSettingsModal(false);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
+                >
+                  Save Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

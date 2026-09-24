@@ -3127,69 +3127,124 @@ Respond strictly in valid JSON:
     }
   ];
 
-  let cachedFreeModels: OpenRouterFreeModel[] = [...BASE_FREE_MODELS];
-  let freeModelsLastFetched = 0;
+  let cachedGroqModelsList: Array<{ id: string; name: string; provider: string; badge: string; description: string }> = [];
+  let cachedGroqIds: string[] = [];
+  let lastGroqFetchTime = 0;
 
-  app.get("/api/ai/models", async (req, res) => {
+  const GROQ_MODEL_ALIASES: Record<string, string> = {
+    "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+    "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+    "mixtral-8x7b-32768": "openai/gpt-oss-120b",
+    "gemma2-9b-it": "openai/gpt-oss-20b",
+    "deepseek-r1-distill-llama-70b": "openai/gpt-oss-120b",
+    "qwen-2.5-32b": "qwen/qwen3.8-27b",
+    "groq/compound": "openai/gpt-oss-120b",
+    "groq/compound-mini": "openai/gpt-oss-20b"
+  };
+
+  const FALLBACK_GROQ_MODELS = [
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
+    "llama3-70b-8192",
+    "llama3-8b-8192",
+    "llama-3.3-70b-specdec",
+    "llama-3.2-11b-vision-preview",
+    "llama-3.2-3b-preview",
+    "llama-3.2-1b-preview"
+  ];
+
+  async function resolveActiveGroqModels(rawKey: string): Promise<string[]> {
+    const key = typeof rawKey === "string" ? rawKey.trim().replace(/^["']|["']$/g, "").trim() : "";
+    if (!key) return FALLBACK_GROQ_MODELS;
     const now = Date.now();
-    // Cache for 30 minutes
-    if (now - freeModelsLastFetched > 30 * 60 * 1000) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4000);
-        const orRes = await fetch("https://openrouter.ai/api/v1/models", {
-          signal: controller.signal,
-          headers: {
-            "HTTP-Referer": "https://ai.studio/build",
-            "X-Title": "Frosted Companion"
-          }
-        });
-        clearTimeout(timeout);
-        if (orRes.ok) {
-          const data: any = await orRes.json();
-          if (Array.isArray(data?.data)) {
-            const dynamicFree = data.data
-              .filter((m: any) => typeof m.id === "string" && m.id.endsWith(":free"))
-              .map((m: any): OpenRouterFreeModel => {
-                const existing = BASE_FREE_MODELS.find(b => b.id === m.id);
-                if (existing) return existing;
-                const isCoder = m.id.includes("coder") || m.id.includes("code");
-                const isReasoning = m.id.includes("r1") || m.id.includes("thinking") || m.id.includes("reason");
-                const isSmall = m.id.includes("8b") || m.id.includes("small") || m.id.includes("flash") || m.id.includes("mini");
-                return {
-                  id: m.id,
-                  name: m.name || m.id.split("/")[1] || m.id,
-                  description: m.description || "Free OpenRouter model ready for study and chat.",
-                  category: isCoder ? "coding" : (isReasoning ? "reasoning" : (isSmall ? "fast" : "conversational")),
-                  contextLength: m.context_length || 32768,
-                  highlight: "Free Tier"
-                };
-              });
+    if (cachedGroqIds.length > 0 && now - lastGroqFetchTime < 10 * 60 * 1000) {
+      return cachedGroqIds;
+    }
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4500);
+      const res = await fetch("https://api.groq.com/openai/v1/models", {
+        headers: { "Authorization": `Bearer ${key}` },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const json: any = await res.json();
+        if (Array.isArray(json?.data)) {
+          const valid = json.data
+            .map((m: any) => m.id)
+            .filter((id: string) => 
+              typeof id === "string" &&
+              !id.includes("whisper") &&
+              !id.includes("orpheus") &&
+              !id.includes("tts") &&
+              !id.includes("guard") &&
+              !id.includes("embed") &&
+              !id.includes("mixtral") &&
+              !id.includes("gemma2")
+            );
+          if (valid.length > 0) {
+            // Sort to prioritize known flagship models
+            valid.sort((a: string, b: string) => {
+              const score = (id: string) => {
+                if (id.includes("gpt-oss-120b")) return 10;
+                if (id.includes("gpt-oss-20b")) return 9;
+                if (id.includes("qwen3.8")) return 8;
+                if (id.includes("llama3-70b")) return 7;
+                if (id.includes("llama3-8b")) return 6;
+                if (id.includes("specdec")) return 5;
+                return 1;
+              };
+              return score(b) - score(a);
+            });
 
-            const map = new Map<string, OpenRouterFreeModel>();
-            for (const m of BASE_FREE_MODELS) map.set(m.id, m);
-            for (const m of dynamicFree) map.set(m.id, m);
-            cachedFreeModels = Array.from(map.values());
-            freeModelsLastFetched = now;
+            cachedGroqIds = valid;
+            lastGroqFetchTime = now;
+            cachedGroqModelsList = valid.map((id: string) => ({
+              id,
+              name: id.replace(/^openai\//, "OpenAI ").replace(/^qwen\//, "Qwen ").replace(/^meta-llama\//, "Llama ").replace(/-/g, " "),
+              provider: id.includes("openai") ? "OpenAI on Groq" : (id.includes("qwen") ? "Alibaba on Groq" : "Meta on Groq"),
+              badge: id.includes("120b") ? "Flagship" : (id.includes("20b") ? "Ultra Fast" : "Free Forever"),
+              description: `Ultra-fast inference on Groq LPUs (${id}).`,
+            }));
+            return valid;
           }
         }
-      } catch (e) {
-        // Silently use cached models
       }
+    } catch (e) {}
+    return cachedGroqIds.length > 0 ? cachedGroqIds : FALLBACK_GROQ_MODELS;
+  }
+
+  app.get("/api/ai/models", async (req, res) => {
+    const authHeader = req.headers.authorization || "";
+    const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const serverKey = process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || "";
+    const activeKey = (bearerToken.startsWith("gsk_") ? bearerToken : "") || serverKey;
+
+    if (activeKey) {
+      await resolveActiveGroqModels(activeKey);
     }
 
+    const modelsToSend = cachedGroqModelsList.length > 0 ? cachedGroqModelsList : [
+      { id: "openai/gpt-oss-120b", name: "GPT OSS 120B (Groq LPU)", provider: "OpenAI on Groq", badge: "Flagship", description: "OpenAI's flagship 120B open-weight model with 500+ tps reasoning on Groq LPUs." },
+      { id: "openai/gpt-oss-20b", name: "GPT OSS 20B (Groq LPU)", provider: "OpenAI on Groq", badge: "Ultra Fast", description: "Ultra-fast low-latency conversational model for instant responses." },
+      { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B Vision", provider: "Alibaba on Groq", badge: "Multimodal", description: "Dense multimodal reasoning and problem-solving model running at 450 tps." },
+      { id: "groq/compound", name: "Groq Compound Engine", provider: "Groq Compound", badge: "Compound", description: "Groq's coordinated compound reasoning and agentic routing engine." },
+      { id: "groq/compound-mini", name: "Groq Compound Mini", provider: "Groq Compound", badge: "Instant", description: "Lightweight, instant compound engine for quick tasks and study queries." }
+    ];
+
     res.json({
-      models: [
-        { id: "openai/gpt-oss-120b", name: "GPT OSS 120B (Groq LPU)", provider: "OpenAI on Groq", badge: "Flagship", description: "OpenAI's flagship 120B open-weight model with 500+ tps reasoning on Groq LPUs." },
-        { id: "openai/gpt-oss-20b", name: "GPT OSS 20B (Groq LPU)", provider: "OpenAI on Groq", badge: "Ultra Fast", description: "Ultra-fast low-latency conversational model for instant responses." },
-        { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B Vision", provider: "Alibaba on Groq", badge: "Multimodal", description: "Dense multimodal reasoning and problem-solving model running at 450 tps." },
-        { id: "groq/compound", name: "Groq Compound Engine", provider: "Groq Compound", badge: "Compound", description: "Groq's coordinated compound reasoning and agentic routing engine." },
-        { id: "groq/compound-mini", name: "Groq Compound Mini", provider: "Groq Compound", badge: "Instant", description: "Lightweight, instant compound engine for quick tasks and study queries." }
-      ],
-      hasServerKey: Boolean(process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY),
+      models: modelsToSend,
+      hasServerKey: Boolean(process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GEMINI_API_KEY),
       provider: "groq",
     });
   });
+
+  function sanitizeApiKey(raw: any): string {
+    if (!raw || typeof raw !== "string") return "";
+    return raw.trim().replace(/^["']|["']$/g, "").trim();
+  }
 
   async function executeAiCompletion(opts: {
     messages: any[];
@@ -3208,34 +3263,22 @@ Respond strictly in valid JSON:
       endpoint = "https://api.groq.com/openai/v1"
     } = opts || {};
 
-    const groqKey = customKey || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") || "";
+    const cleanCustomKey = sanitizeApiKey(customKey);
+    const isClientGroq = cleanCustomKey.startsWith("gsk_");
+    const serverGroqKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.GROQ_TOKEN || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
+    const groqKey = isClientGroq ? cleanCustomKey : (serverGroqKey || (!cleanCustomKey.startsWith("ghp_") && !cleanCustomKey.startsWith("github_pat_") && !cleanCustomKey.startsWith("AIza") ? cleanCustomKey : ""));
+
+    const mappedModel = GROQ_MODEL_ALIASES[model] || model || "openai/gpt-oss-120b";
 
     // 1. Primary: Groq Free Forever Models Engine
     if (groqKey) {
-      let targetGroqModel = "openai/gpt-oss-120b";
-      const mLower = (model || "").toLowerCase();
-      if (mLower.includes("20b") || mLower.includes("fast") || mLower.includes("instant")) {
-        targetGroqModel = "openai/gpt-oss-20b";
-      } else if (mLower.includes("qwen") || mLower.includes("vision") || mLower.includes("27b")) {
-        targetGroqModel = "qwen/qwen3.8-27b";
-      } else if (mLower.includes("compound-mini") || mLower.includes("mini")) {
-        targetGroqModel = "groq/compound-mini";
-      } else if (mLower.includes("compound")) {
-        targetGroqModel = "groq/compound";
-      } else if (mLower.includes("120b") || mLower.includes("gpt")) {
-        targetGroqModel = "openai/gpt-oss-120b";
-      } else if (mLower === "openai/gpt-oss-120b" || mLower === "openai/gpt-oss-20b" || mLower === "qwen/qwen3.8-27b" || mLower === "groq/compound" || mLower === "groq/compound-mini") {
-        targetGroqModel = model;
-      }
-
+      const liveModels = await resolveActiveGroqModels(groqKey);
       const candidateModels = Array.from(new Set([
-        targetGroqModel,
-        "openai/gpt-oss-120b",
-        "openai/gpt-oss-20b",
-        "qwen/qwen3.8-27b",
-        "groq/compound",
-        "groq/compound-mini"
-      ]));
+        mappedModel,
+        model,
+        ...liveModels,
+        ...FALLBACK_GROQ_MODELS
+      ])).filter(Boolean);
 
       const groqMessages: any[] = [];
       if (systemPrompt && !messages.some((m: any) => m.role === "system")) {
@@ -3251,13 +3294,14 @@ Respond strictly in valid JSON:
       for (const cand of candidateModels) {
         try {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 12000);
+          const timeout = setTimeout(() => controller.abort(), 8000);
 
           const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               "Authorization": `Bearer ${groqKey}`,
+              "User-Agent": "FrostedAI-Groq/1.0"
             },
             body: JSON.stringify({
               model: cand,
@@ -3281,6 +3325,9 @@ Respond strictly in valid JSON:
             if (text) {
               return { text, model: cand, provider: "groq" };
             }
+          } else {
+            const errText = await res.text().catch(() => "");
+            console.warn(`[Groq Completion] ${cand} failed (${res.status}): ${errText.slice(0, 120)}`);
           }
         } catch (groqErr) {
           // try next candidate
@@ -3289,8 +3336,8 @@ Respond strictly in valid JSON:
     }
 
     // 2. Secondary Fallback: GitHub Models if token available
-    const effectiveKey = customKey || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || "";
-    const isGithubToken = typeof effectiveKey === "string" && (effectiveKey.startsWith("github_pat_") || effectiveKey.startsWith("ghp_"));
+    const isGithubToken = typeof cleanCustomKey === "string" && (cleanCustomKey.startsWith("github_pat_") || cleanCustomKey.startsWith("ghp_"));
+    const effectiveKey = cleanCustomKey || process.env.GITHUB_TOKEN || "";
 
     if (isGithubToken || (effectiveKey && endpoint && (endpoint.includes("github.ai") || endpoint.includes("azure.com")))) {
       try {
@@ -3299,13 +3346,6 @@ Respond strictly in valid JSON:
           baseURL: ghEndpoint,
           apiKey: effectiveKey,
         });
-
-        let targetGhModel = "gpt-4o-mini";
-        if (model.includes("llama")) {
-          targetGhModel = "Meta-Llama-3.3-70B-Instruct";
-        } else if (model.includes("deepseek")) {
-          targetGhModel = "DeepSeek-R1";
-        }
 
         const ghMessages: any[] = [];
         if (systemPrompt && !messages.some((m: any) => m.role === "system")) {
@@ -3319,7 +3359,7 @@ Respond strictly in valid JSON:
         }
 
         const completion = await client.chat.completions.create({
-          model: targetGhModel,
+          model: "gpt-4o-mini",
           messages: ghMessages,
           temperature: Math.min(1.0, Math.max(0.1, temperature)),
           stream: false,
@@ -3329,7 +3369,7 @@ Respond strictly in valid JSON:
         if (text) {
           return {
             text,
-            model: targetGhModel,
+            model: "gpt-4o-mini",
             provider: "github-models"
           };
         }
@@ -3337,7 +3377,7 @@ Respond strictly in valid JSON:
     }
 
     // 3. Tertiary Fallback: Google Gemini
-    const geminiApiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
+    const geminiApiKey = sanitizeApiKey(process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : ""));
     if (geminiApiKey) {
       try {
         const ai = new GoogleGenAI({ apiKey: geminiApiKey });
@@ -3363,7 +3403,11 @@ Respond strictly in valid JSON:
       } catch (gemErr) {}
     }
 
-    throw new Error("Unable to generate AI completion from available model backends. Please configure GROQ_API_KEY.");
+    return {
+      text: "Hello! I am your Frosted AI study companion. To enable high-speed Groq LPU models on your app, please verify your GROQ_API_KEY in Render environment settings or in the API Key settings modal.",
+      model: "system",
+      provider: "system"
+    };
   }
 
   app.post("/api/ai/chat", async (req, res) => {
@@ -3377,7 +3421,7 @@ Respond strictly in valid JSON:
 
       const {
         messages = [],
-        model = "llama-3.3-70b-versatile",
+        model = "openai/gpt-oss-120b",
         systemPrompt = "You are a helpful, clear, and friendly AI study assistant. Provide accurate, thoroughly explained, step-by-step reasoning in clean Markdown.",
         temperature = 0.7,
         customKey = "",
@@ -3392,39 +3436,15 @@ Respond strictly in valid JSON:
       const isStream = stream === true || (req.headers.accept && req.headers.accept.includes("text/event-stream"));
 
       const authHeader = req.headers.authorization || "";
-      const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
-      const groqKey = (customKey && !customKey.startsWith("ghp_") && !customKey.startsWith("AIza") ? customKey : "") ||
-        (bearerToken && !bearerToken.startsWith("ghp_") && !bearerToken.startsWith("AIza") ? bearerToken : "") ||
-        process.env.GROQ_API_KEY ||
-        process.env.VITE_GROQ_API_KEY ||
-        (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") ||
-        "";
+      const bearerToken = sanitizeApiKey(authHeader.replace(/^Bearer\s+/i, ""));
+      const cleanCustomKey = sanitizeApiKey(customKey);
 
-      // Determine target Groq model
-      let targetGroqModel = "openai/gpt-oss-120b";
-      const mLower = (model || "").toLowerCase();
-      if (mLower.includes("20b") || mLower.includes("fast") || mLower.includes("instant")) {
-        targetGroqModel = "openai/gpt-oss-20b";
-      } else if (mLower.includes("qwen") || mLower.includes("vision") || mLower.includes("27b")) {
-        targetGroqModel = "qwen/qwen3.8-27b";
-      } else if (mLower.includes("compound-mini") || mLower.includes("mini")) {
-        targetGroqModel = "groq/compound-mini";
-      } else if (mLower.includes("compound")) {
-        targetGroqModel = "groq/compound";
-      } else if (mLower.includes("120b") || mLower.includes("gpt")) {
-        targetGroqModel = "openai/gpt-oss-120b";
-      } else if (mLower === "openai/gpt-oss-120b" || mLower === "openai/gpt-oss-20b" || mLower === "qwen/qwen3.8-27b" || mLower === "groq/compound" || mLower === "groq/compound-mini") {
-        targetGroqModel = model;
-      }
+      const isClientGroq = cleanCustomKey.startsWith("gsk_") || bearerToken.startsWith("gsk_");
+      const isClientGithub = cleanCustomKey.startsWith("ghp_") || cleanCustomKey.startsWith("github_pat_") || bearerToken.startsWith("ghp_") || bearerToken.startsWith("github_pat_");
+      const isClientGemini = cleanCustomKey.startsWith("AIza") || bearerToken.startsWith("AIza");
 
-      const groqCandidateModels = Array.from(new Set([
-        targetGroqModel,
-        "openai/gpt-oss-120b",
-        "openai/gpt-oss-20b",
-        "qwen/qwen3.8-27b",
-        "groq/compound",
-        "groq/compound-mini"
-      ]));
+      const serverGroqKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.GROQ_TOKEN || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
+      const groqKey = isClientGroq ? (cleanCustomKey || bearerToken) : (serverGroqKey || (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : ""));
 
       // Build OpenAI-compatible messages for Groq
       const groqMessages: any[] = [];
@@ -3439,13 +3459,22 @@ Respond strictly in valid JSON:
       }
 
       // =========================================================================
-      // 1. PRIMARY ENGINE: Groq High-Speed LPU Inference (All Free Forever Models)
+      // 1. PRIMARY ENGINE: Groq High-Speed LPU Inference
       // =========================================================================
       if (groqKey) {
+        const liveGroqModels = await resolveActiveGroqModels(groqKey);
+        const mappedModel = GROQ_MODEL_ALIASES[model] || model || "openai/gpt-oss-120b";
+        const groqCandidateModels = Array.from(new Set([
+          mappedModel,
+          model,
+          ...liveGroqModels,
+          ...FALLBACK_GROQ_MODELS
+        ])).filter(Boolean);
+
         for (const candModel of groqCandidateModels) {
           try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 25000);
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
 
             const upstreamRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
               method: "POST",
@@ -3472,8 +3501,9 @@ Respond strictly in valid JSON:
 
             if (isStream && upstreamRes.body) {
               res.setHeader("Content-Type", "text/event-stream");
-              res.setHeader("Cache-Control", "no-cache");
+              res.setHeader("Cache-Control", "no-cache, no-transform");
               res.setHeader("Connection", "keep-alive");
+              res.setHeader("X-Accel-Buffering", "no");
 
               const reader = upstreamRes.body.getReader();
               const decoder = new TextDecoder("utf-8");
@@ -3523,7 +3553,6 @@ Respond strictly in valid JSON:
                         }
                       }
                     } catch (e) {
-                      // Pass raw stream chunk if parse fails
                       res.write(`${line}\n\n`);
                     }
                   }
@@ -3558,106 +3587,9 @@ Respond strictly in valid JSON:
       }
 
       // =========================================================================
-      // 2. SECONDARY ENGINE: GitHub Models Fallback (if token provided)
+      // 2. SECONDARY ENGINE: Gemini Fallback
       // =========================================================================
-      const effectiveKey = customKey || bearerToken || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || "";
-      const isGithubToken = typeof effectiveKey === "string" && (effectiveKey.startsWith("github_pat_") || effectiveKey.startsWith("ghp_"));
-
-      if (isGithubToken || (effectiveKey && endpoint && (endpoint.includes("github.ai") || endpoint.includes("azure.com")))) {
-        try {
-          const ghEndpoint = endpoint && endpoint.startsWith("http") && !endpoint.includes("groq") ? endpoint : "https://models.inference.ai.azure.com";
-          const client = new OpenAI({
-            baseURL: ghEndpoint,
-            apiKey: effectiveKey,
-          });
-
-          let targetGhModel = "gpt-4o-mini";
-          if (model.includes("llama")) {
-            targetGhModel = "Meta-Llama-3.3-70B-Instruct";
-          } else if (model.includes("deepseek")) {
-            targetGhModel = "DeepSeek-R1";
-          }
-
-          const ghMessages: any[] = [];
-          if (systemPrompt && !messages.some((m: any) => m.role === "system")) {
-            ghMessages.push({ role: "system", content: systemPrompt });
-          }
-          for (const m of messages) {
-            ghMessages.push({
-              role: m.role || "user",
-              content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
-            });
-          }
-
-          if (isStream) {
-            res.setHeader("Content-Type", "text/event-stream");
-            res.setHeader("Cache-Control", "no-cache");
-            res.setHeader("Connection", "keep-alive");
-
-            const streamRes = await client.chat.completions.create({
-              model: targetGhModel,
-              messages: ghMessages,
-              temperature: Math.min(1.0, Math.max(0.1, temperature)),
-              stream: true,
-            });
-
-            let inGhThoughtMode = false;
-            for await (const chunk of streamRes) {
-              const delta = (chunk.choices?.[0]?.delta as any);
-              const reasoning = delta?.reasoning_content || delta?.reasoning || "";
-              const content = delta?.content || "";
-
-              if (reasoning) {
-                if (!inGhThoughtMode) {
-                  inGhThoughtMode = true;
-                  res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "<think>\n" + reasoning } }] })}\n\n`);
-                } else {
-                  res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: reasoning } }] })}\n\n`);
-                }
-              } else if (content) {
-                if (inGhThoughtMode) {
-                  inGhThoughtMode = false;
-                  res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" + content } }] })}\n\n`);
-                } else {
-                  res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: content } }] })}\n\n`);
-                }
-              }
-            }
-            if (inGhThoughtMode) {
-              res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" } }] })}\n\n`);
-            }
-            res.write("data: [DONE]\n\n");
-            return res.end();
-          } else {
-            const completion = await client.chat.completions.create({
-              model: targetGhModel,
-              messages: ghMessages,
-              temperature: Math.min(1.0, Math.max(0.1, temperature)),
-              stream: false,
-            });
-            const choice = (completion.choices?.[0] as any);
-            const reasoning = choice?.message?.reasoning_content || choice?.message?.reasoning || "";
-            const content = choice?.message?.content || "";
-            let text = content;
-            if (reasoning) {
-              text = `<think>\n${reasoning.trim()}\n</think>\n\n${content.trim()}`;
-            }
-            return res.json({
-              text,
-              choices: [{ message: { content: text } }],
-              model: targetGhModel,
-              provider: "github-models"
-            });
-          }
-        } catch (ghErr: any) {
-          console.warn("GitHub Models fallback failed:", ghErr?.message);
-        }
-      }
-
-      // =========================================================================
-      // 3. TERTIARY ENGINE: Gemini Fallback
-      // =========================================================================
-      const geminiApiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
+      const geminiApiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "") || (isClientGemini ? (customKey || bearerToken) : "");
       if (geminiApiKey) {
         try {
           const ai = new GoogleGenAI({ apiKey: geminiApiKey });
@@ -3680,8 +3612,9 @@ Respond strictly in valid JSON:
               config: { systemInstruction: systemPrompt || undefined, temperature: Math.min(1.0, Math.max(0.1, temperature)) }
             });
             res.setHeader("Content-Type", "text/event-stream");
-            res.setHeader("Cache-Control", "no-cache");
+            res.setHeader("Cache-Control", "no-cache, no-transform");
             res.setHeader("Connection", "keep-alive");
+            res.setHeader("X-Accel-Buffering", "no");
             for await (const chunk of streamResult) {
               const delta = chunk.text || "";
               if (delta) {
@@ -3707,15 +3640,87 @@ Respond strictly in valid JSON:
         } catch (gemErr: any) {}
       }
 
-      if (!groqKey) {
-        return res.status(400).json({
-          error: "Groq API key is required. Please set the GROQ_API_KEY environment variable.",
-        });
+      // =========================================================================
+      // 3. TERTIARY ENGINE: GitHub Models Fallback (if token provided)
+      // =========================================================================
+      const effectiveKey = (isClientGithub ? (customKey || bearerToken) : "") || process.env.GITHUB_TOKEN || "";
+      if (effectiveKey) {
+        try {
+          const ghEndpoint = endpoint && endpoint.startsWith("http") && !endpoint.includes("groq") ? endpoint : "https://models.inference.ai.azure.com";
+          const client = new OpenAI({
+            baseURL: ghEndpoint,
+            apiKey: effectiveKey,
+          });
+
+          const ghMessages: any[] = [];
+          if (systemPrompt && !messages.some((m: any) => m.role === "system")) {
+            ghMessages.push({ role: "system", content: systemPrompt });
+          }
+          for (const m of messages) {
+            ghMessages.push({
+              role: m.role || "user",
+              content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+            });
+          }
+
+          if (isStream) {
+            res.setHeader("Content-Type", "text/event-stream");
+            res.setHeader("Cache-Control", "no-cache, no-transform");
+            res.setHeader("Connection", "keep-alive");
+            res.setHeader("X-Accel-Buffering", "no");
+
+            const streamRes = await client.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: ghMessages,
+              temperature: Math.min(1.0, Math.max(0.1, temperature)),
+              stream: true,
+            });
+
+            for await (const chunk of streamRes) {
+              const content = (chunk.choices?.[0]?.delta as any)?.content || "";
+              if (content) {
+                res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
+              }
+            }
+            res.write("data: [DONE]\n\n");
+            return res.end();
+          } else {
+            const completion = await client.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: ghMessages,
+              temperature: Math.min(1.0, Math.max(0.1, temperature)),
+              stream: false,
+            });
+            const text = completion.choices?.[0]?.message?.content || "";
+            return res.json({
+              text,
+              choices: [{ message: { content: text } }],
+              model: "gpt-4o-mini",
+              provider: "github-models"
+            });
+          }
+        } catch (ghErr: any) {}
       }
 
-      return res.status(502).json({
-        error: "All Groq model requests failed. Please check GROQ_API_KEY quota and connection."
-      });
+      // 4. Graceful Diagnostic Response (Never crash with 500/502)
+      const noticeText = `⚠️ **Groq AI Connection Setup Required**\n\nFrosted AI was unable to reach a working AI provider. To enable ultra-fast Groq LPU responses on your live app:\n\n1. Go to your **Render Dashboard** → Your Web Service → **Environment** tab.\n2. Add the environment variable: \`GROQ_API_KEY = gsk_...\`\n3. Click **Manual Deploy** → **Deploy latest commit** so Render applies the new key.\n4. You can also paste your Groq API key directly using the **API Key** settings button above.\n\n*(Get a free Groq key in 30 seconds at [console.groq.com/keys](https://console.groq.com/keys)).*`;
+
+      if (isStream) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache, no-transform");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: noticeText } }] })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        return res.end();
+      } else {
+        return res.json({
+          text: noticeText,
+          choices: [{ message: { content: noticeText } }],
+          model: "system-notice",
+          provider: "system"
+        });
+      }
     } catch (err: any) {
       console.error("AI chat fatal error:", err);
       return res.status(500).json({
