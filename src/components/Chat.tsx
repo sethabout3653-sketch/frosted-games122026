@@ -17,6 +17,7 @@ import {
 import ProfileSetup from "./ProfileSetup";
 import ChatPanel from "./ChatPanel";
 import VoiceChannel from "./VoiceChannel";
+import FriendsPanel from "./FriendsPanel";
 import { ChatProfile, ChatMessage } from "../types";
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
 import { saveUserProfile } from "../lib/activity-tracker";
@@ -98,7 +99,7 @@ export default function Chat({
     return null;
   });
 
-  const [activeTab, setActiveTab] = useState<"chat" | "voice" | "profile">(initialTab || "chat");
+  const [activeTab, setActiveTab] = useState<"chat" | "voice" | "profile" | "friends">(initialTab || "chat");
   const [isInVoiceSession, setIsInVoiceSession] = useState(autoJoinVoice);
   const [activeChannel, setActiveChannel] = useState<string>("general");
   const [channelSearch, setChannelSearch] = useState<string>("");
@@ -589,6 +590,31 @@ export default function Chat({
 
             {/* Channels & Voice Navigation */}
             <div className="flex-1 overflow-y-auto p-2 space-y-4">
+              {/* SOCIAL & FRIENDS Section */}
+              <div>
+                <div className="flex items-center gap-1 text-[10px] font-bold text-[var(--theme-text-muted)] tracking-wider uppercase px-2.5 py-1.5">
+                  <ChevronDown size={12} />
+                  <span>DIRECT MESSAGES</span>
+                </div>
+                <div className="space-y-0.5 mt-0.5">
+                  <button
+                    onClick={() => setActiveTab("friends")}
+                    style={{
+                      backgroundColor: activeTab === "friends" ? "var(--theme-accent)" : "transparent",
+                      borderColor: activeTab === "friends" ? "var(--theme-border-strong)" : "transparent",
+                    }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all duration-150 cursor-pointer border ${
+                      activeTab === "friends"
+                        ? "text-white shadow-sm"
+                        : "text-neutral-400 hover:bg-white/5 hover:text-white"
+                    }`}
+                  >
+                    <UserIcon size={15} className="text-[var(--theme-text-accent)]" />
+                    <span>Friends & DMs</span>
+                  </button>
+                </div>
+              </div>
+
               {/* CHANNELS Section */}
               <div>
                 <div className="flex items-center gap-1 text-[10px] font-bold text-[var(--theme-text-muted)] tracking-wider uppercase px-2.5 py-1.5">
@@ -810,17 +836,27 @@ export default function Chat({
             style={{ backgroundColor: "var(--theme-chat-bg)" }}
             className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative"
           >
-            <ChatPanel
-              profile={profile}
-              activeChannel={activeChannel}
-              voiceUsers={voiceUsers}
-              onSelectVoice={() => {
-                setActiveTab("voice");
-                setIsInVoiceSession(true);
-              }}
-              showMembersSidebar={showMembersSidebar}
-              setShowMembersSidebar={setShowMembersSidebar}
-            />
+            {activeTab === "friends" ? (
+              <FriendsPanel
+                profile={profile}
+                onOpenVoiceChat={() => {
+                  setActiveTab("voice");
+                  setIsInVoiceSession(true);
+                }}
+              />
+            ) : (
+              <ChatPanel
+                profile={profile}
+                activeChannel={activeChannel}
+                voiceUsers={voiceUsers}
+                onSelectVoice={() => {
+                  setActiveTab("voice");
+                  setIsInVoiceSession(true);
+                }}
+                showMembersSidebar={showMembersSidebar}
+                setShowMembersSidebar={setShowMembersSidebar}
+              />
+            )}
           </div>
         </div>
       )}

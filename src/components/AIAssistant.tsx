@@ -33,8 +33,11 @@ import {
   AlertCircle,
   ExternalLink,
   X,
+  Users,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import FriendsPanel from "./FriendsPanel";
+import { ChatProfile } from "../types";
 
 export function parseThoughtAndContent(raw: string): {
   thought: string;
@@ -104,35 +107,35 @@ const PERSONAS: AIPersona[] = [
     name: "Helpful Friend",
     icon: "Compass",
     description: "Friendly, natural companion for answering questions, brainstorms, and conversation.",
-    systemPrompt: "You are a friendly, knowledgeable, and natural AI companion inside Frosted Studying. Keep responses clear, helpful, engaging, and warm without being robotic or stiff.",
+    systemPrompt: "You are Frosted AI, the official built-in companion for Frosted Studying — an unblocked student productivity, study, and stealth learning suite disguised as a casual arcade/games site. You know all about Frosted Studying's features including Tab Cloaking (disguising tabs as Google Drive, Canvas, or Clever), Panic Keys (switching to Google Drive instantly), integrated unblocked games (Slope, Geometry Dash, 2048, Retro Arcade, Chess, Wordle, Sudoku), AI Study Tutors, Flashcard builders, and Pomodoro timers. Keep responses warm, engaging, and clear.",
   },
   {
     id: "study_tutor",
     name: "Study Tutor",
     icon: "GraduationCap",
     description: "Breaks down difficult concepts, explains step-by-step, and creates practice quizzes.",
-    systemPrompt: "You are an encouraging and patient study tutor. Help the user master topics with clear step-by-step explanations, helpful analogies, practice questions, and memory tricks. Avoid overly robotic textbook jargon unless requested.",
+    systemPrompt: "You are an encouraging study tutor inside Frosted Studying. You understand how students use Frosted Studying to study safely with Tab Cloaking, Flashcard tools, Pomodoro timers, and unblocked arcade break games. Help the user master academic topics with step-by-step explanations, analogies, and quizzes.",
   },
   {
     id: "coding_mentor",
     name: "Coding & Tech",
     icon: "Code",
     description: "Debugs code, explains logic, and writes clean modern programs in any language.",
-    systemPrompt: "You are an expert software engineer and programming mentor. Write clean, production-ready, readable code. Include brief explanations of why code works and how to fix bugs.",
+    systemPrompt: "You are an expert software engineer and programming mentor inside Frosted Studying. You write clean, production-ready code, explain web proxies, iframe sandboxing, tab cloaking logic, and help debug student code.",
   },
   {
     id: "writing_coach",
     name: "Essay & Writing",
     icon: "FileText",
     description: "Refines essays, checks grammar, improves flow, and polishes vocabulary.",
-    systemPrompt: "You are a skilled writing coach and editor. Help improve essay structure, grammar, clarity, and persuasive tone while keeping the user's authentic voice.",
+    systemPrompt: "You are a skilled writing coach and editor inside Frosted Studying. Help students refine essay structure, grammar, clarity, and persuasive tone while keeping their authentic voice.",
   },
   {
     id: "math_solver",
     name: "Math & Science",
     icon: "Calculator",
     description: "Solves equations, physics, and chemistry problems with complete worked solutions.",
-    systemPrompt: "You are an expert mathematics and science tutor. Show all intermediate calculation steps, explain the underlying formulas, and verify answers for accuracy.",
+    systemPrompt: "You are an expert mathematics and science tutor inside Frosted Studying. Show all intermediate calculation steps, explain underlying formulas, and verify answers accurately.",
   },
 ];
 
@@ -147,70 +150,157 @@ export interface AIModelOption {
 const GROQ_FREE_MODELS: AIModelOption[] = [
   {
     id: "openai/gpt-oss-120b",
-    name: "GPT OSS 120B (Groq LPU)",
+    name: "GPT 120B",
     provider: "OpenAI on Groq",
-    description: "OpenAI's flagship 120B open-weight model with 500+ tps reasoning on Groq LPUs.",
-    badge: "Free Forever • Flagship",
+    description: "OpenAI's flagship 120B model with high-speed reasoning.",
+    badge: "Flagship",
   },
   {
     id: "openai/gpt-oss-20b",
-    name: "GPT OSS 20B (Groq LPU)",
+    name: "GPT 20B",
     provider: "OpenAI on Groq",
-    description: "Ultra-fast low-latency conversational model for instant responses.",
-    badge: "Free Forever • Ultra Fast",
+    description: "Ultra-fast low-latency conversational model for instant answers.",
+    badge: "Ultra Fast",
+  },
+  {
+    id: "llama-3.3-70b-versatile",
+    name: "Llama 3.3 (70B)",
+    provider: "Meta on Groq",
+    description: "Meta's flagship 70B versatile model for deep reasoning and writing.",
+    badge: "Versatile",
+  },
+  {
+    id: "llama-3.1-8b-instant",
+    name: "Llama 3.1 (8B)",
+    provider: "Meta on Groq",
+    description: "Ultra-fast lightweight 8B model with sub-second response times.",
+    badge: "Instant",
+  },
+  {
+    id: "deepseek-r1-distill-llama-70b",
+    name: "DeepSeek R1 (70B)",
+    provider: "DeepSeek on Groq",
+    description: "DeepSeek R1 reasoning distilled into Llama 70B architecture.",
+    badge: "Reasoning",
+  },
+  {
+    id: "qwen-2.5-coder-32b",
+    name: "Qwen Coder (32B)",
+    provider: "Alibaba on Groq",
+    description: "Specialized code generation, debugging, and programming model.",
+    badge: "Coder",
   },
   {
     id: "qwen/qwen3.8-27b",
-    name: "Qwen 3.8 27B Vision",
+    name: "Qwen Vision (27B)",
     provider: "Alibaba on Groq",
-    description: "Dense multimodal reasoning and problem-solving model running at 450 tps.",
-    badge: "Free Forever • Multimodal",
+    description: "Dense multimodal vision & reasoning model running at 450 tps.",
+    badge: "Multimodal",
   },
   {
     id: "llama3-70b-8192",
-    name: "Llama 3 70B",
+    name: "Llama 3 (70B)",
     provider: "Meta on Groq",
-    description: "Meta's high-capacity 70B open model with fast inference on Groq.",
-    badge: "Free Forever • Meta",
+    description: "High-capacity 70B model with 8192 context window.",
+    badge: "Meta",
   },
   {
     id: "llama3-8b-8192",
-    name: "Llama 3 8B",
+    name: "Llama 3 (8B)",
     provider: "Meta on Groq",
-    description: "Ultra-fast 8B model with near-instantaneous response latency.",
-    badge: "Free Forever • Fast",
+    description: "Fast 8B general purpose model for Q&A and summarizing.",
+    badge: "Meta",
   },
   {
-    id: "llama-3.3-70b-specdec",
-    name: "Llama 3.3 70B SpecDec",
-    provider: "Meta on Groq",
-    description: "Speculative decoding high-speed reasoning model.",
-    badge: "Free Forever • SpecDec",
+    id: "mixtral-8x7b-32768",
+    name: "Mixtral (8x7B)",
+    provider: "Mistral AI on Groq",
+    description: "Mistral's sparse mixture-of-experts model with 32k context.",
+    badge: "Mistral",
+  },
+  {
+    id: "gemma2-9b-it",
+    name: "Gemma 2 (9B)",
+    provider: "Google on Groq",
+    description: "Google's Gemma 2 lightweight instruction model.",
+    badge: "Google",
   },
   {
     id: "llama-3.2-11b-vision-preview",
-    name: "Llama 3.2 11B Vision",
+    name: "Llama 3.2 Vision (11B)",
     provider: "Meta on Groq",
-    description: "Multimodal vision & text understanding model on Groq hardware.",
-    badge: "Free Forever • Vision",
+    description: "Multimodal image and document vision understanding model.",
+    badge: "Vision",
+  },
+  {
+    id: "llama-3.2-90b-vision-preview",
+    name: "Llama 3.2 Vision (90B)",
+    provider: "Meta on Groq",
+    description: "Flagship 90B multimodal vision and reasoning model.",
+    badge: "Vision 90B",
   },
   {
     id: "llama-3.2-3b-preview",
-    name: "Llama 3.2 3B",
+    name: "Llama 3.2 (3B)",
     provider: "Meta on Groq",
-    description: "Lightweight, ultra-low latency model for study and rapid Q&A.",
-    badge: "Free Forever • Light",
+    description: "Lightweight 3B model for fast conversational study.",
+    badge: "Light",
   },
   {
     id: "llama-3.2-1b-preview",
-    name: "Llama 3.2 1B",
+    name: "Llama 3.2 (1B)",
     provider: "Meta on Groq",
-    description: "Fastest lightweight model for sub-second responses.",
-    badge: "Free Forever • Instant",
+    description: "Ultra-compact 1B model for rapid responses.",
+    badge: "Ultra Light",
+  },
+  {
+    id: "groq/compound",
+    name: "Groq Smart Router",
+    provider: "Groq Compound",
+    description: "Groq's coordinated multi-model routing engine.",
+    badge: "Compound",
+  },
+  {
+    id: "groq/compound-mini",
+    name: "Groq Fast Router",
+    provider: "Groq Compound",
+    description: "Fast lightweight compound routing engine for quick study queries.",
+    badge: "Compound Mini",
   },
 ];
 
 const GITHUB_MODELS = GROQ_FREE_MODELS;
+
+const getFriendlyModelName = (id: string, rawName?: string): string => {
+  if (id === "openai/gpt-oss-120b") return "GPT 120B";
+  if (id === "openai/gpt-oss-20b") return "GPT 20B";
+  if (id === "llama-3.3-70b-versatile") return "Llama 3.3 (70B)";
+  if (id === "llama-3.1-8b-instant") return "Llama 3.1 (8B)";
+  if (id === "deepseek-r1-distill-llama-70b") return "DeepSeek R1 (70B)";
+  if (id === "qwen-2.5-coder-32b") return "Qwen Coder (32B)";
+  if (id === "qwen/qwen3.8-27b") return "Qwen Vision (27B)";
+  if (id === "llama3-70b-8192") return "Llama 3 (70B)";
+  if (id === "llama3-8b-8192") return "Llama 3 (8B)";
+  if (id === "mixtral-8x7b-32768") return "Mixtral (8x7B)";
+  if (id === "gemma2-9b-it") return "Gemma 2 (9B)";
+  if (id === "llama-3.2-11b-vision-preview") return "Llama 3.2 Vision (11B)";
+  if (id === "llama-3.2-90b-vision-preview") return "Llama 3.2 Vision (90B)";
+  if (id === "llama-3.2-3b-preview") return "Llama 3.2 (3B)";
+  if (id === "llama-3.2-1b-preview") return "Llama 3.2 (1B)";
+  if (id === "groq/compound") return "Groq Smart Router";
+  if (id === "groq/compound-mini") return "Groq Fast Router";
+  if (id === "allam-2-7b") return "ALLaM 2 (7B)";
+
+  if (rawName && !rawName.includes("/")) return rawName;
+
+  return id
+    .replace(/^openai\//i, "GPT ")
+    .replace(/^qwen\//i, "Qwen ")
+    .replace(/^meta-llama\//i, "Llama ")
+    .replace(/-(preview|instant|versatile|specdec|8192|32768)/gi, "")
+    .replace(/-/g, " ")
+    .trim();
+};
 
 const QUICK_STARTERS = [
   {
@@ -239,6 +329,27 @@ const DEFAULT_ENDPOINT = "https://api.groq.com/openai/v1";
 export const DEFAULT_GITHUB_PAT = "";
 
 export default function AIAssistant() {
+  const [showFriendsModal, setShowFriendsModal] = useState<boolean>(false);
+  const [chatProfile] = useState<ChatProfile>(() => {
+    try {
+      const sessionSaved = sessionStorage.getItem("frosted_chat_profile");
+      if (sessionSaved) {
+        const parsed = JSON.parse(sessionSaved);
+        if (parsed?.username) return parsed;
+      }
+      const saved = localStorage.getItem("frosted_chat_profile");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.username) return parsed;
+      }
+    } catch {}
+    return {
+      uid: "user_guest",
+      username: "Guest",
+      photoURL: "https://api.dicebear.com/7.x/bottts/svg?seed=Guest",
+    };
+  });
+
   // Config state - pre-configured with default key
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem("groq_api_key") || localStorage.getItem("github_models_pat") || "");
   const [endpoint, setEndpoint] = useState<string>(() => localStorage.getItem("groq_endpoint") || localStorage.getItem("github_models_endpoint") || DEFAULT_ENDPOINT);
@@ -364,6 +475,9 @@ export default function AIAssistant() {
       setActiveThreadId(activeThread.id);
     }
   }, [activeThread, activeThreadId]);
+
+  const currentModelObj = availableModels.find((m) => m.id === selectedModel);
+  const currentModelDisplayName = currentModelObj ? currentModelObj.name : getFriendlyModelName(selectedModel);
 
   const activePersona = useMemo(() => {
     return PERSONAS.find((p) => p.id === selectedPersonaId) || PERSONAS[0];
@@ -944,7 +1058,7 @@ export default function AIAssistant() {
           >
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50 animate-pulse" />
-              <span className="text-xs truncate text-emerald-400 font-bold">Free Forever &bull; Unlimited</span>
+              <span className="text-xs truncate text-emerald-400 font-bold">Frosted AI Engine</span>
             </div>
             <Sparkles size={13} className="text-[var(--theme-text-accent)] shrink-0" />
           </div>
@@ -988,7 +1102,7 @@ export default function AIAssistant() {
               >
                 <Sparkles size={13} className="text-[var(--theme-text-accent)]" />
                 <span className="max-w-[130px] sm:max-w-[180px] truncate">
-                  {availableModels.find((m) => m.id === selectedModel)?.name || selectedModel}
+                  {currentModelDisplayName}
                 </span>
                 <ChevronDown size={13} className="text-neutral-400" />
               </button>
@@ -1048,6 +1162,19 @@ export default function AIAssistant() {
 
           {/* Right Action Icons */}
           <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setShowFriendsModal(true)}
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border)",
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-white hover:bg-white/10 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="Friends & Direct Messages"
+            >
+              <Users size={14} className="text-[var(--theme-text-accent)]" />
+              <span className="hidden sm:inline">Friends & DMs</span>
+            </button>
+
             <button
               onClick={() => {
                 setTempApiKey(apiKey);
@@ -1121,10 +1248,10 @@ export default function AIAssistant() {
               </div>
 
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                Frosted AI Study Assistant
+                Frosted AI
               </h2>
               <p className="text-xs sm:text-sm text-neutral-400 mt-1 max-w-md">
-                100% Free Forever &bull; Unlimited Prompts &bull; Powered by Groq LPUs (OpenAI GPT-OSS 120B, GPT-OSS 20B, Qwen 3.8 27B Vision, Groq Compound). Ask homework questions, brainstorm topics, solve equations, or debug code.
+                Ask homework questions, learn about Frosted Studying stealth features, solve math equations, or debug code.
               </p>
 
               {/* Quick Prompt Cards */}
@@ -1400,7 +1527,7 @@ export default function AIAssistant() {
                 value={inputPrompt}
                 onChange={(e) => setInputPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={`Message Frosted AI (${selectedModel})... (Enter to send, Shift+Enter for newline)`}
+                placeholder={`Message Frosted AI (${currentModelDisplayName})... (Enter to send, Shift+Enter for newline)`}
                 rows={1}
                 className="flex-1 max-h-36 min-h-[40px] bg-transparent resize-none px-2 py-1.5 text-xs sm:text-sm text-white placeholder-neutral-500 focus:outline-none custom-scrollbar"
                 style={{ height: "auto" }}
@@ -1441,10 +1568,7 @@ export default function AIAssistant() {
             <div className="flex items-center justify-between text-[11px] text-neutral-400 px-2">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
-                <span className="font-medium text-neutral-300">Frosted AI Companion &bull; {selectedModel}</span>
-                <span className="text-[10px] font-bold text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
-                  Groq Free Forever &bull; Ultra-Fast LPU
-                </span>
+                <span className="font-medium text-neutral-300">Frosted AI &bull; {currentModelDisplayName}</span>
               </div>
 
               {activeThread.messages.length > 0 && !isGenerating && (
@@ -1632,6 +1756,20 @@ export default function AIAssistant() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Friends & Direct Messaging Modal */}
+      {showFriendsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="w-full max-w-2xl h-[85vh] rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-darkest)] shadow-2xl overflow-hidden flex flex-col relative">
+            <button
+              onClick={() => setShowFriendsModal(false)}
+              className="absolute top-3 right-3 z-20 p-2 rounded-xl bg-black/40 text-neutral-400 hover:text-white hover:bg-black/60 transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+            <FriendsPanel profile={chatProfile} />
           </div>
         </div>
       )}

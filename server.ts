@@ -1589,170 +1589,123 @@ const PORT = Number(process.env.PORT) || 3000;
     res.json({ success: true, message: "CQL Execution Simulated." });
   });
 
-  function sanitizeApiKey(raw: any): string {
-    if (!raw || typeof raw !== "string") return "";
-    let s = raw.trim();
-    // Strip wrapping quotes
-    s = s.replace(/^["'`]+|["'`]+$/g, "").trim();
-    // Strip variable assignment prefix like `GROQ_API_KEY = ` or `export GROQ_API_KEY=`
-    s = s.replace(/^(?:export\s+)?[A-Z0-9_]+\s*=\s*/i, "").trim();
-    // Strip Bearer prefix
-    s = s.replace(/^Bearer\s+/i, "").trim();
-    // Strip quotes again
-    s = s.replace(/^["'`]+|["'`]+$/g, "").trim();
-    if (s === "undefined" || s === "null" || s === "[object Object]") return "";
-    return s;
-  }
-
-  function findGroqApiKey(): string {
-    const directKeys = [
-      process.env.GROQ_API_KEY,
-      process.env.GROQ_KEY,
-      process.env.GROQ_TOKEN,
-      process.env.GROQ_API,
-      process.env.GROQ_SECRET,
-      process.env.GROQ_SECRET_KEY,
-      process.env.VITE_GROQ_API_KEY,
-      process.env.AI_API_KEY,
-      process.env.GROQ,
-    ];
-    for (const k of directKeys) {
-      const sanitized = sanitizeApiKey(k);
-      if (sanitized && !sanitized.startsWith("ghp_") && !sanitized.startsWith("AIza")) {
-        return sanitized;
-      }
-    }
-    // Scan all process.env keys for any containing "GROQ"
-    for (const [k, v] of Object.entries(process.env)) {
-      if (k.toUpperCase().includes("GROQ")) {
-        const sanitized = sanitizeApiKey(v);
-        if (sanitized && !sanitized.startsWith("ghp_") && !sanitized.startsWith("AIza")) {
-          return sanitized;
-        }
-      }
-    }
-    return "";
-  }
-
   // ==========================================
   // High-Resilience AI Inference Proxy Config
   // ==========================================
   app.get("/api/ai/config", (req, res) => {
-    const serverKey = findGroqApiKey();
+    const hasKey = Boolean(process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY);
     res.json({
-      hasEnvKey: Boolean(serverKey || process.env.GEMINI_API_KEY),
-      hasGroqKey: Boolean(serverKey),
-      keyMasked: serverKey ? `${serverKey.slice(0, 7)}...${serverKey.slice(-4)}` : null,
-      provider: serverKey ? "groq" : "gemini",
+      hasEnvKey: hasKey,
       defaultModel: "openai/gpt-oss-120b",
       endpoint: "https://api.groq.com/openai/v1",
+      provider: "groq",
       models: [
         "openai/gpt-oss-120b",
         "openai/gpt-oss-20b",
         "qwen/qwen3.8-27b",
-        "llama3-70b-8192",
-        "llama3-8b-8192",
-        "llama-3.3-70b-specdec",
-        "llama-3.2-11b-vision-preview",
-        "llama-3.2-3b-preview",
-        "llama-3.2-1b-preview"
+        "groq/compound",
+        "groq/compound-mini"
       ]
     });
   });
 
   app.post("/api/ai/test", async (req, res) => {
     try {
-      const authHeader = req.headers.authorization || "";
-      const bearerToken = sanitizeApiKey(authHeader.replace(/^Bearer\s+/i, ""));
-      const bodyKey = sanitizeApiKey(req.body?.customKey);
-      const serverKey = findGroqApiKey();
-      const groqKey = bodyKey || bearerToken || serverKey;
+      let authHeader = req.headers.authorization || "";
+      const effectiveKey = authHeader.replace(/^Bearer\s+/i, "").trim() || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY || "";
+      const { endpoint } = req.body || {};
 
-      if (!groqKey) {
-        return res.status(400).json({
-          ok: false,
-          success: false,
-          error: "No Groq API key found. Please add GROQ_API_KEY in Render environment settings or enter a key in the modal."
-        });
-      }
+      // 1. Prioritize Groq free test with active model
+      const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (effectiveKey && !effectiveKey.startsWith("ghp_") && !effectiveKey.startsWith("github_pat_") && !effectiveKey.startsWith("AIza") ? effectiveKey : "");
+      if (groqKey) {
+        for (const testModel of ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "groq/compound-mini", "qwen/qwen3.8-27b"]) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-      const startTime = Date.now();
+            const upstreamRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${groqKey}`,
+              },
+              body: JSON.stringify({
+                model: testModel,
+                messages: [{ role: "user", content: "Say 'Groq AI is active!' in 4 words." }],
+                max_tokens: 15,
+              }),
+              signal: controller.signal,
+            });
 
-      // Check key against Groq models endpoint first
-      try {
-        const checkRes = await fetch("https://api.groq.com/openai/v1/models", {
-          headers: { Authorization: `Bearer ${groqKey}` },
-          signal: AbortSignal.timeout(6000)
-        });
+            clearTimeout(timeoutId);
 
-        if (!checkRes.ok) {
-          const errText = await checkRes.text().catch(() => "");
-          let reason = `Groq rejected key (HTTP ${checkRes.status})`;
-          if (checkRes.status === 401) reason = "Invalid API key (HTTP 401). Please verify key at console.groq.com/keys";
-          return res.status(checkRes.status).json({
-            ok: false,
-            success: false,
-            error: `${reason}: ${errText.slice(0, 160)}`
-          });
+            if (upstreamRes.ok) {
+              const data = await upstreamRes.json();
+              return res.json({ success: true, provider: "groq", model: testModel, data });
+            }
+          } catch (groqErr) {}
         }
-      } catch (e: any) {
-        // Continue to completion test if models endpoint timed out
       }
 
-      // Quick test completion
-      const testCandidates = [
-        "openai/gpt-oss-20b",
-        "openai/gpt-oss-120b",
-        "qwen/qwen3.8-27b",
-        "llama3-8b-8192",
-        "llama3-70b-8192",
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant"
-      ];
-
-      for (const m of testCandidates) {
+      // 2. Fallback to GitHub Models test if key is present
+      const isGithub = effectiveKey.startsWith("ghp_") || effectiveKey.startsWith("github_pat_");
+      if (isGithub || (effectiveKey && endpoint && (endpoint.includes("github") || endpoint.includes("azure")))) {
         try {
-          const compRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const ghRes = await fetch("https://models.inference.ai.azure.com/chat/completions", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${groqKey}`
+              Authorization: `Bearer ${effectiveKey}`,
             },
             body: JSON.stringify({
-              model: m,
-              messages: [{ role: "user", content: "Respond with 'Groq Online' in 2 words." }],
-              max_tokens: 10
+              model: "gpt-4o-mini",
+              messages: [{ role: "user", content: "Say 'AI active!' in 2 words." }],
+              max_tokens: 15,
             }),
-            signal: AbortSignal.timeout(6000)
+            signal: controller.signal,
           });
-
-          if (compRes.ok) {
-            const data = await compRes.json();
-            const latencyMs = Date.now() - startTime;
-            const reply = data.choices?.[0]?.message?.content || "Groq Online";
-            return res.json({
-              ok: true,
-              success: true,
-              latencyMs,
-              modelUsed: m,
-              reply,
-              message: `Groq connected in ${latencyMs}ms using ${m}!`
-            });
+          clearTimeout(timeoutId);
+          if (ghRes.ok) {
+            const data = await ghRes.json();
+            return res.json({ success: true, provider: "github-models", data });
           }
         } catch (e) {}
       }
 
-      return res.status(502).json({
-        ok: false,
-        success: false,
-        error: "Groq key was verified, but candidate test models were temporarily busy. Please try sending a message in chat."
+      // 3. Fallback test via Gemini
+      const geminiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
+      if (geminiKey) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: geminiKey });
+          const result = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [{ role: "user", parts: [{ text: "Say 'AI is ready!' in 4 words." }] }],
+          });
+          return res.json({
+            success: true,
+            provider: "google-gemini",
+            data: {
+              choices: [
+                {
+                  message: {
+                    content: result.text || "AI connection active!",
+                  },
+                },
+              ],
+            },
+          });
+        } catch (geminiErr: any) {
+          return res.status(500).json({ error: geminiErr.message });
+        }
+      }
+
+      return res.status(400).json({
+        error: "No active AI key found. Please set GROQ_API_KEY in your environment variables.",
       });
     } catch (err: any) {
-      return res.status(500).json({
-        ok: false,
-        success: false,
-        error: err.message || "Failed to test Groq connection."
-      });
+      res.status(500).json({ error: err.message });
     }
   });
 
@@ -3192,14 +3145,51 @@ Respond strictly in valid JSON:
   const FALLBACK_GROQ_MODELS = [
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "deepseek-r1-distill-llama-70b",
+    "qwen-2.5-coder-32b",
     "qwen/qwen3.8-27b",
     "llama3-70b-8192",
     "llama3-8b-8192",
-    "llama-3.3-70b-specdec",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
     "llama-3.2-11b-vision-preview",
+    "llama-3.2-90b-vision-preview",
     "llama-3.2-3b-preview",
-    "llama-3.2-1b-preview"
+    "llama-3.2-1b-preview",
+    "groq/compound",
+    "groq/compound-mini"
   ];
+
+  function getFriendlyModelName(id: string): string {
+    if (id === "openai/gpt-oss-120b") return "GPT 120B";
+    if (id === "openai/gpt-oss-20b") return "GPT 20B";
+    if (id === "llama-3.3-70b-versatile") return "Llama 3.3 (70B)";
+    if (id === "llama-3.1-8b-instant") return "Llama 3.1 (8B)";
+    if (id === "deepseek-r1-distill-llama-70b") return "DeepSeek R1 (70B)";
+    if (id === "qwen-2.5-coder-32b") return "Qwen Coder (32B)";
+    if (id === "qwen/qwen3.8-27b") return "Qwen Vision (27B)";
+    if (id === "llama3-70b-8192") return "Llama 3 (70B)";
+    if (id === "llama3-8b-8192") return "Llama 3 (8B)";
+    if (id === "mixtral-8x7b-32768") return "Mixtral (8x7B)";
+    if (id === "gemma2-9b-it") return "Gemma 2 (9B)";
+    if (id === "llama-3.2-11b-vision-preview") return "Llama 3.2 Vision (11B)";
+    if (id === "llama-3.2-90b-vision-preview") return "Llama 3.2 Vision (90B)";
+    if (id === "llama-3.2-3b-preview") return "Llama 3.2 (3B)";
+    if (id === "llama-3.2-1b-preview") return "Llama 3.2 (1B)";
+    if (id === "groq/compound") return "Groq Smart Router";
+    if (id === "groq/compound-mini") return "Groq Fast Router";
+    if (id === "allam-2-7b") return "ALLaM 2 (7B)";
+
+    return id
+      .replace(/^openai\//i, "GPT ")
+      .replace(/^qwen\//i, "Qwen ")
+      .replace(/^meta-llama\//i, "Llama ")
+      .replace(/-(preview|instant|versatile|specdec|8192|32768)/gi, "")
+      .replace(/-/g, " ")
+      .trim();
+  }
 
   async function resolveActiveGroqModels(rawKey: string): Promise<string[]> {
     const key = typeof rawKey === "string" ? rawKey.trim().replace(/^["']|["']$/g, "").trim() : "";
@@ -3228,34 +3218,57 @@ Respond strictly in valid JSON:
               !id.includes("tts") &&
               !id.includes("guard") &&
               !id.includes("embed") &&
-              !id.includes("mixtral") &&
-              !id.includes("gemma2")
+              !id.includes("safeguard")
             );
           if (valid.length > 0) {
-            // Sort to prioritize known flagship models
-            valid.sort((a: string, b: string) => {
+            // Merge with fallback list to ensure full catalog is always available
+            const combinedIds = Array.from(new Set([...valid, ...FALLBACK_GROQ_MODELS]));
+            
+            // Sort to prioritize flagship models
+            combinedIds.sort((a: string, b: string) => {
               const score = (id: string) => {
-                if (id.includes("gpt-oss-120b")) return 10;
-                if (id.includes("gpt-oss-20b")) return 9;
-                if (id.includes("qwen3.8")) return 8;
-                if (id.includes("llama3-70b")) return 7;
-                if (id.includes("llama3-8b")) return 6;
-                if (id.includes("specdec")) return 5;
+                if (id.includes("gpt-oss-120b")) return 12;
+                if (id.includes("gpt-oss-20b")) return 11;
+                if (id.includes("llama-3.3-70b")) return 10;
+                if (id.includes("deepseek-r1")) return 9;
+                if (id.includes("coder")) return 8;
+                if (id.includes("qwen3.8")) return 7;
+                if (id.includes("llama3-70b")) return 6;
+                if (id.includes("llama3-8b")) return 5;
                 return 1;
               };
               return score(b) - score(a);
             });
 
-            cachedGroqIds = valid;
+            cachedGroqIds = combinedIds;
             lastGroqFetchTime = now;
-            cachedGroqModelsList = valid.map((id: string) => ({
-              id,
-              name: id.replace(/^openai\//, "OpenAI ").replace(/^qwen\//, "Qwen ").replace(/^meta-llama\//, "Llama ").replace(/-/g, " "),
-              provider: id.includes("openai") ? "OpenAI on Groq" : (id.includes("qwen") ? "Alibaba on Groq" : "Meta on Groq"),
-              badge: id.includes("120b") ? "Flagship" : (id.includes("20b") ? "Ultra Fast" : "Free Forever"),
-              description: `Ultra-fast inference on Groq LPUs (${id}).`,
-            }));
-            return valid;
+            cachedGroqModelsList = combinedIds.map((id: string) => {
+              let provider = "Groq Engine";
+              if (id.includes("openai")) provider = "OpenAI on Groq";
+              else if (id.includes("llama") || id.includes("meta")) provider = "Meta on Groq";
+              else if (id.includes("qwen")) provider = "Alibaba on Groq";
+              else if (id.includes("deepseek")) provider = "DeepSeek on Groq";
+              else if (id.includes("mixtral")) provider = "Mistral AI on Groq";
+              else if (id.includes("gemma")) provider = "Google on Groq";
+              else if (id.includes("compound")) provider = "Groq Compound";
+
+              let badge = "Groq LPU";
+              if (id.includes("120b")) badge = "Flagship";
+              else if (id.includes("20b")) badge = "Ultra Fast";
+              else if (id.includes("coder")) badge = "Coder";
+              else if (id.includes("deepseek") || id.includes("r1")) badge = "Reasoning";
+              else if (id.includes("vision")) badge = "Vision";
+              else if (id.includes("versatile")) badge = "Versatile";
+
+              return {
+                id,
+                name: getFriendlyModelName(id),
+                provider,
+                badge,
+                description: `High-speed LLM inference on Groq hardware (${id}).`,
+              };
+            });
+            return combinedIds;
           }
         }
       }
@@ -3273,13 +3286,31 @@ Respond strictly in valid JSON:
       await resolveActiveGroqModels(activeKey);
     }
 
-    const modelsToSend = cachedGroqModelsList.length > 0 ? cachedGroqModelsList : [
-      { id: "openai/gpt-oss-120b", name: "GPT OSS 120B (Groq LPU)", provider: "OpenAI on Groq", badge: "Flagship", description: "OpenAI's flagship 120B open-weight model with 500+ tps reasoning on Groq LPUs." },
-      { id: "openai/gpt-oss-20b", name: "GPT OSS 20B (Groq LPU)", provider: "OpenAI on Groq", badge: "Ultra Fast", description: "Ultra-fast low-latency conversational model for instant responses." },
-      { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B Vision", provider: "Alibaba on Groq", badge: "Multimodal", description: "Dense multimodal reasoning and problem-solving model running at 450 tps." },
-      { id: "groq/compound", name: "Groq Compound Engine", provider: "Groq Compound", badge: "Compound", description: "Groq's coordinated compound reasoning and agentic routing engine." },
-      { id: "groq/compound-mini", name: "Groq Compound Mini", provider: "Groq Compound", badge: "Instant", description: "Lightweight, instant compound engine for quick tasks and study queries." }
-    ];
+    const modelsToSend = cachedGroqModelsList.length > 0 ? cachedGroqModelsList : FALLBACK_GROQ_MODELS.map((id) => {
+      let provider = "Groq Engine";
+      if (id.includes("openai")) provider = "OpenAI on Groq";
+      else if (id.includes("llama") || id.includes("meta")) provider = "Meta on Groq";
+      else if (id.includes("qwen")) provider = "Alibaba on Groq";
+      else if (id.includes("deepseek")) provider = "DeepSeek on Groq";
+      else if (id.includes("mixtral")) provider = "Mistral AI on Groq";
+      else if (id.includes("gemma")) provider = "Google on Groq";
+      else if (id.includes("compound")) provider = "Groq Compound";
+
+      let badge = "Groq LPU";
+      if (id.includes("120b")) badge = "Flagship";
+      else if (id.includes("20b")) badge = "Ultra Fast";
+      else if (id.includes("coder")) badge = "Coder";
+      else if (id.includes("deepseek") || id.includes("r1")) badge = "Reasoning";
+      else if (id.includes("vision")) badge = "Vision";
+
+      return {
+        id,
+        name: getFriendlyModelName(id),
+        provider,
+        badge,
+        description: `High-speed LLM inference on Groq hardware (${id}).`,
+      };
+    });
 
     res.json({
       models: modelsToSend,
@@ -3287,6 +3318,11 @@ Respond strictly in valid JSON:
       provider: "groq",
     });
   });
+
+  function sanitizeApiKey(raw: any): string {
+    if (!raw || typeof raw !== "string") return "";
+    return raw.trim().replace(/^["']|["']$/g, "").trim();
+  }
 
   async function executeAiCompletion(opts: {
     messages: any[];
@@ -3485,26 +3521,55 @@ Respond strictly in valid JSON:
       const isClientGithub = cleanCustomKey.startsWith("ghp_") || cleanCustomKey.startsWith("github_pat_") || bearerToken.startsWith("ghp_") || bearerToken.startsWith("github_pat_");
       const isClientGemini = cleanCustomKey.startsWith("AIza") || bearerToken.startsWith("AIza");
 
-      const serverGroqKey = findGroqApiKey();
-      const clientGroqKey = isClientGroq ? (cleanCustomKey || bearerToken) : "";
-      const groqKey = clientGroqKey || serverGroqKey || (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : "");
+      const serverGroqKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.GROQ_TOKEN || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
+      const groqKey = isClientGroq ? (cleanCustomKey || bearerToken) : (serverGroqKey || (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : ""));
 
-      console.log(`[AI Chat] Model: ${model} | Server Groq Key: ${Boolean(serverGroqKey)} | Client Groq Key: ${Boolean(clientGroqKey)}`);
+      // Build OpenAI-compatible messages for Groq with Frosted Studying knowledge base
+      const frostedKnowledge = `You are Frosted AI, the official built-in AI assistant for Frosted Studying — an all-in-one unblocked student productivity, study, and stealth learning platform disguised as a casual games/arcade site.
 
-      // Build OpenAI-compatible messages for Groq
+Key Platform Features & Knowledge:
+1. Stealth Disguise & Tab Cloaking:
+   - Designed to appear as a clean gaming site or educational LMS (Google Drive / Canvas / Google Classroom) to bypass false alarms and strict network filters.
+   - Tab Cloaker: Dynamically changes tab title & favicon (disguises as Google Drive, Google Classroom, Canvas LMS, Clever, or Wikipedia).
+   - Panic Key / Stealth Mode: Hotkey (Escape / ~) or button that immediately switches/redirects the interface to Google Drive or Canvas.
+   - About:Blank Launcher / Unblocked Proxy: Opens tools and games in an about:blank frame or proxied window to prevent browser history logs and filter blocks.
+
+2. Games Suite (Disguised Arcade):
+   - Integrated unblocked web games including Slope, Geometry Dash, 2048, Retro Arcade, Crossy Road, Chess, Tetris, Flappy Bird, Sudoku, Minesweeper, and Wordle.
+
+3. Study Tools & AI Suite:
+   - Frosted AI Companion: Multi-persona AI tutor running ultra-fast open models (GPT OSS 120B, GPT OSS 20B, Qwen 3.8 27B, Groq LPU).
+   - Flashcards & Active Recall deck builder.
+   - Markdown Notes & Document/PDF summarizer.
+   - Focus Pomodoro Timer with ambient lofi audio.
+   - Math & Science Step-by-Step Calculator.
+
+4. Customization:
+   - Themes: Frosted Ice, Cyber Neon, Midnight OLED, Emerald Forest, Rose Quartz, Sunset Amber.
+
+If asked about Frosted Studying, tab cloaking, games, panic keys, proxies, or study tools, explain them warmly and accurately.`;
+
       const groqMessages: any[] = [];
-      if (systemPrompt && !messages.some((m: any) => m.role === "system")) {
-        groqMessages.push({ role: "system", content: systemPrompt });
-      }
-      for (const m of messages) {
+      const hasSystemMessage = messages.some((m: any) => m.role === "system");
+      if (!hasSystemMessage) {
         groqMessages.push({
-          role: m.role === "model" ? "assistant" : (m.role || "user"),
-          content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+          role: "system",
+          content: `${frostedKnowledge}\n\nAdditional Instruction: ${systemPrompt}`,
         });
       }
-
-      let lastGroqStatus = 0;
-      let lastGroqErrorText = "";
+      for (const m of messages) {
+        if (m.role === "system") {
+          groqMessages.push({
+            role: "system",
+            content: `${frostedKnowledge}\n\n${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`,
+          });
+        } else {
+          groqMessages.push({
+            role: m.role === "model" ? "assistant" : (m.role || "user"),
+            content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+          });
+        }
+      }
 
       // =========================================================================
       // 1. PRIMARY ENGINE: Groq High-Speed LPU Inference
@@ -3514,16 +3579,7 @@ Respond strictly in valid JSON:
         const mappedModel = GROQ_MODEL_ALIASES[model] || model || "openai/gpt-oss-120b";
         const groqCandidateModels = Array.from(new Set([
           mappedModel,
-          "openai/gpt-oss-120b",
-          "openai/gpt-oss-20b",
-          "qwen/qwen3.8-27b",
-          "llama3-70b-8192",
-          "llama3-8b-8192",
-          "llama-3.3-70b-specdec",
-          "llama-3.2-11b-vision-preview",
-          "llama-3.2-3b-preview",
-          "llama-3.3-70b-versatile",
-          "llama-3.1-8b-instant",
+          model,
           ...liveGroqModels,
           ...FALLBACK_GROQ_MODELS
         ])).filter(Boolean);
@@ -3551,13 +3607,8 @@ Respond strictly in valid JSON:
             clearTimeout(timeoutId);
 
             if (!upstreamRes.ok) {
-              lastGroqStatus = upstreamRes.status;
-              lastGroqErrorText = await upstreamRes.text().catch(() => "");
-              console.warn(`[Groq] ${candModel} returned ${upstreamRes.status}:`, lastGroqErrorText.slice(0, 150));
-              if (upstreamRes.status === 401) {
-                // Invalid API key - all other candidates will fail identically
-                break;
-              }
+              const errBody = await upstreamRes.text().catch(() => "");
+              console.warn(`Groq model ${candModel} returned ${upstreamRes.status}:`, errBody.slice(0, 150));
               continue;
             }
 
@@ -3764,17 +3815,8 @@ Respond strictly in valid JSON:
         } catch (ghErr: any) {}
       }
 
-      // 4. Graceful Diagnostic Response with exact troubleshooting
-      let noticeText = "";
-      if (lastGroqStatus === 401) {
-        noticeText = `⚠️ **Groq API Key Authentication Failed (HTTP 401)**\n\nThe Groq key provided on your server or in your browser was rejected by Groq as invalid, expired, or revoked.\n\n**How to fix:**\n1. Go to [console.groq.com/keys](https://console.groq.com/keys) and generate a new key (it starts with \`gsk_\`).\n2. Click the **API Key** button in the header at the top right of this chat and paste it to connect immediately.\n3. On **Render**, update \`GROQ_API_KEY\` in your **Environment** tab, then click **Manual Deploy → Deploy latest commit**.`;
-      } else if (lastGroqStatus === 429) {
-        noticeText = `⚠️ **Groq Rate Limit Exceeded (HTTP 429)**\n\nYour Groq free tier per-minute token rate limit was reached. Please wait 30 seconds and send your message again.`;
-      } else if (!groqKey) {
-        noticeText = `⚠️ **Groq API Key Not Detected on Server**\n\nFrosted AI could not find an active \`GROQ_API_KEY\` in the environment.\n\n**To resolve:**\n1. In your **Render Dashboard** → Your Web Service → **Environment** tab:\n   - Add Key: \`GROQ_API_KEY\`\n   - Value: \`gsk_...\`\n2. **Important:** Click **Manual Deploy → Deploy latest commit** so Render restarts with the new variable applied.\n3. **Immediate Option:** Click the **API Key** button at the top right of this page to paste your \`gsk_...\` key and start chatting instantly!`;
-      } else {
-        noticeText = `⚠️ **Groq Inference Notice (${lastGroqStatus ? `HTTP ${lastGroqStatus}` : "Unavailable"})**\n\n${lastGroqErrorText ? `*Groq message:* \`${lastGroqErrorText.slice(0, 200)}\`\n\n` : ""}Please verify your key in the **API Key** settings modal at the top right or try sending your message again.`;
-      }
+      // 4. Graceful Diagnostic Response (Never crash with 500/502)
+      const noticeText = `⚠️ **Groq AI Connection Setup Required**\n\nFrosted AI was unable to reach a working AI provider. To enable ultra-fast Groq LPU responses on your live app:\n\n1. Go to your **Render Dashboard** → Your Web Service → **Environment** tab.\n2. Add the environment variable: \`GROQ_API_KEY = gsk_...\`\n3. Click **Manual Deploy** → **Deploy latest commit** so Render applies the new key.\n4. You can also paste your Groq API key directly using the **API Key** settings button above.\n\n*(Get a free Groq key in 30 seconds at [console.groq.com/keys](https://console.groq.com/keys)).*`;
 
       if (isStream) {
         res.setHeader("Content-Type", "text/event-stream");
