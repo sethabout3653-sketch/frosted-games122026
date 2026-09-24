@@ -1590,224 +1590,21 @@ const PORT = Number(process.env.PORT) || 3000;
   });
 
   // ==========================================
-  // High-Resilience AI Inference Proxy (GitHub Models + Gemini Engine)
+  // High-Resilience AI Inference Proxy Config
   // ==========================================
-  const DEFAULT_AI_PAT = process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || "";
-
   app.get("/api/ai/config", (req, res) => {
+    const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN);
     res.json({
-      hasEnvKey: true,
-      defaultModel: "gpt-4o",
+      hasEnvKey: hasKey,
+      defaultModel: "gemini-3.7-flash",
       endpoint: "https://models.github.ai/inference",
     });
-  });
-
-  app.post("/api/ai/chat", async (req, res) => {
-    try {
-      let authHeader = req.headers.authorization || "";
-      const isClientEmpty = !authHeader || authHeader.trim() === "Bearer" || authHeader.trim() === "Bearer undefined" || authHeader.trim() === "Bearer null";
-      
-      if (process.env.AI_API_KEY) {
-        authHeader = `Bearer ${process.env.AI_API_KEY}`;
-      } else if (isClientEmpty) {
-        authHeader = `Bearer ${DEFAULT_AI_PAT}`;
-      }
-      const { model = "gpt-4o", messages = [], temperature = 0.7, stream = true } = req.body || {};
-
-      let upstreamSucceeded = false;
-
-      // 1. Attempt GitHub Models endpoint if available and returns valid JSON/SSE
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-        const upstreamRes = await fetch("https://models.github.ai/inference/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: authHeader,
-            "User-Agent": "FrostedAI/1.0",
-          },
-          body: JSON.stringify({
-            model: model || "gpt-4o",
-            messages: messages || [],
-            temperature: temperature,
-            stream: Boolean(stream),
-          }),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        const contentType = upstreamRes.headers.get("content-type") || "";
-        if (upstreamRes.ok && (contentType.includes("application/json") || contentType.includes("text/event-stream"))) {
-          if (stream && upstreamRes.body) {
-            upstreamSucceeded = true;
-            res.setHeader("Content-Type", "text/event-stream");
-            res.setHeader("Cache-Control", "no-cache");
-            res.setHeader("Connection", "keep-alive");
-
-            const reader = upstreamRes.body.getReader();
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              res.write(value);
-            }
-            return res.end();
-          } else {
-            const data = await upstreamRes.json();
-            if (data?.choices?.[0]?.message?.content) {
-              upstreamSucceeded = true;
-              return res.json(data);
-            }
-          }
-        }
-      } catch (e: any) {
-        // Upstream unavailable or DNS blocked; seamlessly proceed to Gemini engine
-      }
-
-      // 2. High-Performance Server-Side Gemini Engine
-      if (!upstreamSucceeded) {
-        const ai = new GoogleGenAI({});
-        const systemMsg = messages.find((m: any) => m.role === "system")?.content || "";
-        const conversation = messages
-          .filter((m: any) => m.role !== "system" && m.content)
-          .map((m: any) => ({
-            role: m.role === "assistant" ? "model" : "user",
-            parts: [{ text: String(m.content || "") }],
-          }));
-
-        if (conversation.length === 0) {
-          conversation.push({ role: "user", parts: [{ text: "Hello!" }] });
-        }
-
-        const candidateModels = [
-          "gemini-3.1-flash-lite",
-          "gemini-3.8-flash",
-          "gemini-flash-latest",
-          "gemini-2.5-flash-preview-09-2025"
-        ];
-
-        if (stream) {
-          res.setHeader("Content-Type", "text/event-stream");
-          res.setHeader("Cache-Control", "no-cache");
-          res.setHeader("Connection", "keep-alive");
-
-          let streamedAny = false;
-
-          // Attempt streaming first
-          for (const candModel of candidateModels) {
-            try {
-              const geminiStream = await ai.models.generateContentStream({
-                model: candModel,
-                contents: conversation,
-                config: {
-                  systemInstruction: systemMsg ? systemMsg : undefined,
-                  temperature: temperature,
-                },
-              });
-
-              for await (const chunk of geminiStream) {
-                const text = chunk.text;
-                if (text) {
-                  streamedAny = true;
-                  const ssePayload = JSON.stringify({
-                    choices: [{ delta: { content: text } }],
-                  });
-                  res.write(`data: ${ssePayload}\n\n`);
-                }
-              }
-
-              if (streamedAny) {
-                res.write("data: [DONE]\n\n");
-                return res.end();
-              }
-            } catch (streamErr) {
-              // Try next model or fall back to generateContent
-            }
-          }
-
-          // If streaming endpoint had spikes (503), use generateContent and stream chunks out
-          if (!streamedAny) {
-            for (const candModel of candidateModels) {
-              try {
-                const result = await ai.models.generateContent({
-                  model: candModel,
-                  contents: conversation,
-                  config: {
-                    systemInstruction: systemMsg ? systemMsg : undefined,
-                    temperature: temperature,
-                  },
-                });
-
-                const fullText = result.text || "";
-                if (fullText) {
-                  // Chunk the response smoothly for client streaming UX
-                  const chunkSize = 24;
-                  for (let i = 0; i < fullText.length; i += chunkSize) {
-                    const chunk = fullText.slice(i, i + chunkSize);
-                    const ssePayload = JSON.stringify({
-                      choices: [{ delta: { content: chunk } }],
-                    });
-                    res.write(`data: ${ssePayload}\n\n`);
-                  }
-                  res.write("data: [DONE]\n\n");
-                  return res.end();
-                }
-              } catch (genErr) {
-                // Try next candidate model
-              }
-            }
-          }
-
-          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "I'm ready to assist! Please ask your question." } }] })}\n\n`);
-          res.write("data: [DONE]\n\n");
-          return res.end();
-        } else {
-          // Non-streaming direct completion
-          for (const candModel of candidateModels) {
-            try {
-              const result = await ai.models.generateContent({
-                model: candModel,
-                contents: conversation,
-                config: {
-                  systemInstruction: systemMsg ? systemMsg : undefined,
-                  temperature: temperature,
-                },
-              });
-
-              if (result.text) {
-                return res.json({
-                  choices: [
-                    {
-                      message: {
-                        role: "assistant",
-                        content: result.text,
-                      },
-                    },
-                  ],
-                });
-              }
-            } catch (genErr) {
-              // Try next candidate model
-            }
-          }
-
-          return res.status(500).json({ error: "Unable to generate content from AI models." });
-        }
-      }
-    } catch (err: any) {
-      console.error("[AI Proxy Error]", err);
-      res.status(500).json({ error: err.message || "Failed to proxy AI request." });
-    }
   });
 
   app.post("/api/ai/test", async (req, res) => {
     try {
       let authHeader = req.headers.authorization || "";
-      if (!authHeader || authHeader.trim() === "Bearer" || authHeader.trim() === "Bearer undefined" || authHeader.trim() === "Bearer null") {
-        authHeader = `Bearer ${DEFAULT_AI_PAT}`;
-      }
+      const effectiveKey = authHeader.replace(/^Bearer\s+/i, "").trim() || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || "";
       const { endpoint } = req.body || {};
 
       const candidateEndpoints = [
@@ -1817,37 +1614,40 @@ const PORT = Number(process.env.PORT) || 3000;
       ];
       const uniqueEndpoints = Array.from(new Set(candidateEndpoints));
 
-      for (const targetUrl of uniqueEndpoints) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
+      if (effectiveKey) {
+        for (const targetUrl of uniqueEndpoints) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-          const upstreamRes = await fetch(targetUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: authHeader,
-            },
-            body: JSON.stringify({
-              model: "gpt-4o-mini",
-              messages: [{ role: "user", content: "Say 'AI is active!' in 4 words." }],
-              max_tokens: 15,
-            }),
-            signal: controller.signal,
-          });
+            const upstreamRes = await fetch(targetUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${effectiveKey}`,
+              },
+              body: JSON.stringify({
+                model: "gpt-4o-mini",
+                messages: [{ role: "user", content: "Say 'AI is active!' in 4 words." }],
+                max_tokens: 15,
+              }),
+              signal: controller.signal,
+            });
 
-          clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-          if (upstreamRes.ok) {
-            const data = await upstreamRes.json();
-            return res.json({ success: true, data });
-          }
-        } catch (e) {}
+            if (upstreamRes.ok) {
+              const data = await upstreamRes.json();
+              return res.json({ success: true, data });
+            }
+          } catch (e) {}
+        }
       }
 
       // Fallback test via Gemini
       try {
-        const ai = new GoogleGenAI({});
+        const geminiKey = process.env.GEMINI_API_KEY || process.env.AI_API_KEY;
+        const ai = new GoogleGenAI(geminiKey ? { apiKey: geminiKey } : {});
         const result = await ai.models.generateContent({
           model: "gemini-2.5-flash",
           contents: [{ role: "user", parts: [{ text: "Say 'AI is ready!' in 4 words." }] }],
