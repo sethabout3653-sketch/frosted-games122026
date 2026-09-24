@@ -139,67 +139,39 @@ export interface AIModelOption {
 
 const GROQ_FREE_MODELS: AIModelOption[] = [
   {
-    id: "llama-3.3-70b-versatile",
-    name: "Llama 3.3 70B Versatile",
-    provider: "Groq (Meta)",
-    description: "Flagship 70B model with exceptional reasoning, coding, and comprehension.",
+    id: "openai/gpt-oss-120b",
+    name: "GPT OSS 120B (Groq LPU)",
+    provider: "OpenAI on Groq",
+    description: "OpenAI's flagship 120B open-weight model with 500+ tps reasoning on Groq LPUs.",
     badge: "Free Forever • Flagship",
   },
   {
-    id: "llama-3.1-8b-instant",
-    name: "Llama 3.1 8B Instant",
-    provider: "Groq (Meta)",
-    description: "Ultra-fast token speed with a massive 128k context window.",
+    id: "openai/gpt-oss-20b",
+    name: "GPT OSS 20B (Groq LPU)",
+    provider: "OpenAI on Groq",
+    description: "Ultra-fast low-latency conversational model for instant responses.",
     badge: "Free Forever • Ultra Fast",
   },
   {
-    id: "deepseek-r1-distill-llama-70b",
-    name: "DeepSeek R1 Distill 70B",
-    provider: "Groq (DeepSeek)",
-    description: "Deep mathematical, logical, and code reasoning with live thinking traces.",
-    badge: "Free Forever • Deep Reasoning",
+    id: "qwen/qwen3.8-27b",
+    name: "Qwen 3.8 27B Vision",
+    provider: "Alibaba on Groq",
+    description: "Dense multimodal reasoning and problem-solving model running at 450 tps.",
+    badge: "Free Forever • Multimodal",
   },
   {
-    id: "qwen-2.5-32b",
-    name: "Qwen 2.5 32B",
-    provider: "Groq (Alibaba)",
-    description: "High-intelligence multilingual model tuned for problem solving and STEM.",
-    badge: "Free Forever • Smart",
+    id: "groq/compound",
+    name: "Groq Compound Engine",
+    provider: "Groq Compound",
+    description: "Groq's coordinated compound reasoning and agentic routing engine.",
+    badge: "Free Forever • Compound",
   },
   {
-    id: "gemma2-9b-it",
-    name: "Gemma 2 9B",
-    provider: "Groq (Google)",
-    description: "Google's open weights accelerated at ultra-high speeds on Groq LPUs.",
-    badge: "Free Forever • Fast",
-  },
-  {
-    id: "mixtral-8x7b-32768",
-    name: "Mixtral 8x7B (32k)",
-    provider: "Groq (Mistral)",
-    description: "High-throughput mixture-of-experts model with a 32,768 token context.",
-    badge: "Free Forever • 32k Context",
-  },
-  {
-    id: "llama-3.2-11b-vision-preview",
-    name: "Llama 3.2 11B Vision",
-    provider: "Groq (Meta)",
-    description: "Multimodal visual and text reasoning on Groq LPUs.",
-    badge: "Free Forever • Vision",
-  },
-  {
-    id: "llama-3.2-3b-preview",
-    name: "Llama 3.2 3B Instant",
-    provider: "Groq (Meta)",
-    description: "Compact, ultra-low latency model for instantaneous lookups.",
+    id: "groq/compound-mini",
+    name: "Groq Compound Mini",
+    provider: "Groq Compound",
+    description: "Lightweight, instant compound engine for quick tasks and study queries.",
     badge: "Free Forever • Instant",
-  },
-  {
-    id: "llama-3.2-1b-preview",
-    name: "Llama 3.2 1B Turbo",
-    provider: "Groq (Meta)",
-    description: "Smallest, fastest token generation on Groq hardware.",
-    badge: "Free Forever • Turbo",
   },
 ];
 
@@ -240,7 +212,7 @@ export default function AIAssistant() {
     if (saved && GROQ_FREE_MODELS.some((m) => m.id === saved)) {
       return saved;
     }
-    return "llama-3.3-70b-versatile";
+    return "openai/gpt-oss-120b";
   });
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>("general");
   const [temperature, setTemperature] = useState<number>(0.7);
@@ -274,7 +246,7 @@ export default function AIAssistant() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
-      model: "llama-3.3-70b-versatile",
+      model: "openai/gpt-oss-120b",
       personaId: "general",
     };
     return [defaultThread];
@@ -1037,7 +1009,7 @@ export default function AIAssistant() {
                 Frosted AI Study Assistant
               </h2>
               <p className="text-xs sm:text-sm text-neutral-400 mt-1 max-w-md">
-                100% Free Forever &bull; Unlimited Prompts &bull; Powered by Groq LPU Models (Llama 3.3 70B, DeepSeek R1, Qwen 2.5, Gemma 2, Mixtral). Ask homework questions, brainstorm topics, solve equations, or debug code.
+                100% Free Forever &bull; Unlimited Prompts &bull; Powered by Groq LPUs (OpenAI GPT-OSS 120B, GPT-OSS 20B, Qwen 3.8 27B Vision, Groq Compound). Ask homework questions, brainstorm topics, solve equations, or debug code.
               </p>
 
               {/* Quick Prompt Cards */}

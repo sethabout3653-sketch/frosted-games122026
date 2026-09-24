@@ -1596,19 +1596,15 @@ const PORT = Number(process.env.PORT) || 3000;
     const hasKey = Boolean(process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY);
     res.json({
       hasEnvKey: hasKey,
-      defaultModel: "llama-3.3-70b-versatile",
+      defaultModel: "openai/gpt-oss-120b",
       endpoint: "https://api.groq.com/openai/v1",
       provider: "groq",
       models: [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "deepseek-r1-distill-llama-70b",
-        "qwen-2.5-32b",
-        "gemma2-9b-it",
-        "mixtral-8x7b-32768",
-        "llama-3.2-11b-vision-preview",
-        "llama-3.2-3b-preview",
-        "llama-3.2-1b-preview"
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
+        "groq/compound",
+        "groq/compound-mini"
       ]
     });
   });
@@ -1619,34 +1615,36 @@ const PORT = Number(process.env.PORT) || 3000;
       const effectiveKey = authHeader.replace(/^Bearer\s+/i, "").trim() || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY || "";
       const { endpoint } = req.body || {};
 
-      // 1. Prioritize Groq free test
+      // 1. Prioritize Groq free test with active model
       const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (effectiveKey && !effectiveKey.startsWith("ghp_") && !effectiveKey.startsWith("github_pat_") && !effectiveKey.startsWith("AIza") ? effectiveKey : "");
       if (groqKey) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 6000);
+        for (const testModel of ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "groq/compound-mini", "qwen/qwen3.8-27b"]) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-          const upstreamRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${groqKey}`,
-            },
-            body: JSON.stringify({
-              model: "llama-3.1-8b-instant",
-              messages: [{ role: "user", content: "Say 'Groq AI is active!' in 4 words." }],
-              max_tokens: 15,
-            }),
-            signal: controller.signal,
-          });
+            const upstreamRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${groqKey}`,
+              },
+              body: JSON.stringify({
+                model: testModel,
+                messages: [{ role: "user", content: "Say 'Groq AI is active!' in 4 words." }],
+                max_tokens: 15,
+              }),
+              signal: controller.signal,
+            });
 
-          clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-          if (upstreamRes.ok) {
-            const data = await upstreamRes.json();
-            return res.json({ success: true, provider: "groq", model: "llama-3.1-8b-instant", data });
-          }
-        } catch (groqErr) {}
+            if (upstreamRes.ok) {
+              const data = await upstreamRes.json();
+              return res.json({ success: true, provider: "groq", model: testModel, data });
+            }
+          } catch (groqErr) {}
+        }
       }
 
       // 2. Fallback to GitHub Models test if key is present
@@ -2236,12 +2234,11 @@ const PORT = Number(process.env.PORT) || 3000;
   const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") || "";
   
   const GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "deepseek-r1-distill-llama-70b",
-    "qwen-2.5-32b",
-    "gemma2-9b-it",
-    "mixtral-8x7b-32768"
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
+    "groq/compound",
+    "groq/compound-mini"
   ];
 
   const GEMINI_MODELS_CASCADE = [
@@ -3183,15 +3180,11 @@ Respond strictly in valid JSON:
 
     res.json({
       models: [
-        { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B Versatile", provider: "Groq", badge: "Flagship", description: "Meta's flagship 70B model with high reasoning, math, and code capabilities." },
-        { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant", provider: "Groq", badge: "Ultra Fast", description: "Blazing-fast token speeds with a massive 128k context window." },
-        { id: "deepseek-r1-distill-llama-70b", name: "DeepSeek R1 Distill 70B", provider: "Groq", badge: "Deep Reasoning", description: "Advanced reasoning model with real-time thinking process." },
-        { id: "qwen-2.5-32b", name: "Qwen 2.5 32B", provider: "Groq", badge: "Smart", description: "Alibaba's high-intelligence multilingual model for complex problem solving." },
-        { id: "gemma2-9b-it", name: "Gemma 2 9B", provider: "Groq", badge: "Fast", description: "Google's open weights optimized for high throughput on Groq LPUs." },
-        { id: "mixtral-8x7b-32768", name: "Mixtral 8x7B (32k)", provider: "Groq", badge: "32k Context", description: "Mixture-of-experts model with extended 32k context." },
-        { id: "llama-3.2-11b-vision-preview", name: "Llama 3.2 11B Vision", provider: "Groq", badge: "Vision", description: "Multimodal image and text reasoning on Groq LPUs." },
-        { id: "llama-3.2-3b-preview", name: "Llama 3.2 3B Instant", provider: "Groq", badge: "Instant", description: "Compact and instantaneous responses for fast homework lookups." },
-        { id: "llama-3.2-1b-preview", name: "Llama 3.2 1B Turbo", provider: "Groq", badge: "Turbo", description: "Ultra-compact token generation on Groq hardware." }
+        { id: "openai/gpt-oss-120b", name: "GPT OSS 120B (Groq LPU)", provider: "OpenAI on Groq", badge: "Flagship", description: "OpenAI's flagship 120B open-weight model with 500+ tps reasoning on Groq LPUs." },
+        { id: "openai/gpt-oss-20b", name: "GPT OSS 20B (Groq LPU)", provider: "OpenAI on Groq", badge: "Ultra Fast", description: "Ultra-fast low-latency conversational model for instant responses." },
+        { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B Vision", provider: "Alibaba on Groq", badge: "Multimodal", description: "Dense multimodal reasoning and problem-solving model running at 450 tps." },
+        { id: "groq/compound", name: "Groq Compound Engine", provider: "Groq Compound", badge: "Compound", description: "Groq's coordinated compound reasoning and agentic routing engine." },
+        { id: "groq/compound-mini", name: "Groq Compound Mini", provider: "Groq Compound", badge: "Instant", description: "Lightweight, instant compound engine for quick tasks and study queries." }
       ],
       hasServerKey: Boolean(process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY),
       provider: "groq",
@@ -3208,7 +3201,7 @@ Respond strictly in valid JSON:
   }): Promise<{ text: string; model: string; provider: string }> {
     const {
       messages = [],
-      model = "llama-3.3-70b-versatile",
+      model = "openai/gpt-oss-120b",
       systemPrompt = "You are a helpful, clear, and friendly AI study assistant. Provide accurate, well-structured, detailed answers using clean Markdown.",
       temperature = 0.7,
       customKey = "",
@@ -3219,34 +3212,29 @@ Respond strictly in valid JSON:
 
     // 1. Primary: Groq Free Forever Models Engine
     if (groqKey) {
-      let targetGroqModel = "llama-3.3-70b-versatile";
+      let targetGroqModel = "openai/gpt-oss-120b";
       const mLower = (model || "").toLowerCase();
-      if (mLower.includes("deepseek") || mLower.includes("r1")) {
-        targetGroqModel = "deepseek-r1-distill-llama-70b";
-      } else if (mLower.includes("8b") || mLower.includes("instant")) {
-        targetGroqModel = "llama-3.1-8b-instant";
-      } else if (mLower.includes("qwen")) {
-        targetGroqModel = "qwen-2.5-32b";
-      } else if (mLower.includes("gemma")) {
-        targetGroqModel = "gemma2-9b-it";
-      } else if (mLower.includes("mixtral") || mLower.includes("8x7b")) {
-        targetGroqModel = "mixtral-8x7b-32768";
-      } else if (mLower.includes("vision")) {
-        targetGroqModel = "llama-3.2-11b-vision-preview";
-      } else if (mLower.includes("3b")) {
-        targetGroqModel = "llama-3.2-3b-preview";
-      } else if (mLower.includes("1b") || mLower.includes("turbo")) {
-        targetGroqModel = "llama-3.2-1b-preview";
-      } else if (mLower.includes("70b") || mLower.includes("versatile") || mLower.includes("llama")) {
-        targetGroqModel = "llama-3.3-70b-versatile";
+      if (mLower.includes("20b") || mLower.includes("fast") || mLower.includes("instant")) {
+        targetGroqModel = "openai/gpt-oss-20b";
+      } else if (mLower.includes("qwen") || mLower.includes("vision") || mLower.includes("27b")) {
+        targetGroqModel = "qwen/qwen3.8-27b";
+      } else if (mLower.includes("compound-mini") || mLower.includes("mini")) {
+        targetGroqModel = "groq/compound-mini";
+      } else if (mLower.includes("compound")) {
+        targetGroqModel = "groq/compound";
+      } else if (mLower.includes("120b") || mLower.includes("gpt")) {
+        targetGroqModel = "openai/gpt-oss-120b";
+      } else if (mLower === "openai/gpt-oss-120b" || mLower === "openai/gpt-oss-20b" || mLower === "qwen/qwen3.8-27b" || mLower === "groq/compound" || mLower === "groq/compound-mini") {
+        targetGroqModel = model;
       }
 
       const candidateModels = Array.from(new Set([
         targetGroqModel,
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "mixtral-8x7b-32768",
-        "gemma2-9b-it"
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
+        "groq/compound",
+        "groq/compound-mini"
       ]));
 
       const groqMessages: any[] = [];
@@ -3413,34 +3401,29 @@ Respond strictly in valid JSON:
         "";
 
       // Determine target Groq model
-      let targetGroqModel = "llama-3.3-70b-versatile";
+      let targetGroqModel = "openai/gpt-oss-120b";
       const mLower = (model || "").toLowerCase();
-      if (mLower.includes("deepseek") || mLower.includes("r1")) {
-        targetGroqModel = "deepseek-r1-distill-llama-70b";
-      } else if (mLower.includes("8b") || mLower.includes("instant")) {
-        targetGroqModel = "llama-3.1-8b-instant";
-      } else if (mLower.includes("qwen")) {
-        targetGroqModel = "qwen-2.5-32b";
-      } else if (mLower.includes("gemma")) {
-        targetGroqModel = "gemma2-9b-it";
-      } else if (mLower.includes("mixtral") || mLower.includes("8x7b")) {
-        targetGroqModel = "mixtral-8x7b-32768";
-      } else if (mLower.includes("vision")) {
-        targetGroqModel = "llama-3.2-11b-vision-preview";
-      } else if (mLower.includes("3b")) {
-        targetGroqModel = "llama-3.2-3b-preview";
-      } else if (mLower.includes("1b") || mLower.includes("turbo")) {
-        targetGroqModel = "llama-3.2-1b-preview";
-      } else if (mLower.includes("70b") || mLower.includes("versatile") || mLower.includes("llama")) {
-        targetGroqModel = "llama-3.3-70b-versatile";
+      if (mLower.includes("20b") || mLower.includes("fast") || mLower.includes("instant")) {
+        targetGroqModel = "openai/gpt-oss-20b";
+      } else if (mLower.includes("qwen") || mLower.includes("vision") || mLower.includes("27b")) {
+        targetGroqModel = "qwen/qwen3.8-27b";
+      } else if (mLower.includes("compound-mini") || mLower.includes("mini")) {
+        targetGroqModel = "groq/compound-mini";
+      } else if (mLower.includes("compound")) {
+        targetGroqModel = "groq/compound";
+      } else if (mLower.includes("120b") || mLower.includes("gpt")) {
+        targetGroqModel = "openai/gpt-oss-120b";
+      } else if (mLower === "openai/gpt-oss-120b" || mLower === "openai/gpt-oss-20b" || mLower === "qwen/qwen3.8-27b" || mLower === "groq/compound" || mLower === "groq/compound-mini") {
+        targetGroqModel = model;
       }
 
       const groqCandidateModels = Array.from(new Set([
         targetGroqModel,
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "mixtral-8x7b-32768",
-        "gemma2-9b-it"
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
+        "groq/compound",
+        "groq/compound-mini"
       ]));
 
       // Build OpenAI-compatible messages for Groq
