@@ -22,6 +22,8 @@ import {
   Calculator,
   Compass,
   Download,
+  Save,
+  FileJson,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -444,6 +446,7 @@ export default function AIAssistant() {
   const chatScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
+  const [saveToast, setSaveToast] = useState<string | null>(null);
 
   // Persist threads & active thread
   useEffect(() => {
@@ -571,8 +574,18 @@ export default function AIAssistant() {
   };
 
   const handleExportChat = () => {
-    if (!activeThread || activeThread.messages.length === 0) return;
-    let markdown = `# ${activeThread.title}\n*Model: ${selectedModel} | Exported on ${new Date().toLocaleString()}*\n\n---\n\n`;
+    if (!activeThread || activeThread.messages.length === 0) {
+      setSaveToast("No messages in current chat to save!");
+      setTimeout(() => setSaveToast(null), 3000);
+      return;
+    }
+    // Save to localStorage
+    try {
+      localStorage.setItem("frosted_ai_threads", JSON.stringify(threads));
+      localStorage.setItem("frosted_ai_active_thread_id", activeThread.id);
+    } catch {}
+
+    let markdown = `# ${activeThread.title}\n*Model: ${selectedModel} | Saved on ${new Date().toLocaleString()}*\n\n---\n\n`;
     activeThread.messages.forEach((msg) => {
       const sender = msg.role === "user" ? "**You**" : `**Frosted AI (${msg.modelUsed || selectedModel})**`;
       markdown += `${sender}:\n${msg.content}\n\n`;
@@ -582,9 +595,33 @@ export default function AIAssistant() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${activeThread.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.md`;
+    a.download = `${activeThread.title.replace(/[^a-zA-Z0-9_-]/g, "_")}_Chat_Export.md`;
     a.click();
     URL.revokeObjectURL(url);
+
+    setSaveToast(`Saved "${activeThread.title}" to browser storage & file!`);
+    setTimeout(() => setSaveToast(null), 3500);
+  };
+
+  const handleSaveAllChatsBackup = () => {
+    try {
+      localStorage.setItem("frosted_ai_threads", JSON.stringify(threads));
+      localStorage.setItem("frosted_ai_active_thread_id", activeThreadId);
+
+      const jsonStr = JSON.stringify(threads, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Frosted_AI_All_Chats_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setSaveToast(`Saved & backed up all ${threads.length} AI chats!`);
+      setTimeout(() => setSaveToast(null), 3500);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   // Send message & stream completion
@@ -1012,8 +1049,16 @@ export default function AIAssistant() {
 
         {/* Chat History List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-          <div className="px-2 py-1 text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)]">
-            Conversations
+          <div className="px-2 py-1 flex items-center justify-between text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)]">
+            <span>Conversations</span>
+            <button
+              onClick={handleSaveAllChatsBackup}
+              className="flex items-center gap-1 text-[10px] text-neutral-400 hover:text-emerald-400 transition-colors cursor-pointer font-semibold"
+              title="Backup & Export All AI Conversations as JSON"
+            >
+              <FileJson size={11} />
+              <span>Backup All</span>
+            </button>
           </div>
           {threads.map((thread) => {
             const isActive = thread.id === activeThread.id;
@@ -1163,6 +1208,19 @@ export default function AIAssistant() {
           {/* Right Action Icons */}
           <div className="flex items-center gap-1.5">
             <button
+              onClick={handleExportChat}
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border)",
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-white hover:bg-white/10 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="Save current chat to browser storage & download file"
+            >
+              <Save size={14} className="text-emerald-400" />
+              <span className="hidden sm:inline">Save Chat</span>
+            </button>
+
+            <button
               onClick={() => setShowFriendsModal(true)}
               style={{
                 backgroundColor: "var(--theme-surface)",
@@ -1189,25 +1247,29 @@ export default function AIAssistant() {
             </button>
 
             {activeThread.messages.length > 0 && (
-              <>
-                <button
-                  onClick={handleExportChat}
-                  className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-                  title="Export conversation as Markdown"
-                >
-                  <Download size={15} />
-                </button>
-                <button
-                  onClick={handleClearCurrentChat}
-                  className="p-2 rounded-xl text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                  title="Clear conversation"
-                >
-                  <RotateCcw size={15} />
-                </button>
-              </>
+              <button
+                onClick={handleClearCurrentChat}
+                className="p-2 rounded-xl text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                title="Clear conversation"
+              >
+                <RotateCcw size={15} />
+              </button>
             )}
           </div>
         </header>
+
+        {/* Save Toast Notification Banner */}
+        {saveToast && (
+          <div className="bg-emerald-500/20 border-b border-emerald-500/30 px-4 py-2 flex items-center justify-between text-xs font-bold text-emerald-300 animate-in fade-in duration-150">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={15} className="text-emerald-400" />
+              <span>{saveToast}</span>
+            </div>
+            <button onClick={() => setSaveToast(null)} className="text-emerald-400 hover:text-white cursor-pointer">
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {/* Chat Scroll Area */}
         <div
