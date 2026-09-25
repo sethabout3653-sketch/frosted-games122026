@@ -512,11 +512,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         };
         animFrameRef.current = requestAnimationFrame(updateLevel);
 
-        if (mixedDest && mixedDest.stream && mixedDest.stream.getAudioTracks().length > 0) {
-          localStreamRef.current = mixedDest.stream;
-          return mixedDest.stream;
-        }
-
+        // Keep the browser's native microphone stream on WebRTC. The destination
+        // stream is only for analysis; replacing it breaks AEC and adds latency.
         return sourceStream;
       } catch (err) {
         console.warn("AudioContext setup fallback to raw stream:", err);
@@ -1999,28 +1996,27 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           lastSeen: Date.now(),
         }).catch(() => {});
 
-        // 1. Request camera stream from user's hardware (optimized HD 720p 30fps for smooth performance on all hardware)
-        let videoStream: MediaStream;
-        try {
-          videoStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              width: { ideal: 1280, max: 1280 },
-              height: { ideal: 720, max: 720 },
-              frameRate: { ideal: 30, max: 30 },
-            },
-            audio: false,
-          });
-        } catch {
-          // Hardware fallback for low-power webcams
-          videoStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              width: { ideal: 640, max: 854 },
-              height: { ideal: 360, max: 480 },
-              frameRate: { ideal: 24, max: 30 },
-            },
-            audio: false,
-          });
-        }
+  // Request 1080p/60 when the camera supports it; fall back without blocking voice.
+  let videoStream: MediaStream;
+  try {
+  videoStream = await navigator.mediaDevices.getUserMedia({
+  video: {
+  width: { ideal: 1920, max: 1920 },
+  height: { ideal: 1080, max: 1080 },
+  frameRate: { ideal: 60, max: 60 },
+  },
+  audio: false,
+  });
+  } catch {
+  videoStream = await navigator.mediaDevices.getUserMedia({
+  video: {
+  width: { ideal: 1280, max: 1280 },
+  height: { ideal: 720, max: 720 },
+  frameRate: { ideal: 30, max: 30 },
+  },
+  audio: false,
+  });
+  }
 
         if (!isMountedRef.current) {
           videoStream.getTracks().forEach((track) => {
@@ -2537,12 +2533,20 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           Microphone Permission Required
         </h3>
         <p className="text-sm text-neutral-400 mb-6">{error}</p>
-        <button
-          onClick={handleLeave}
-          className="px-6 py-2.5 rounded-xl bg-white text-black font-bold hover:bg-neutral-200 transition-colors cursor-pointer"
-        >
-          Go Back
-        </button>
+  <div className="flex flex-wrap justify-center gap-3">
+  <button
+  onClick={() => window.location.reload()}
+  className="px-6 py-2.5 rounded-xl bg-indigo-500 text-white font-bold hover:bg-indigo-400 transition-colors cursor-pointer"
+  >
+  Try Again
+  </button>
+  <button
+  onClick={handleLeave}
+  className="px-6 py-2.5 rounded-xl bg-white text-black font-bold hover:bg-neutral-200 transition-colors cursor-pointer"
+  >
+  Go Back
+  </button>
+  </div>
       </div>
     );
   }
