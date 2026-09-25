@@ -50,6 +50,7 @@ import { extractDominantColor, getFallbackColor, parseHexToRgb } from "../utils/
 import { getCurrentActivity, onActivityChanged, setVoiceState } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
 import { ICE_SERVERS } from "../lib/webrtc-config";
+import { wsClient } from "../lib/websocket-client";
 
 interface VoiceChannelProps {
   profile: ChatProfile;
@@ -388,8 +389,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           echoCancellation: { ideal: true },
           noiseSuppression: { ideal: true },
           autoGainControl: { ideal: true },
-          channelCount: { ideal: 2, min: 1 },
-          sampleRate: { ideal: 48000, min: 44100 },
+          // Mono keeps echo cancellation and CPU usage stable during voice calls.
+          channelCount: { ideal: 1, min: 1 },
+          sampleRate: { ideal: 48000 },
           sampleSize: { ideal: 16 },
         },
         video: false,
@@ -447,7 +449,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         source.connect(analyser);
         analyserRef.current = analyser;
 
-        // Mixed destination node that combines microphone and screen share audio for WebRTC
+        // Keep the native microphone track in the peer connection. Routing it through
+        // MediaStreamDestination can add latency and breaks browser AEC on some devices.
+        // The analyser remains side-band only for VAD and the UI.
         const mixedDest = ctx.createMediaStreamDestination();
         mixedDestinationRef.current = mixedDest;
 
@@ -508,11 +512,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         };
         animFrameRef.current = requestAnimationFrame(updateLevel);
 
-        if (mixedDest && mixedDest.stream && mixedDest.stream.getAudioTracks().length > 0) {
-          localStreamRef.current = mixedDest.stream;
-          return mixedDest.stream;
-        }
-
+        // Keep the browser's native microphone stream on WebRTC. The destination
+        // stream is only for analysis; replacing it breaks AEC and adds latency.
         return sourceStream;
       } catch (err) {
         console.warn("AudioContext setup fallback to raw stream:", err);
@@ -845,10 +846,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         candidate: type === "candidate" ? data : undefined,
         timestamp: Date.now(),
       };
-      // 1. Instant delivery via Supabase Realtime Broadcast & WebSocket
-      sendBroadcastSignal(payload);
-      // 2. Guaranteed database collection signal write for cross-client P2P connection
-      addDoc("signals", payload).catch(() => {});
+      // WebSocket is the single signaling path. Sending the same offer/candidate
+      // through multiple transports makes peers negotiate twice and causes audio
+      // glitches, duplicate tracks, and unnecessary database work.
+      wsClient.sendSignal(payload);
     },
     [profile.uid]
   );
@@ -1455,8 +1456,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   // Main lifecycle: acquire microphone and register in voice_users
   useEffect(() => {
     isMountedRef.current = true;
-    let unsubscribeSignals: () => void;
-    let unsubscribeBroadcast: () => void;
+        let unsubscribeSignals: () => void;
+        let unsubscribeBroadcast: () => void;
+        let unsubscribeWebSocket: () => void;
     let unsubscribeUsers: () => void;
     sessionStartTimeRef.current = Date.now();
 
@@ -1750,6 +1752,23 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           unsubPresenceUsers();
         };
 
+        // Register before announcing the join so the first offer cannot race the
+        // socket handshake. The client filters targeted signals and self-tabs.
+        wsClient.setUserUid(profile.uid);
+        wsClient.connect();
+        unsubscribeWebSocket = wsClient.onSignal(async (signalData: any) => {
+          if (!isMountedRef.current || !localStreamRef.current) return;
+          const signal: VoiceSignal = {
+            id: signalData.id || `sig_${signalData.uid}_${signalData.type}_${Date.now()}`,
+            uid: signalData.uid,
+            targetUid: signalData.targetUid,
+            type: signalData.type,
+            sdp: signalData.sdp || signalData.candidate || "",
+            timestamp: signalData.timestamp || Date.now(),
+          };
+          if (signal.uid !== profile.uid) await handleSignal(signal, localStreamRef.current);
+        });
+
         // 1. Instant Real-time listener via Supabase Realtime Broadcast
         unsubscribeBroadcast = subscribeBroadcastSignals(profile.uid, async (signalData: any) => {
           if (!isMountedRef.current || !localStreamRef.current) return;
@@ -1859,6 +1878,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
       if (unsubscribeBroadcast) unsubscribeBroadcast();
       if (unsubscribeSignals) unsubscribeSignals();
+      if (unsubscribeWebSocket) unsubscribeWebSocket();
+      wsClient.disconnect();
       if (unsubscribeUsers) unsubscribeUsers();
     };
   }, [handleSignal, initiateCall, profile, stopAllMediaTracks]);
@@ -1975,28 +1996,27 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           lastSeen: Date.now(),
         }).catch(() => {});
 
-        // 1. Request camera stream from user's hardware (optimized HD 720p 30fps for smooth performance on all hardware)
-        let videoStream: MediaStream;
-        try {
-          videoStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              width: { ideal: 1280, max: 1280 },
-              height: { ideal: 720, max: 720 },
-              frameRate: { ideal: 30, max: 30 },
-            },
-            audio: false,
-          });
-        } catch {
-          // Hardware fallback for low-power webcams
-          videoStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              width: { ideal: 640, max: 854 },
-              height: { ideal: 360, max: 480 },
-              frameRate: { ideal: 24, max: 30 },
-            },
-            audio: false,
-          });
-        }
+  // Request 1080p/60 when the camera supports it; fall back without blocking voice.
+  let videoStream: MediaStream;
+  try {
+  videoStream = await navigator.mediaDevices.getUserMedia({
+  video: {
+  width: { ideal: 1920, max: 1920 },
+  height: { ideal: 1080, max: 1080 },
+  frameRate: { ideal: 60, max: 60 },
+  },
+  audio: false,
+  });
+  } catch {
+  videoStream = await navigator.mediaDevices.getUserMedia({
+  video: {
+  width: { ideal: 1280, max: 1280 },
+  height: { ideal: 720, max: 720 },
+  frameRate: { ideal: 30, max: 30 },
+  },
+  audio: false,
+  });
+  }
 
         if (!isMountedRef.current) {
           videoStream.getTracks().forEach((track) => {
@@ -2513,12 +2533,20 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           Microphone Permission Required
         </h3>
         <p className="text-sm text-neutral-400 mb-6">{error}</p>
-        <button
-          onClick={handleLeave}
-          className="px-6 py-2.5 rounded-xl bg-white text-black font-bold hover:bg-neutral-200 transition-colors cursor-pointer"
-        >
-          Go Back
-        </button>
+  <div className="flex flex-wrap justify-center gap-3">
+  <button
+  onClick={() => window.location.reload()}
+  className="px-6 py-2.5 rounded-xl bg-indigo-500 text-white font-bold hover:bg-indigo-400 transition-colors cursor-pointer"
+  >
+  Try Again
+  </button>
+  <button
+  onClick={handleLeave}
+  className="px-6 py-2.5 rounded-xl bg-white text-black font-bold hover:bg-neutral-200 transition-colors cursor-pointer"
+  >
+  Go Back
+  </button>
+  </div>
       </div>
     );
   }

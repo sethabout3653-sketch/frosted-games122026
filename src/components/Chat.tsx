@@ -116,12 +116,15 @@ export default function Chat({
 
   // Handle immediate joining to General Voice
   useEffect(() => {
-    if (autoJoinVoice) {
+    // Wait for the profile to be ready before consuming the auto-join request.
+    // Chat stays mounted across view changes, so this also covers profiles that
+    // finish loading after the call menu is clicked.
+    if (autoJoinVoice && profile) {
       setActiveTab("voice");
       setIsInVoiceSession(true);
       onVoiceSessionStarted?.();
     }
-  }, [autoJoinVoice, onVoiceSessionStarted]);
+  }, [autoJoinVoice, onVoiceSessionStarted, profile]);
 
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
   const [rawVoiceUsers, setRawVoiceUsers] = useState<

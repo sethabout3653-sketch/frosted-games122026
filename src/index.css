@@ -1,21 +1,77 @@
 @import "tailwindcss";
 
 :root {
-  --theme-r: 10;
-  --theme-g: 34;
-  --theme-b: 74;
+  --theme-r: 91;
+  --theme-g: 58;
+  --theme-b: 78;
 
-  --theme-darkest: #02060e;
-  --theme-surface: #061122;
-  --theme-hover: #0b1f3b;
-  --theme-accent: #11305c;
-  --theme-accent-hover: #17427e;
-  --theme-border: rgba(56, 189, 248, 0.35);
-  --theme-border-subtle: rgba(56, 189, 248, 0.16);
-  --theme-border-strong: rgba(56, 189, 248, 0.75);
-  --theme-text-accent: #bae6fd;
-  --theme-text-muted: #7dd3fc;
-  --theme-glow: #0369a1;
+  --theme-darkest: #120f1b;
+  --theme-surface: #1b1626;
+  --theme-hover: #2a2035;
+  --theme-accent: #3b2946;
+  --theme-accent-hover: #543453;
+  --theme-primary: #f28c78;
+  --theme-border: rgba(242, 140, 120, 0.28);
+  --theme-border-subtle: rgba(255, 232, 224, 0.12);
+  --theme-border-strong: rgba(242, 140, 120, 0.62);
+  --theme-text-accent: #ffe8e0;
+  --theme-text-muted: #d9b8c1;
+  --theme-glow: #b95b6d;
+  --theme-chat-bg: #15121e;
+  --theme-indigo-950: #120f1b;
+  --theme-indigo-900: #1b1626;
+  --theme-indigo-800: #2a2035;
+  --theme-indigo-700: #3b2946;
+  --theme-indigo-600: #543453;
+  --theme-indigo-500: #f28c78;
+  --theme-indigo-400: #ffad98;
+  --theme-indigo-300: #d9b8c1;
+  --theme-indigo-200: #ffe8e0;
+  --theme-indigo-100: #fff5f1;
+}
+
+html {
+  background: var(--theme-darkest);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 92% 4%, rgba(242, 140, 120, 0.08), transparent 28rem),
+    radial-gradient(circle at 8% 100%, rgba(185, 91, 109, 0.08), transparent 30rem),
+    var(--theme-darkest);
+  color: #fff5f1;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+button, input, textarea, select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(242, 140, 120, 0.32);
+  color: #fff5f1;
+}
+
+* {
+  scrollbar-color: rgba(242, 140, 120, 0.35) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(242, 140, 120, 0.3);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* Universal dynamic overrides: transforms all navy blue and indigo elements across the entire app to the active theme color */
