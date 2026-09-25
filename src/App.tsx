@@ -227,7 +227,7 @@ function AppContent() {
     }
   }, []);
 
-  const { favoriteIds } = useFavorites();
+  const { favoriteIds, toggleFavorite } = useFavorites();
 
   const handleSelectGame = useCallback((game: Game) => {
     if (showStartup) return;
@@ -498,6 +498,8 @@ function AppContent() {
             <GameGrid
               games={processedGames}
               onSelectGame={handleSelectGame}
+              favoriteIds={favoriteIds}
+              onToggleFavorite={toggleFavorite}
             />
           </section>
         </motion.div>

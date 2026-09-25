@@ -31,28 +31,30 @@ function getCanonical(str: string) {
     .replace(/\s+/g, " ");
 }
 
+// Pre-index canonical game names to image tokens once for O(1) lookup
+const luminIconMap = new Map<string, string>();
+try {
+  for (const g of luminGamesList) {
+    if (g.name && g.image_token) {
+      luminIconMap.set(getCanonical(g.name), g.image_token);
+    }
+  }
+} catch {}
+
 export function findLuminIconForGame(name: string): string | null {
   if (!name) return null;
   const canonName = getCanonical(name);
-  
-  // Try exact canonical match first
-  let matched = luminGamesList.find(g => getCanonical(g.name) === canonName);
-  
-  // If no exact match, try matching by checking if one contains the other
-  if (!matched) {
-    matched = luminGamesList.find(g => {
-      const gCanon = getCanonical(g.name);
-      return gCanon.includes(canonName) || canonName.includes(gCanon);
-    });
-  }
-  
-  if (matched && matched.image_token) {
-    return matched.image_token;
-  }
-  return null;
+  return luminIconMap.get(canonName) || null;
 }
 
-export const getCoverSources = (cover: string, name?: string) => {
+const coverSourceCache = new Map<string, string[]>();
+const failedUrlSet = new Set<string>();
+
+export const getCoverSources = (cover: string, name?: string): string[] => {
+  const cacheKey = `${cover || ""}|${name || ""}`;
+  const cached = coverSourceCache.get(cacheKey);
+  if (cached) return cached;
+
   const source = formatCoverUrl(cover);
   const sources: string[] = [];
 
@@ -61,13 +63,12 @@ export const getCoverSources = (cover: string, name?: string) => {
     if (source.includes("raw.githubusercontent.com/")) {
       const path = source.replace("https://raw.githubusercontent.com/", "");
       const [owner, repo, branch, ...rest] = path.split("/");
-      sources.push(`https://raw.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
       sources.push(`https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${rest.join("/")}`);
-      sources.push(`https://images.weserv.nl/?url=${encodeURIComponent(source)}`);
+      sources.push(`https://raw.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
     }
   }
 
-  // Inject LuminSDK proxy cover search as fallback/alternative source
+  // Inject LuminSDK proxy cover search as fallback
   if (name) {
     const luminToken = findLuminIconForGame(name);
     if (luminToken) {
@@ -75,7 +76,9 @@ export const getCoverSources = (cover: string, name?: string) => {
     }
   }
 
-  return [...new Set(sources)];
+  const result = [...new Set(sources)].filter((url) => !failedUrlSet.has(url));
+  coverSourceCache.set(cacheKey, result);
+  return result;
 };
 
 interface GameCoverProps {
@@ -87,22 +90,36 @@ interface GameCoverProps {
 const GameCover = memo(function GameCover({ name, cover, className = "" }: GameCoverProps) {
   const sources = useMemo(() => getCoverSources(cover, name), [cover, name]);
   const [index, setIndex] = useState(0);
-  const failed = index >= sources.length;
+  const currentUrl = sources[index];
+  const failed = !currentUrl || index >= sources.length;
+
+  const handleError = () => {
+    if (currentUrl) {
+      failedUrlSet.add(currentUrl);
+    }
+    setIndex((value) => value + 1);
+  };
 
   return (
     <div className={`relative h-full w-full overflow-hidden bg-gradient-to-br ${fallbackClass(name)} ${className}`}>
       {!failed && (
         <img
-          src={sources[index]}
+          src={currentUrl}
           alt={`${name} cover`}
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-          onError={() => setIndex((value) => value + 1)}
+          onError={handleError}
         />
       )}
-      {failed && <div className="absolute inset-0 flex flex-col items-center justify-center"><span className="absolute text-6xl font-black tracking-tighter text-white/10">{initials(name)}</span><Gamepad2 className="relative text-white/90" size={38} /><span className="relative mt-2 rounded-full bg-black/25 px-2.5 py-0.5 text-[9px] font-extrabold tracking-widest text-white/95">PLAY</span></div>}
+      {failed && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="absolute text-6xl font-black tracking-tighter text-white/10">{initials(name)}</span>
+          <Gamepad2 className="relative text-white/90" size={38} />
+          <span className="relative mt-2 rounded-full bg-black/25 px-2.5 py-0.5 text-[9px] font-extrabold tracking-widest text-white/95">PLAY</span>
+        </div>
+      )}
     </div>
   );
 });

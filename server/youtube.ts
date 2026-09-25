@@ -24,17 +24,6 @@ function getYtDlpPath(): string {
 
 // Extract direct audio & video stream URLs using yt-dlp
 function extractYtDlpStreams(videoId: string): Promise<{ audioUrl: string; videoUrl: string; duration: number; title: string; uploader: string } | null> {
-  const cached = streamCache.get(videoId);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return Promise.resolve({
-      audioUrl: cached.audioUrl,
-      videoUrl: cached.videoUrl,
-      duration: cached.duration,
-      title: "",
-      uploader: "",
-    });
-  }
-
   return new Promise((resolve) => {
     const binPath = getYtDlpPath();
     const args = [
@@ -60,7 +49,6 @@ function extractYtDlpStreams(videoId: string): Promise<{ audioUrl: string; video
           return resolve(null);
         }
 
-        // Background dump metadata if available
         execFile(binPath, ["--dump-json", "--no-warnings", "--no-playlist", `https://www.youtube.com/watch?v=${videoId}`], { timeout: 6000 }, (jErr, jStdout) => {
           let duration = 0;
           let title = "";
@@ -82,13 +70,6 @@ function extractYtDlpStreams(videoId: string): Promise<{ audioUrl: string; video
             } catch {}
           }
 
-          streamCache.set(videoId, {
-            audioUrl,
-            videoUrl,
-            duration,
-            timestamp: Date.now(),
-          });
-
           resolve({
             audioUrl,
             videoUrl,
@@ -102,6 +83,125 @@ function extractYtDlpStreams(videoId: string): Promise<{ audioUrl: string; video
       resolve(null);
     }
   });
+}
+
+// Extract direct audio & video streams via Invidious public APIs as fallback
+async function extractInvidiousStreams(videoId: string): Promise<{ audioUrl: string; videoUrl: string; duration: number; title: string; uploader: string } | null> {
+  const instances = [
+    "https://inv.nadeko.net",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.jing.rocks",
+    "https://invidious.private.coffee",
+  ];
+
+  for (const inst of instances) {
+    try {
+      const res = await fetch(`${inst}/api/v1/videos/${videoId}`, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: AbortSignal.timeout(3500),
+      });
+      if (!res.ok) continue;
+      const data: any = await res.json();
+      const formatStreams = data.formatStreams || [];
+      const adaptiveFormats = data.adaptiveFormats || [];
+
+      let videoUrl = "";
+      let audioUrl = "";
+
+      // Look for combined video stream first
+      const bestVideo = formatStreams.slice(-1)[0];
+      if (bestVideo?.url) videoUrl = bestVideo.url;
+
+      // Look for audio stream
+      const audioStreams = adaptiveFormats.filter((f: any) => f.type?.includes("audio"));
+      const bestAudio = audioStreams.slice(-1)[0];
+      if (bestAudio?.url) audioUrl = bestAudio.url;
+      else if (videoUrl) audioUrl = videoUrl;
+
+      if (audioUrl || videoUrl) {
+        return {
+          audioUrl: audioUrl || videoUrl,
+          videoUrl: videoUrl || audioUrl,
+          duration: data.lengthSeconds || 0,
+          title: data.title || "",
+          uploader: data.author || "",
+        };
+      }
+    } catch {}
+  }
+
+  // Try Piped API
+  const pipedInstances = [
+    "https://pipedapi.kavin.rocks",
+    "https://api.piped.privacydev.net",
+    "https://piped-api.garudalinux.org",
+  ];
+
+  for (const pInst of pipedInstances) {
+    try {
+      const res = await fetch(`${pInst}/streams/${videoId}`, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: AbortSignal.timeout(3500),
+      });
+      if (!res.ok) continue;
+      const data: any = await res.json();
+      const videoStreams = data.videoStreams || [];
+      const audioStreams = data.audioStreams || [];
+
+      const bestVideo = videoStreams.find((v: any) => !v.videoOnly && v.url) || videoStreams[0];
+      const bestAudio = audioStreams[0];
+
+      const videoUrl = bestVideo?.url || "";
+      const audioUrl = bestAudio?.url || videoUrl;
+
+      if (audioUrl || videoUrl) {
+        return {
+          audioUrl: audioUrl || videoUrl,
+          videoUrl: videoUrl || audioUrl,
+          duration: data.duration || 0,
+          title: data.title || "",
+          uploader: data.uploader || "",
+        };
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+// Extract direct audio & video stream URLs using yt-dlp with Invidious fallback
+async function extractDirectStreams(videoId: string): Promise<{ audioUrl: string; videoUrl: string; duration: number; title: string; uploader: string; source: string } | null> {
+  const cached = streamCache.get(videoId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return {
+      audioUrl: cached.audioUrl,
+      videoUrl: cached.videoUrl,
+      duration: cached.duration,
+      title: "",
+      uploader: "",
+      source: "cache",
+    };
+  }
+
+  // 1. Try yt-dlp first
+  const ytdl = await extractYtDlpStreams(videoId);
+  if (ytdl && ytdl.audioUrl) {
+    return { ...ytdl, source: "yt-dlp" };
+  }
+
+  // 2. Try Invidious & Piped backend instances
+  const inv = await extractInvidiousStreams(videoId);
+  if (inv && (inv.audioUrl || inv.videoUrl)) {
+    streamCache.set(videoId, {
+      audioUrl: inv.audioUrl,
+      videoUrl: inv.videoUrl,
+      duration: inv.duration,
+      timestamp: Date.now(),
+    });
+    return { ...inv, source: "invidious-piped" };
+  }
+
+  return null;
 }
 
 interface VideoItem {
@@ -445,33 +545,37 @@ youtubeRouter.get("/search", async (req, res) => {
   }
 });
 
-// 3. GET /api/youtube/stream/:videoId - Stream resolution via yt-dlp
+// 3. GET /api/youtube/stream/:videoId - Stream resolution via yt-dlp / Invidious / Piped
 youtubeRouter.get("/stream/:videoId", async (req, res) => {
   const { videoId } = req.params;
   if (!videoId) return res.status(400).json({ success: false, error: "Missing videoId" });
 
   try {
-    const streamData = await extractYtDlpStreams(videoId);
-    if (streamData && streamData.audioUrl) {
-      const audioProxy = `/api/youtube/proxy-stream?url=${encodeURIComponent(streamData.audioUrl)}`;
+    const streamData = await extractDirectStreams(videoId);
+    if (streamData && (streamData.audioUrl || streamData.videoUrl)) {
+      const audioProxy = streamData.audioUrl
+        ? `/api/youtube/proxy-stream?url=${encodeURIComponent(streamData.audioUrl)}`
+        : "";
       const videoProxy = streamData.videoUrl
         ? `/api/youtube/proxy-stream?url=${encodeURIComponent(streamData.videoUrl)}`
         : audioProxy;
 
       return res.json({
         success: true,
-        source: "yt-dlp",
+        source: streamData.source,
         videoId,
         title: streamData.title,
         uploader: streamData.uploader,
         duration: streamData.duration,
-        audioStreamUrl: audioProxy,
-        videoStreamUrl: videoProxy,
+        audioStreamUrl: audioProxy || videoProxy,
+        videoStreamUrl: videoProxy || audioProxy,
         directAudioUrl: streamData.audioUrl,
         directVideoUrl: streamData.videoUrl,
       });
     }
-  } catch {}
+  } catch (e: any) {
+    console.warn(`Stream extraction error for ${videoId}:`, e?.message || e);
+  }
 
   // Fallback endpoint
   return res.json({
@@ -486,7 +590,7 @@ youtubeRouter.get("/stream/:videoId", async (req, res) => {
 // 4. GET /api/youtube/proxy-stream - High performance HTTP 206 Partial Content byte streamer for HTML5 video & audio
 youtubeRouter.get("/proxy-stream", async (req, res) => {
   const targetUrl = req.query.url as string;
-  if (!targetUrl || !targetUrl.includes("googlevideo.com")) {
+  if (!targetUrl || !targetUrl.startsWith("http")) {
     return res.status(400).send("Invalid stream URL");
   }
 
@@ -501,7 +605,7 @@ youtubeRouter.get("/proxy-stream", async (req, res) => {
       fetchHeaders["Range"] = range;
     }
 
-    const videoRes = await fetch(targetUrl, { headers: fetchHeaders });
+    const videoRes = await fetch(targetUrl, { headers: fetchHeaders, signal: AbortSignal.timeout(12000) });
     const status = videoRes.status;
     res.status(status);
 
@@ -522,7 +626,7 @@ youtubeRouter.get("/proxy-stream", async (req, res) => {
 
     Readable.fromWeb(videoRes.body as any).pipe(res);
   } catch (err: any) {
-    console.error("Proxy stream error:", err);
+    console.error("Proxy stream error:", err?.message || err);
     if (!res.headersSent) {
       res.status(500).send("Stream error");
     }

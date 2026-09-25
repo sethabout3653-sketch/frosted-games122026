@@ -40,31 +40,44 @@ export const SUGGESTED_GAME_TEXT_REACTIONS = [
 // Map of gameId -> Record<reactionKey, string[] (array of uids)>
 type GameReactionsMap = Record<string, Record<string, string[]>>;
 
+let memoryReactionsCache: GameReactionsMap | null = null;
+let cachedDeviceUid: string | null = null;
+
 function getDeviceUid(): string {
+  if (cachedDeviceUid) return cachedDeviceUid;
   try {
     let uid = localStorage.getItem(USER_UID_STORAGE_KEY);
     if (!uid) {
       uid = "usr_" + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
       localStorage.setItem(USER_UID_STORAGE_KEY, uid);
     }
+    cachedDeviceUid = uid;
     return uid;
   } catch {
-    return "guest_user";
+    cachedDeviceUid = "guest_user";
+    return cachedDeviceUid;
   }
 }
 
 function getAllGameReactions(): GameReactionsMap {
+  if (memoryReactionsCache !== null) return memoryReactionsCache;
   try {
     const raw = localStorage.getItem(GAME_REACTIONS_STORAGE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) || {};
+    if (!raw) {
+      memoryReactionsCache = {};
+      return memoryReactionsCache;
+    }
+    memoryReactionsCache = JSON.parse(raw) || {};
+    return memoryReactionsCache!;
   } catch (e) {
     console.warn("Failed to load game reactions:", e);
-    return {};
+    memoryReactionsCache = {};
+    return memoryReactionsCache;
   }
 }
 
 function saveAllGameReactions(data: GameReactionsMap) {
+  memoryReactionsCache = data;
   try {
     localStorage.setItem(GAME_REACTIONS_STORAGE_KEY, JSON.stringify(data));
   } catch (e) {

@@ -145,6 +145,12 @@ export default function YouTubePlayer({
   const [copiedLink, setCopiedLink] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
 
+  // Direct Stream / Unrestricted Mode Bypass State
+  const [isBypassActive, setIsBypassActive] = useState<boolean>(false);
+  const [bypassStreamUrl, setBypassStreamUrl] = useState<string | null>(null);
+  const [isResolvingBypass, setIsResolvingBypass] = useState<boolean>(false);
+  const html5MediaRef = useRef<HTMLVideoElement | null>(null);
+
   // Player & Engine Refs
   const ytPlayerRef = useRef<any>(null);
   const isPlayerReadyRef = useRef<boolean>(false);
@@ -153,6 +159,33 @@ export default function YouTubePlayer({
   const scrollNoticeTimeoutRef = useRef<any>(null);
   const videoContainerRef = useRef<HTMLDivElement | null>(null);
   const bufferingTimeoutRef = useRef<any>(null);
+
+  const activateDirectStreamBypass = useCallback(async () => {
+    if (!cleanVideoId) return;
+    setIsResolvingBypass(true);
+    showNotification("Activating WiFi Bypass & Unrestricted Stream...");
+    try {
+      const res = await fetch(`/api/youtube/stream/${cleanVideoId}`);
+      if (res.ok) {
+        const data = await res.json();
+        const stream = data.videoStreamUrl || data.audioStreamUrl || data.directVideoUrl || data.directAudioUrl;
+        if (stream) {
+          setBypassStreamUrl(stream);
+          setIsBypassActive(true);
+          setIsBuffering(false);
+          if (data.duration && data.duration > 0) {
+            setDuration(data.duration);
+          }
+          showNotification("Unrestricted Stream Active (Bypasses Restrictions)");
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("Bypass stream fetch error:", err);
+    } finally {
+      setIsResolvingBypass(false);
+    }
+  }, [cleanVideoId]);
 
   const volumeRef = useRef<number>(100);
   const isMutedRef = useRef<boolean>(false);
@@ -258,6 +291,7 @@ export default function YouTubePlayer({
       try {
         ytPlayerRef.current = new window.YT.Player("yt-unified-iframe-inner", {
           videoId: cleanVideoId,
+          host: "https://www.youtube-nocookie.com",
           playerVars: {
             autoplay: 1,
             controls: 0, // NO default YouTube controls UI - replaced with our custom UI!
@@ -269,6 +303,7 @@ export default function YouTubePlayer({
             enablejsapi: 1,
             origin: window.location.origin,
             playsinline: 1,
+            widget_referrer: window.location.href,
           },
           events: {
             onReady: (e: any) => {
@@ -283,7 +318,9 @@ export default function YouTubePlayer({
               } catch {}
             },
             onError: (err: any) => {
-              console.warn("Player Error:", err);
+              console.warn("YouTube Player Error (Activating Direct Stream Bypass):", err);
+              // Error 150, 101, 100, 5, or 2 = restricted mode / embedding blocked on network
+              activateDirectStreamBypass();
             },
             onStateChange: (e: any) => {
               try {
@@ -359,6 +396,11 @@ export default function YouTubePlayer({
   const handleSeek = (targetSec: number) => {
     const clamped = Math.max(0, Math.min(duration, targetSec));
     setCurrentTime(clamped);
+    if (html5MediaRef.current) {
+      try {
+        html5MediaRef.current.currentTime = clamped;
+      } catch {}
+    }
     if (isPlayerReadyRef.current && ytPlayerRef.current?.seekTo) {
       try {
         ytPlayerRef.current.seekTo(clamped, true);
@@ -375,6 +417,11 @@ export default function YouTubePlayer({
     }
     setIsBuffering(false);
     triggerCenterAnimation("play");
+    if (html5MediaRef.current) {
+      try {
+        html5MediaRef.current.play();
+      } catch {}
+    }
     if (isPlayerReadyRef.current && ytPlayerRef.current?.playVideo) {
       try {
         ytPlayerRef.current.playVideo();
@@ -393,6 +440,11 @@ export default function YouTubePlayer({
       clearTimeout(centerActionTimeoutRef.current);
     }
     setCenterAction(null);
+    if (html5MediaRef.current) {
+      try {
+        html5MediaRef.current.pause();
+      } catch {}
+    }
     if (isPlayerReadyRef.current && ytPlayerRef.current?.pauseVideo) {
       try {
         ytPlayerRef.current.pauseVideo();
@@ -706,7 +758,35 @@ export default function YouTubePlayer({
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Force No-Restricted Mode WiFi Bypass Toggle */}
+          <button
+            type="button"
+            onClick={
+              isBypassActive
+                ? () => {
+                    setIsBypassActive(false);
+                    setBypassStreamUrl(null);
+                    showNotification("Default Stream Mode Active");
+                  }
+                : activateDirectStreamBypass
+            }
+            disabled={isResolvingBypass}
+            style={{
+              backgroundColor: isBypassActive ? "rgba(16, 185, 129, 0.2)" : "rgba(255, 255, 255, 0.05)",
+              borderColor: isBypassActive ? "rgba(16, 185, 129, 0.6)" : "rgba(255, 255, 255, 0.1)",
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold text-neutral-200 hover:text-white transition-all cursor-pointer shadow-sm active:scale-95"
+            title="Forces direct server-side stream to bypass WiFi restricted mode and institutional filters"
+          >
+            {isResolvingBypass ? (
+              <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Sparkles size={13} className={isBypassActive ? "text-emerald-400" : "text-neutral-400"} />
+            )}
+            <span>{isBypassActive ? "Unrestricted Mode: ON" : "No-Restricted Mode"}</span>
+          </button>
+
           <a
             href={`https://music.youtube.com/watch?v=${cleanVideoId}`}
             target="_blank"
@@ -743,17 +823,47 @@ export default function YouTubePlayer({
           >
             {/* The Unified Video Screen: Clean video frame with all YouTube watermark and header overlays cropped out */}
             <div className="w-full h-full relative overflow-hidden bg-black flex items-center justify-center">
-              <div
-                className="absolute pointer-events-none"
-                style={{
-                  width: "120%",
-                  height: "132%",
-                  top: "-16%",
-                  left: "-10%",
-                }}
-              >
-                <div id="yt-unified-iframe-inner" className="w-full h-full" />
-              </div>
+              {isBypassActive && bypassStreamUrl ? (
+                <video
+                  ref={html5MediaRef}
+                  src={bypassStreamUrl}
+                  autoPlay
+                  playsInline
+                  onTimeUpdate={(e) => {
+                    const ct = e.currentTarget.currentTime;
+                    const dur = e.currentTarget.duration;
+                    if (typeof ct === "number" && !isNaN(ct)) setCurrentTime(ct);
+                    if (dur && dur > 0 && !isNaN(dur)) setDuration(dur);
+                  }}
+                  onProgress={(e) => {
+                    if (e.currentTarget.buffered.length > 0 && e.currentTarget.duration > 0) {
+                      setBufferedFraction(
+                        e.currentTarget.buffered.end(e.currentTarget.buffered.length - 1) /
+                          e.currentTarget.duration
+                      );
+                    }
+                  }}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onEnded={() => {
+                    setIsPlaying(false);
+                    handleTrackEnd();
+                  }}
+                  className="w-full h-full object-contain z-10"
+                />
+              ) : (
+                <div
+                  className="absolute pointer-events-none"
+                  style={{
+                    width: "120%",
+                    height: "132%",
+                    top: "-16%",
+                    left: "-10%",
+                  }}
+                >
+                  <div id="yt-unified-iframe-inner" className="w-full h-full" />
+                </div>
+              )}
 
               {/* Clean Paused Screen Mask: Completely eliminates YouTube's built-in pause screen, play icons, and recommendations */}
               <div
@@ -869,6 +979,37 @@ export default function YouTubePlayer({
             </div>
           </div>
         </div>
+
+        {/* Hidden persistent background audio playback when in Audio Mode & direct bypass stream is active */}
+        {mediaMode === "audio" && isBypassActive && bypassStreamUrl && (
+          <video
+            ref={html5MediaRef}
+            src={bypassStreamUrl}
+            autoPlay
+            playsInline
+            onTimeUpdate={(e) => {
+              const ct = e.currentTarget.currentTime;
+              const dur = e.currentTarget.duration;
+              if (typeof ct === "number" && !isNaN(ct)) setCurrentTime(ct);
+              if (dur && dur > 0 && !isNaN(dur)) setDuration(dur);
+            }}
+            onProgress={(e) => {
+              if (e.currentTarget.buffered.length > 0 && e.currentTarget.duration > 0) {
+                setBufferedFraction(
+                  e.currentTarget.buffered.end(e.currentTarget.buffered.length - 1) /
+                    e.currentTarget.duration
+                );
+              }
+            }}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onEnded={() => {
+              setIsPlaying(false);
+              handleTrackEnd();
+            }}
+            className="w-0.5 h-0.5 opacity-0 pointer-events-none absolute"
+          />
+        )}
 
         {/* ----------------- AUDIO MODE VIEWPORT (ALBUM ART & EQUALIZER) ----------------- */}
         <div className={mediaMode === "audio" ? "block" : "hidden"}>

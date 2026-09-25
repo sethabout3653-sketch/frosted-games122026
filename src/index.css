@@ -394,4 +394,12 @@ iframe[title*="Soundboard"] {
   animation: rippleFade 0.45s ease-out forwards;
 }
 
+/* High-performance rendering optimizations for game catalog */
+.game-card-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
 

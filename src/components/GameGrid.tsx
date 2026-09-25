@@ -2,31 +2,22 @@ import React, { useState, useEffect, useRef, useMemo, memo } from "react";
 import { Game } from "../types";
 import GameCard from "./GameCard";
 import { Gamepad2, ArrowRight } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 
 interface GameGridProps {
   games: Game[];
   onSelectGame: (game: Game) => void;
+  favoriteIds?: Set<string>;
+  onToggleFavorite?: (id: number | string) => void;
 }
 
 const ITEMS_PER_PAGE = 48;
 
-const cardVariants = {
-  hidden: { opacity: 0, y: 15 },
-  visible: (index: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.35,
-      ease: [0.16, 1, 0.3, 1] as const,
-      delay: Math.min(index * 0.012, 0.25),
-    },
-  }),
-};
-
 const GameGrid = memo(function GameGrid({
   games,
   onSelectGame,
+  favoriteIds,
+  onToggleFavorite,
 }: GameGridProps) {
   const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -50,7 +41,7 @@ const GameGrid = memo(function GameGrid({
           });
         }
       },
-      { rootMargin: "300px" }
+      { rootMargin: "400px" }
     );
 
     observer.observe(target);
@@ -73,7 +64,7 @@ const GameGrid = memo(function GameGrid({
         id="grid-empty-state"
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.3 }}
+        transition={{ duration: 0.2 }}
         style={{
           backgroundColor: "var(--theme-surface)",
           borderColor: "var(--theme-border-subtle)",
@@ -99,29 +90,22 @@ const GameGrid = memo(function GameGrid({
 
   return (
     <div id="game-grid-container" className="flex flex-col gap-6">
-      {/* Dynamic Grid Layout */}
+      {/* High-Performance Dynamic Grid Layout */}
       <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
-        <AnimatePresence mode="popLayout">
-          {visibleGames.map((game, index) => (
-            <motion.div
-              key={game.id}
-              custom={index}
-              variants={cardVariants}
-              initial="hidden"
-              animate="visible"
-              className="w-full h-full"
-            >
-              <GameCard
-                game={game}
-                onSelect={onSelectGame}
-              />
-            </motion.div>
-          ))}
-        </AnimatePresence>
+        {visibleGames.map((game) => (
+          <div key={game.id} className="w-full h-full">
+            <GameCard
+              game={game}
+              onSelect={onSelectGame}
+              isFavorited={favoriteIds ? favoriteIds.has(String(game.id)) : undefined}
+              onToggleFavorite={onToggleFavorite}
+            />
+          </div>
+        ))}
       </div>
 
       {/* Sentinel for IntersectionObserver */}
-      {hasMore && <div ref={sentinelRef} className="h-4 w-full pointer-events-none opacity-0" />}
+      {hasMore && <div ref={sentinelRef} className="h-6 w-full pointer-events-none opacity-0" />}
 
       {/* Load More Button */}
       {hasMore && (

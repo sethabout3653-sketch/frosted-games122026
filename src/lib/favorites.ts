@@ -3,21 +3,33 @@ import { useState, useEffect, useCallback } from "react";
 const FAVORITES_STORAGE_KEY = "frosted_favorite_games";
 const FAVORITES_CHANGE_EVENT = "frosted_favorites_changed";
 
-/**
- * Get all favorite game IDs from localStorage.
- */
-export function getFavoriteGameIds(): string[] {
+let memoryFavoritesCache: string[] | null = null;
+
+function loadFavoritesFromStorage(): string[] {
+  if (memoryFavoritesCache !== null) return memoryFavoritesCache;
   try {
     const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
-    if (!raw) return [];
+    if (!raw) {
+      memoryFavoritesCache = [];
+      return memoryFavoritesCache;
+    }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed.map((id) => String(id));
+      memoryFavoritesCache = parsed.map((id) => String(id));
+      return memoryFavoritesCache;
     }
   } catch (e) {
     console.warn("Failed to load favorite games from storage:", e);
   }
-  return [];
+  memoryFavoritesCache = [];
+  return memoryFavoritesCache;
+}
+
+/**
+ * Get all favorite game IDs.
+ */
+export function getFavoriteGameIds(): string[] {
+  return loadFavoritesFromStorage();
 }
 
 /**
@@ -46,6 +58,8 @@ export function toggleFavoriteGame(gameId: number | string): boolean {
     isNowFavorite = true;
   }
 
+  memoryFavoritesCache = updated;
+
   try {
     localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(updated));
   } catch (e) {
@@ -53,7 +67,11 @@ export function toggleFavoriteGame(gameId: number | string): boolean {
   }
 
   // Notify all components in the current window
-  window.dispatchEvent(new CustomEvent(FAVORITES_CHANGE_EVENT, { detail: { gameId: targetId, isFavorite: isNowFavorite } }));
+  window.dispatchEvent(
+    new CustomEvent(FAVORITES_CHANGE_EVENT, {
+      detail: { gameId: targetId, isFavorite: isNowFavorite, favorites: updated },
+    })
+  );
   return isNowFavorite;
 }
 
@@ -61,11 +79,19 @@ export function toggleFavoriteGame(gameId: number | string): boolean {
  * React hook for real-time reactive favorites management.
  */
 export function useFavorites() {
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(() => new Set(getFavoriteGameIds()));
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(
+    () => new Set(getFavoriteGameIds())
+  );
 
   useEffect(() => {
-    const handleUpdate = () => {
-      setFavoriteIds(new Set(getFavoriteGameIds()));
+    const handleUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent<{ favorites?: string[] }>;
+      if (customEvent.detail && Array.isArray(customEvent.detail.favorites)) {
+        setFavoriteIds(new Set(customEvent.detail.favorites));
+      } else {
+        memoryFavoritesCache = null;
+        setFavoriteIds(new Set(getFavoriteGameIds()));
+      }
     };
 
     window.addEventListener(FAVORITES_CHANGE_EVENT, handleUpdate);
