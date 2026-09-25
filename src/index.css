@@ -394,12 +394,27 @@ iframe[title*="Soundboard"] {
   animation: rippleFade 0.45s ease-out forwards;
 }
 
-/* High-performance rendering optimizations for game catalog */
+/* High-performance rendering optimizations for Chromebooks and low-end hardware */
 .game-card-item {
   content-visibility: auto;
   contain-intrinsic-size: auto 240px;
-  transform: translateZ(0);
+  contain: layout style paint;
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  will-change: transform;
+}
+
+/* Optimize smooth scrolling across ChromeOS */
+html {
+  scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+#game-grid-container {
+  contain: layout;
 }
 
 

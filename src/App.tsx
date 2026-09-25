@@ -383,7 +383,7 @@ function AppContent() {
                 backgroundColor: "var(--theme-surface)",
                 borderColor: "var(--theme-border)",
               }}
-              className="relative overflow-hidden rounded-3xl border p-5 sm:p-7 shadow-2xl backdrop-blur-2xl flex flex-col sm:flex-row items-center justify-between gap-6 group"
+              className="relative overflow-hidden rounded-3xl border p-5 sm:p-7 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-6 group"
             >
               {/* Glow Accent Backdrop */}
               <div

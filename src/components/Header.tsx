@@ -86,7 +86,7 @@ const Header = memo(function Header({
   return (
     <header
       id="app-header"
-      className="sticky top-0 z-40 w-full border-b border-[var(--theme-border-subtle)] bg-[var(--theme-darkest)]/85 px-3 sm:px-6 py-2.5 shadow-xl shadow-black/50 backdrop-blur-2xl transition-all duration-200"
+      className="sticky top-0 z-40 w-full border-b border-[var(--theme-border-subtle)] bg-[var(--theme-darkest)]/95 px-3 sm:px-6 py-2.5 shadow-xl shadow-black/50 transition-all duration-200"
     >
       <div className="mx-auto flex max-w-7xl flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
         {/* Brand Logo & Primary View Tabs */}

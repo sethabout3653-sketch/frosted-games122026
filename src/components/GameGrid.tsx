@@ -11,7 +11,7 @@ interface GameGridProps {
   onToggleFavorite?: (id: number | string) => void;
 }
 
-const ITEMS_PER_PAGE = 48;
+const ITEMS_PER_PAGE = 36;
 
 const GameGrid = memo(function GameGrid({
   games,
@@ -41,7 +41,7 @@ const GameGrid = memo(function GameGrid({
           });
         }
       },
-      { rootMargin: "400px" }
+      { rootMargin: "300px" }
     );
 
     observer.observe(target);
@@ -60,16 +60,13 @@ const GameGrid = memo(function GameGrid({
 
   if (games.length === 0) {
     return (
-      <motion.div
+      <div
         id="grid-empty-state"
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.2 }}
         style={{
           backgroundColor: "var(--theme-surface)",
           borderColor: "var(--theme-border-subtle)",
         }}
-        className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-3xl border shadow-xl backdrop-blur-xl max-w-md mx-auto my-8"
+        className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-3xl border shadow-xl max-w-md mx-auto my-8 animate-fadeIn"
       >
         <div
           style={{
@@ -84,7 +81,7 @@ const GameGrid = memo(function GameGrid({
         <p className="mt-1.5 text-xs text-neutral-400 max-w-xs leading-relaxed font-normal">
           Try clearing your search query or choosing a different genre filter.
         </p>
-      </motion.div>
+      </div>
     );
   }
 
