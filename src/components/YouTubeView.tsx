@@ -1,62 +1,188 @@
 import React, { useState, useEffect, useDeferredValue } from "react";
 import {
+  Music,
+  Video as VideoIcon,
   Search,
   Flame,
-  Headphones,
+  Radio,
   Sparkles,
   Heart,
   History,
-  Play,
-  X,
-  Radio,
+  TrendingUp,
+  Headphones,
   Compass,
-  Music,
-  Video as VideoIcon,
-  Disc3,
-  Layers,
+  ArrowLeft,
+  X,
+  Play,
+  Volume2,
 } from "lucide-react";
 import { YouTubeVideo } from "../types";
-import YouTubePlayer, { extractYouTubeId } from "./YouTubePlayer";
-import {
-  getSavedVideos,
-  getWatchHistory,
-  clearWatchHistory,
-  isVideoSaved,
-  toggleSaveVideo,
-} from "../lib/youtubeStorage";
+import YouTubePlayer from "./YouTubePlayer";
+import { getSavedVideos, getWatchHistory, toggleSaveVideo, isVideoSaved } from "../lib/youtubeStorage";
 
 interface YouTubeViewProps {
   isActive?: boolean;
   onBackToHome?: () => void;
-  onActiveVideoChange?: (videoTitle: string | null) => void;
+  onActiveVideoChange?: (title: string | null) => void;
 }
 
-const CATEGORIES = [
+const MUSIC_CATEGORIES = [
   { id: "all", label: "Top Charts", icon: Flame },
-  { id: "explore", label: "Explore & New", icon: Sparkles },
-  { id: "study", label: "Study & Lofi", icon: Headphones },
-  { id: "pop", label: "Pop Hits", icon: Disc3 },
-  { id: "hiphop", label: "Hip Hop & Rap", icon: Music },
-  { id: "electronic", label: "EDM & Dance", icon: Radio },
-  { id: "rock", label: "Rock & Indie", icon: Compass },
-  { id: "favorites", label: "Saved Tracks", icon: Heart },
-  { id: "history", label: "History", icon: History },
+  { id: "study", label: "Lofi & Study", icon: Headphones },
+  { id: "pop", label: "Pop Hits", icon: Sparkles },
+  { id: "hiphop", label: "Hip-Hop", icon: TrendingUp },
+  { id: "electronic", label: "Electronic / EDM", icon: Radio },
+  { id: "rock", label: "Rock & Alternative", icon: Music },
+  { id: "favorites", label: "Favorites", icon: Heart },
+  { id: "history", label: "Recently Played", icon: History },
 ];
 
+const LOCAL_FALLBACK_TRACKS: Record<string, YouTubeVideo[]> = {
+  all: [
+    {
+      id: "jfKfPfyJRdk",
+      title: "lofi hip hop radio 📚 - beats to relax/study to",
+      channelTitle: "Lofi Girl",
+      artist: "Lofi Girl",
+      views: "Live • 45K watching",
+      duration: "Live",
+      thumbnail: "https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg",
+      mediaType: "audio",
+      isMusic: true,
+      descriptionSnippet: "Chill study beats and instrumental lo-fi hip hop.",
+    },
+    {
+      id: "4xDzrJKXOOY",
+      title: "synthwave radio 🌌 - chill synth / retro beats",
+      channelTitle: "Lofi Girl",
+      artist: "Lofi Girl",
+      views: "Live • 12K watching",
+      duration: "Live",
+      thumbnail: "https://i.ytimg.com/vi/4xDzrJKXOOY/hqdefault.jpg",
+      mediaType: "audio",
+      isMusic: true,
+      descriptionSnippet: "Chill synthwave and retrowave beats for coding and gaming.",
+    },
+    {
+      id: "fJ9rUzIMcZQ",
+      title: "Bohemian Rhapsody",
+      channelTitle: "Queen",
+      artist: "Queen",
+      views: "1.7B views",
+      duration: "5:59",
+      thumbnail: "https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg",
+      mediaType: "video",
+      isMusic: true,
+    },
+    {
+      id: "JGwWNGJdvx8",
+      title: "Shape of You",
+      channelTitle: "Ed Sheeran",
+      artist: "Ed Sheeran",
+      views: "6.2B views",
+      duration: "4:23",
+      thumbnail: "https://i.ytimg.com/vi/JGwWNGJdvx8/hqdefault.jpg",
+      mediaType: "video",
+      isMusic: true,
+    },
+    {
+      id: "09R8_2nJtjg",
+      title: "Sugar",
+      channelTitle: "Maroon 5",
+      artist: "Maroon 5",
+      views: "4.0B views",
+      duration: "5:01",
+      thumbnail: "https://i.ytimg.com/vi/09R8_2nJtjg/hqdefault.jpg",
+      mediaType: "video",
+      isMusic: true,
+    },
+    {
+      id: "kXYiU_JCYtU",
+      title: "Numb",
+      channelTitle: "Linkin Park",
+      artist: "Linkin Park",
+      views: "2.2B views",
+      duration: "3:07",
+      thumbnail: "https://i.ytimg.com/vi/kXYiU_JCYtU/hqdefault.jpg",
+      mediaType: "video",
+      isMusic: true,
+    },
+  ],
+  study: [
+    {
+      id: "jfKfPfyJRdk",
+      title: "lofi hip hop radio - beats to relax/study to",
+      channelTitle: "Lofi Girl",
+      artist: "Lofi Girl",
+      views: "Live • 45K watching",
+      duration: "Live",
+      thumbnail: "https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg",
+      mediaType: "audio",
+      isMusic: true,
+    },
+    {
+      id: "4xDzrJKXOOY",
+      title: "synthwave radio - chill synth / retro beats",
+      channelTitle: "Lofi Girl",
+      artist: "Lofi Girl",
+      views: "Live • 12K watching",
+      duration: "Live",
+      thumbnail: "https://i.ytimg.com/vi/4xDzrJKXOOY/hqdefault.jpg",
+      mediaType: "audio",
+      isMusic: true,
+    },
+    {
+      id: "5qap5aO4i9A",
+      title: "Lofi Hip Hop Radio 24/7 - Chill Study Beats",
+      channelTitle: "ChilledCow",
+      artist: "Chillhop Music",
+      views: "2.1M views",
+      duration: "Live",
+      thumbnail: "https://i.ytimg.com/vi/5qap5aO4i9A/hqdefault.jpg",
+      mediaType: "audio",
+      isMusic: true,
+    },
+  ],
+  pop: [
+    {
+      id: "JGwWNGJdvx8",
+      title: "Shape of You",
+      channelTitle: "Ed Sheeran",
+      artist: "Ed Sheeran",
+      views: "6.2B views",
+      duration: "4:23",
+      thumbnail: "https://i.ytimg.com/vi/JGwWNGJdvx8/hqdefault.jpg",
+      mediaType: "video",
+      isMusic: true,
+    },
+    {
+      id: "09R8_2nJtjg",
+      title: "Sugar",
+      channelTitle: "Maroon 5",
+      artist: "Maroon 5",
+      views: "4.0B views",
+      duration: "5:01",
+      thumbnail: "https://i.ytimg.com/vi/09R8_2nJtjg/hqdefault.jpg",
+      mediaType: "video",
+      isMusic: true,
+    },
+  ],
+};
+
 export default function YouTubeView({
-  isActive,
+  isActive = true,
   onBackToHome,
   onActiveVideoChange,
 }: YouTubeViewProps) {
+  const [selectedVideo, setSelectedVideo] = useState<YouTubeVideo | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [mediaFilter, setMediaFilter] = useState<"all" | "audio" | "video">("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const deferredSearch = useDeferredValue(searchQuery);
 
   const [videos, setVideos] = useState<YouTubeVideo[]>([]);
-  const [selectedVideo, setSelectedVideo] = useState<YouTubeVideo | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [savedCount, setSavedCount] = useState(0);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [mediaFilter, setMediaFilter] = useState<"all" | "audio" | "video">("all");
+  const [savedCount, setSavedCount] = useState<number>(0);
 
   // Sync title with activity tracker
   useEffect(() => {
@@ -74,7 +200,7 @@ export default function YouTubeView({
     refreshSavedCount();
   }, [selectedVideo]);
 
-  // Load music tracks based on category, filter, and search directly from music.youtube.com
+  // Load music tracks based on category, filter, and search directly with resilient fallback
   useEffect(() => {
     let isCancelled = false;
 
@@ -106,15 +232,31 @@ export default function YouTubeView({
           endpoint = `/api/youtube/search?q=${encodeURIComponent(deferredSearch.trim())}${filterParam}`;
         }
 
-        const res = await fetch(endpoint);
-        if (!res.ok) throw new Error("Failed to load YouTube Music feed");
-        const data = await res.json();
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-        if (!isCancelled && data.videos) {
-          setVideos(data.videos);
+        const res = await fetch(endpoint, { signal: controller.signal }).catch(() => null);
+        clearTimeout(timeoutId);
+
+        if (res && res.ok) {
+          const data = await res.json().catch(() => null);
+          if (!isCancelled && data && Array.isArray(data.videos) && data.videos.length > 0) {
+            setVideos(data.videos);
+            return;
+          }
+        }
+
+        // Fallback to local curated tracks if network or external API is slow
+        if (!isCancelled) {
+          const fallback = LOCAL_FALLBACK_TRACKS[selectedCategory] || LOCAL_FALLBACK_TRACKS.all || [];
+          setVideos(fallback);
         }
       } catch (e) {
-        console.error("Failed to load music:", e);
+        // Fallback gracefully without noisy console errors
+        if (!isCancelled) {
+          const fallback = LOCAL_FALLBACK_TRACKS[selectedCategory] || LOCAL_FALLBACK_TRACKS.all || [];
+          setVideos(fallback);
+        }
       } finally {
         if (!isCancelled) setIsLoading(false);
       }
@@ -178,7 +320,7 @@ export default function YouTubeView({
                         loading="lazy"
                       />
 
-                      {/* Media Type Badge: AUDIO ONLY vs MUSIC VIDEO */}
+                      {/* Media Type Badge */}
                       <div
                         style={{ backgroundColor: isAudio ? "#059669" : "#4f46e5" }}
                         className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md text-white font-black text-[9px] tracking-wider uppercase flex items-center gap-1 z-10 shadow-lg ring-1 ring-white/20"
@@ -248,168 +390,131 @@ export default function YouTubeView({
               onChange={(e) => {
                 const val = e.target.value;
                 setSearchQuery(val);
-                if (selectedCategory === "favorites" || selectedCategory === "history") {
+                if (val && (selectedCategory === "favorites" || selectedCategory === "history")) {
                   setSelectedCategory("all");
-                }
-
-                // If input is a full YouTube/YouTube Music link, parse and select
-                const lower = val.toLowerCase();
-                if (lower.includes("youtube.com") || lower.includes("youtu.be") || lower.includes("youtube-nocookie.com")) {
-                  const extractedId = extractYouTubeId(val);
-                  if (extractedId && extractedId.length === 11) {
-                    const parsedVideo: YouTubeVideo = {
-                      id: extractedId,
-                      title: `Playing Track (${extractedId})`,
-                      channelTitle: "YouTube Music",
-                      thumbnail: `https://i.ytimg.com/vi/${extractedId}/hqdefault.jpg`,
-                      mediaType: lower.includes("music.youtube.com") ? "audio" : "video",
-                    };
-                    setSelectedVideo(parsedVideo);
-                    setSearchQuery("");
-                  }
                 }
               }}
               placeholder="Search songs, artists, albums, or paste music.youtube.com link..."
-              className="w-full h-10 pl-10 pr-10 rounded-full bg-[#121212] border border-[#303030] text-sm text-white placeholder-neutral-400 focus:outline-none focus:border-[var(--theme-accent)] focus:ring-1 focus:ring-[var(--theme-accent)] transition-all"
+              className="w-full pl-10 pr-10 py-2 rounded-xl bg-[#1a1a24] border border-white/10 focus:border-[var(--theme-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--theme-accent)] text-sm text-white placeholder-neutral-400 transition-colors shadow-inner"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
-                className="absolute right-3 text-neutral-400 hover:text-white p-1 rounded-full cursor-pointer"
+                className="absolute right-3 p-1 rounded-full text-neutral-400 hover:text-white transition-colors"
               >
                 <X size={14} />
               </button>
             )}
           </div>
         </div>
-      </div>
 
-      {/* Row 2: Category Tabs & Media Type Toggle Filter */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        {/* Category Filter Pills Bar */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none flex-1">
-          {CATEGORIES.map((cat) => {
-            const isSelected = selectedCategory === cat.id && !searchQuery;
-            const Icon = cat.icon;
-            return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => {
-                  setSelectedCategory(cat.id);
-                  setSearchQuery("");
-                }}
-                style={{
-                  backgroundColor: isSelected ? "var(--theme-accent)" : "rgba(255, 255, 255, 0.05)",
-                  borderColor: isSelected ? "var(--theme-border)" : "transparent",
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-150 whitespace-nowrap cursor-pointer flex items-center gap-1.5 border ${
-                  isSelected
-                    ? "text-white shadow-md ring-1 ring-white/20"
-                    : "text-neutral-300 hover:text-white hover:bg-white/10"
-                }`}
-              >
-                <Icon size={13} className={isSelected ? "text-white" : "text-neutral-400"} />
-                <span>{cat.label}</span>
-                {cat.id === "favorites" && savedCount > 0 && (
-                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isSelected ? "bg-white/20 text-white" : "bg-white/10 text-neutral-300"}`}>
-                    {savedCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Media Type Filter (All / Audio Songs / Video & Audio) */}
-        <div className="flex items-center bg-[#151515] p-1 rounded-xl border border-white/10 shrink-0">
+        {/* Right: Audio Only / Music Video Filter Pill */}
+        <div className="flex items-center bg-[#181822] p-1 rounded-xl border border-white/5 shrink-0">
           <button
             type="button"
             onClick={() => setMediaFilter("all")}
-            style={{
-              backgroundColor: mediaFilter === "all" ? "var(--theme-accent)" : "transparent",
-            }}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-150 ${
               mediaFilter === "all"
-                ? "text-white shadow-sm"
+                ? "bg-[var(--theme-accent)] text-white shadow-md"
                 : "text-neutral-400 hover:text-white"
             }`}
           >
-            All Music
+            All Tracks
           </button>
           <button
             type="button"
             onClick={() => setMediaFilter("audio")}
-            style={{
-              backgroundColor: mediaFilter === "audio" ? "#10b981" : "transparent",
-            }}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 ${
               mediaFilter === "audio"
-                ? "text-white shadow-sm"
+                ? "bg-emerald-600 text-white shadow-md"
                 : "text-neutral-400 hover:text-white"
             }`}
           >
-            <Music size={11} />
-            <span>Audio Tracks</span>
+            <Music size={12} />
+            Audio Only
           </button>
           <button
             type="button"
             onClick={() => setMediaFilter("video")}
-            style={{
-              backgroundColor: mediaFilter === "video" ? "var(--theme-accent)" : "transparent",
-            }}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 ${
               mediaFilter === "video"
-                ? "text-white shadow-sm"
+                ? "bg-indigo-600 text-white shadow-md"
                 : "text-neutral-400 hover:text-white"
             }`}
           >
-            <VideoIcon size={11} />
-            <span>Video & Audio</span>
+            <VideoIcon size={12} />
+            Music Videos
           </button>
         </div>
       </div>
 
-      {/* Main YouTube Music Feed Grid */}
-      <div className="space-y-4">
-        {selectedCategory === "history" && videos.length > 0 && (
-          <div className="flex items-center justify-between pt-1">
-            <h2 className="text-sm font-bold text-white">Listening History</h2>
+      {/* Category Filter Pills */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+        {MUSIC_CATEGORIES.map((cat) => {
+          const Icon = cat.icon;
+          const isSelected = selectedCategory === cat.id;
+          const count = cat.id === "favorites" ? savedCount : null;
+
+          return (
             <button
+              key={cat.id}
               type="button"
               onClick={() => {
-                clearWatchHistory();
-                setVideos([]);
+                setSelectedCategory(cat.id);
+                if (cat.id === "favorites" || cat.id === "history") {
+                  setSearchQuery("");
+                }
               }}
-              className="text-xs text-red-400 hover:text-red-300 font-semibold cursor-pointer"
+              style={{
+                backgroundColor: isSelected ? "var(--theme-accent)" : "#181822",
+                borderColor: isSelected ? "var(--theme-border)" : "rgba(255,255,255,0.05)",
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap border transition-all duration-150 shadow-sm cursor-pointer ${
+                isSelected
+                  ? "text-white shadow-md scale-[1.02]"
+                  : "text-neutral-300 hover:bg-[#20202e] hover:text-white"
+              }`}
             >
-              Clear History
+              <Icon size={14} className={isSelected ? "text-white" : "text-neutral-400"} />
+              <span>{cat.label}</span>
+              {count !== null && count > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-white/20 text-white text-[10px] font-bold">
+                  {count}
+                </span>
+              )}
             </button>
-          </div>
-        )}
+          );
+        })}
+      </div>
 
+      {/* Video Cards Grid */}
+      <div className="space-y-4 pt-2">
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="space-y-3 animate-pulse">
-                <div className="rounded-2xl bg-[#202028] aspect-video" />
+              <div key={i} className="animate-pulse space-y-3">
+                <div className="aspect-video bg-neutral-800/60 rounded-2xl border border-white/5" />
                 <div className="flex gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#202028] shrink-0" />
+                  <div className="w-9 h-9 rounded-xl bg-neutral-800 shrink-0" />
                   <div className="flex-1 space-y-2">
-                    <div className="h-4 bg-[#202028] rounded w-5/6" />
-                    <div className="h-3 bg-[#202028] rounded w-1/2" />
+                    <div className="h-3.5 bg-neutral-800 rounded w-4/5" />
+                    <div className="h-3 bg-neutral-800 rounded w-1/2" />
                   </div>
                 </div>
               </div>
             ))}
           </div>
         ) : videos.length === 0 ? (
-          <div className="py-16 text-center space-y-3 bg-[#121212]/50 rounded-2xl border border-white/5">
-            <Music size={40} className="mx-auto text-neutral-600" />
-            <p className="text-sm font-semibold text-neutral-300">No tracks found on YouTube Music</p>
-            <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-              Try searching for an artist, track title, or switch category.
+          <div className="py-20 flex flex-col items-center justify-center text-center space-y-3">
+            <div className="w-16 h-16 rounded-2xl bg-[#181824] border border-white/10 flex items-center justify-center text-neutral-400 shadow-inner">
+              <Music size={28} />
+            </div>
+            <h3 className="text-base font-bold text-white">No tracks found</h3>
+            <p className="text-xs text-neutral-400 max-w-sm">
+              {selectedCategory === "favorites"
+                ? "You haven't saved any tracks yet. Click the heart icon on any music card to save it!"
+                : "Try searching for another song, artist, album, or switch categories."}
             </p>
           </div>
         ) : (
@@ -421,15 +526,11 @@ export default function YouTubeView({
               return (
                 <div
                   key={vid.id}
-                  id={`yt-card-${vid.id}`}
-                  onClick={() => {
-                    setSelectedVideo(vid);
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
-                  className="group cursor-pointer flex flex-col space-y-2.5"
+                  onClick={() => setSelectedVideo(vid)}
+                  className="group cursor-pointer flex flex-col space-y-2.5 transition-transform duration-200"
                 >
-                  {/* Thumbnail Area */}
-                  <div className="relative aspect-video rounded-2xl overflow-hidden bg-[#181820] border border-white/5 group-hover:border-[var(--theme-accent)] transition-all duration-200 shadow-md">
+                  {/* Thumbnail / Cover Container */}
+                  <div className="relative aspect-video rounded-2xl overflow-hidden bg-[#161620] border border-white/10 group-hover:border-[var(--theme-accent)] shadow-md group-hover:shadow-xl transition-all duration-200">
                     <img
                       src={vid.thumbnail}
                       alt={vid.title}
@@ -438,13 +539,13 @@ export default function YouTubeView({
                       loading="lazy"
                     />
 
-                    {/* Play Hover Overlay */}
+                    {/* Hover Play Overlay */}
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       <div
-                        style={{ backgroundColor: isAudio ? "#10b981" : "var(--theme-accent)" }}
-                        className="h-11 w-11 rounded-full text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform"
+                        style={{ backgroundColor: "var(--theme-accent)" }}
+                        className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow-xl transform scale-90 group-hover:scale-100 transition-transform"
                       >
-                        <Play size={20} className="fill-white ml-0.5" />
+                        <Play size={18} className="fill-white ml-0.5" />
                       </div>
                     </div>
 

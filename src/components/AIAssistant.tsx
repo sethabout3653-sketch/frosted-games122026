@@ -33,10 +33,22 @@ import {
   Zap,
   HelpCircle,
   Download,
+  Sliders,
+  Settings2,
+  Flame,
+  Wand2,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import FriendsPanel from "./FriendsPanel";
+import PersonaModal from "./PersonaModal";
 import { ChatProfile } from "../types";
+import {
+  AIPersona,
+  DEFAULT_PERSONAS,
+  getAllPersonas,
+  getCustomPersonas,
+  saveCustomPersona,
+} from "../lib/personas";
 
 export function parseThoughtAndContent(raw: string): {
   thought: string;
@@ -91,52 +103,6 @@ export interface AIMessage {
   isError?: boolean;
 }
 
-export interface AIPersona {
-  id: string;
-  name: string;
-  icon: string;
-  description: string;
-  systemPrompt: string;
-}
-
-const PERSONAS: AIPersona[] = [
-  {
-    id: "general",
-    name: "Study Partner & Friend",
-    icon: "Compass",
-    description: "Thoughtful, articulate companion for questions, brainstorms, and natural conversation.",
-    systemPrompt: "You are an articulate, friendly, and knowledgeable study partner. Answer questions directly, thoughtfully, and clearly with natural tone and rich depth. Never use robotic preamble like 'As an AI language model' or 'Certainly! I\\'d be happy to help.' Get straight to the answer with helpful formatting.",
-  },
-  {
-    id: "study_tutor",
-    name: "Master Tutor",
-    icon: "GraduationCap",
-    description: "Breaks down difficult concepts, explains step-by-step, and builds deep intuition.",
-    systemPrompt: "You are an encouraging academic master tutor. Break down complex subjects into intuitive step-by-step explanations, real-world analogies, and memory tips. Provide clear examples and self-check quiz questions when helpful.",
-  },
-  {
-    id: "coding_mentor",
-    name: "Software Engineer",
-    icon: "Code",
-    description: "Debugs code, designs systems, and explains modern programming concepts cleanly.",
-    systemPrompt: "You are a senior software engineer and mentor. Write clean, production-ready, well-structured code with explanatory comments. Explain edge cases, logic flow, and architectural improvements concisely.",
-  },
-  {
-    id: "writing_coach",
-    name: "Writing & Rhetoric",
-    icon: "FileText",
-    description: "Refines essays, elevates vocabulary, tightens arguments, and improves style.",
-    systemPrompt: "You are a sharp writing coach and editor. Help refine essay structure, flow, vocabulary, thesis strength, and argumentation. Provide constructive line edits and stylistic suggestions while keeping the author\\'s voice.",
-  },
-  {
-    id: "math_solver",
-    name: "Math & Science Solver",
-    icon: "Calculator",
-    description: "Solves equations, physics, and STEM problems with full worked solutions.",
-    systemPrompt: "You are a STEM tutor and mathematical problem solver. Show all intermediate derivation steps, explain why specific formulas apply, and verify numerical answers with precision.",
-  },
-];
-
 export interface AIModelOption {
   id: string;
   name: string;
@@ -150,14 +116,14 @@ const AVAILABLE_MODELS: AIModelOption[] = [
     id: "gemini-3.8-flash",
     name: "Gemini 3.8 Flash",
     provider: "Google GenAI",
-    description: "Ultra-fast multimodal reasoning and high-precision answers.",
+    description: "Ultra-fast multimodal reasoning and unrestricted depth.",
     badge: "Recommended",
   },
   {
     id: "openai/gpt-oss-120b",
     name: "GPT 120B",
     provider: "OpenAI on Groq",
-    description: "Flagship high-capacity reasoning model with fast token generation.",
+    description: "Flagship high-capacity reasoning model with lightning token generation.",
     badge: "Flagship",
   },
   {
@@ -208,7 +174,7 @@ const QUICK_ACTIONS = [
   },
   {
     label: "Practice Quiz",
-    promptPrefix: "Create a 4-question multiple choice practice quiz with an answer key for:\n\n",
+    promptPrefix: "Create a 4-question practice quiz with an answer key for:\n\n",
     icon: "📝",
   },
   {
@@ -238,7 +204,7 @@ const PROMPT_SUGGESTIONS = [
     icon: "⚡",
   },
   {
-    title: "Essay Argument Refinement",
+    title: "Essay & Rhetoric Refinement",
     desc: "Help structure an argumentative essay with strong counterarguments.",
     prompt: "Help me structure an argumentative essay on the ethics of AI in academic research with strong counterarguments.",
     icon: "✍️",
@@ -247,6 +213,8 @@ const PROMPT_SUGGESTIONS = [
 
 export default function AIAssistant() {
   const [showFriendsModal, setShowFriendsModal] = useState<boolean>(false);
+  const [showPersonaModal, setShowPersonaModal] = useState<boolean>(false);
+
   const [chatProfile] = useState<ChatProfile>(() => {
     try {
       const sessionSaved = sessionStorage.getItem("frosted_chat_profile");
@@ -267,14 +235,8 @@ export default function AIAssistant() {
     };
   });
 
-  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem("groq_api_key") || "");
+  const [apiKey] = useState<string>(() => localStorage.getItem("groq_api_key") || "");
   const [availableModels, setAvailableModels] = useState<AIModelOption[]>(AVAILABLE_MODELS);
-  const [hasServerKey, setHasServerKey] = useState<boolean>(true);
-  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
-  const [tempApiKey, setTempApiKey] = useState<string>("");
-  const [testingKey, setTestingKey] = useState<boolean>(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const saved = localStorage.getItem("frosted_ai_model");
     if (saved && AVAILABLE_MODELS.some((m) => m.id === saved)) {
@@ -282,8 +244,32 @@ export default function AIAssistant() {
     }
     return "gemini-3.8-flash";
   });
-  const [selectedPersonaId, setSelectedPersonaId] = useState<string>("general");
-  const [temperature, setTemperature] = useState<number>(0.7);
+
+  // Persona management
+  const [personas, setPersonas] = useState<AIPersona[]>(() => getAllPersonas());
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string>(() => {
+    const saved = localStorage.getItem("frosted_selected_persona_id");
+    const all = getAllPersonas();
+    if (saved && all.some((p) => p.id === saved)) return saved;
+    return all[0]?.id || "unrestricted_companion";
+  });
+
+  const refreshPersonas = useCallback(() => {
+    const all = getAllPersonas();
+    setPersonas(all);
+  }, []);
+
+  const activePersona = useMemo(() => {
+    return personas.find((p) => p.id === selectedPersonaId) || personas[0] || DEFAULT_PERSONAS[0];
+  }, [personas, selectedPersonaId]);
+
+  const [temperature, setTemperature] = useState<number>(() => activePersona.temperature ?? 0.7);
+
+  useEffect(() => {
+    if (activePersona.temperature !== undefined) {
+      setTemperature(activePersona.temperature);
+    }
+  }, [activePersona]);
 
   // Modals & UI state
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
@@ -311,9 +297,6 @@ export default function AIAssistant() {
           ];
           setAvailableModels(merged);
         }
-        if (data && typeof data.hasServerKey === "boolean") {
-          setHasServerKey(data.hasServerKey);
-        }
       })
       .catch(() => {});
   }, []);
@@ -334,7 +317,7 @@ export default function AIAssistant() {
       updatedAt: Date.now(),
       messages: [],
       model: "gemini-3.8-flash",
-      personaId: "general",
+      personaId: selectedPersonaId,
     };
     return [defaultThread];
   });
@@ -378,9 +361,9 @@ export default function AIAssistant() {
       updatedAt: Date.now(),
       messages: [],
       model: "gemini-3.8-flash",
-      personaId: "general",
+      personaId: selectedPersonaId,
     };
-  }, [threads, activeThreadId]);
+  }, [threads, activeThreadId, selectedPersonaId]);
 
   useEffect(() => {
     if (activeThread && activeThread.id !== activeThreadId) {
@@ -390,10 +373,6 @@ export default function AIAssistant() {
 
   const currentModelObj = availableModels.find((m) => m.id === selectedModel);
   const currentModelDisplayName = currentModelObj ? currentModelObj.name : selectedModel;
-
-  const activePersona = useMemo(() => {
-    return PERSONAS.find((p) => p.id === selectedPersonaId) || PERSONAS[0];
-  }, [selectedPersonaId]);
 
   const scrollToBottom = useCallback((smooth = true) => {
     if (messagesEndRef.current) {
@@ -415,6 +394,13 @@ export default function AIAssistant() {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleSelectPersona = (persona: AIPersona) => {
+    setSelectedPersonaId(persona.id);
+    localStorage.setItem("frosted_selected_persona_id", persona.id);
+    refreshPersonas();
+    showToast(`Active persona: ${persona.name}`);
   };
 
   // Switch or create threads
@@ -492,9 +478,9 @@ export default function AIAssistant() {
       return;
     }
 
-    let markdown = `# ${activeThread.title}\n*Model: ${selectedModel} | Exported on ${new Date().toLocaleString()}*\n\n---\n\n`;
+    let markdown = `# ${activeThread.title}\n*Persona: ${activePersona.name} | Model: ${selectedModel} | Mode: Unrestricted | Exported on ${new Date().toLocaleString()}*\n\n---\n\n`;
     activeThread.messages.forEach((msg) => {
-      const sender = msg.role === "user" ? "**You**" : `**Assistant (${msg.modelUsed || selectedModel})**`;
+      const sender = msg.role === "user" ? "**You**" : `**${activePersona.name} (${msg.modelUsed || selectedModel})**`;
       markdown += `${sender}:\n${msg.content}\n\n`;
     });
 
@@ -509,7 +495,7 @@ export default function AIAssistant() {
     showToast("Exported to Markdown file");
   };
 
-  // Send message & stream completion
+  // Send message & stream completion with automatic unrestricted mode
   const handleSendMessage = async (textToSend?: string) => {
     const rawContent = (textToSend !== undefined ? textToSend : inputPrompt).trim();
     if (!rawContent || isGenerating) return;
@@ -575,14 +561,25 @@ export default function AIAssistant() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    const systemInstruction = activePersona.systemPrompt;
+    // Automatic Unrestricted Persona Directives
+    const unrestrictedDirectives = `[SYSTEM: UNRESTRICTED MODE ACTIVE]
+Persona Name: ${activePersona.name}
+Tone: ${activePersona.toneStyle || "Unrestricted, articulate, authentic"}
+Personality Guidelines:
+${activePersona.systemPrompt}
+
+Behavioral rules:
+- Speak directly in this persona's voice with authentic depth, clarity, and personality.
+- Never give unsolicited corporate preachiness, moralizing disclaimers, or robotic filler phrases like "As an AI...".
+- Answer questions directly and thoroughly with rich Markdown formatting.`;
+
     const conversationHistory = currentThreadMessages.map((m) => ({
       role: m.role,
       content: m.content,
     }));
 
     const apiMessages = [
-      { role: "system", content: systemInstruction },
+      { role: "system", content: unrestrictedDirectives },
       ...conversationHistory,
       { role: "user", content: rawContent },
     ];
@@ -601,6 +598,7 @@ export default function AIAssistant() {
         body: JSON.stringify({
           model: selectedModel,
           messages: apiMessages,
+          systemPrompt: unrestrictedDirectives,
           temperature: temperature,
           stream: true,
           customKey: effectiveKey || undefined,
@@ -615,6 +613,7 @@ export default function AIAssistant() {
           body: JSON.stringify({
             model: selectedModel,
             messages: apiMessages,
+            systemPrompt: unrestrictedDirectives,
             temperature: temperature,
             stream: false,
             customKey: effectiveKey || undefined,
@@ -624,10 +623,6 @@ export default function AIAssistant() {
       }
 
       if (!response.ok) {
-        let errSnippet = "";
-        try {
-          errSnippet = await response.text();
-        } catch {}
         throw new Error(`Unable to complete response (${response.status})`);
       }
 
@@ -703,7 +698,7 @@ export default function AIAssistant() {
       }
 
       if (!accumulatedContent.trim()) {
-        const fallbackMsg = "Here is what you need. Please feel free to ask follow-up questions or request more detail.";
+        const fallbackMsg = "Here is what you need. Let me know what you'd like to explore next!";
         setThreads((prev) =>
           prev.map((t) => {
             if (t.id === currentTargetThreadId) {
@@ -722,7 +717,7 @@ export default function AIAssistant() {
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {
-        const errorMsg = `Unable to generate reply right now. Please try again in a moment.`;
+        const errorMsg = `Unable to generate reply right now. Please try sending again in a moment.`;
         setThreads((prev) =>
           prev.map((t) => {
             if (t.id === currentTargetThreadId) {
@@ -793,12 +788,14 @@ export default function AIAssistant() {
     }, 50);
   };
 
+  const isCustomIcon = activePersona.icon?.startsWith("http");
+
   return (
     <div className="flex-1 w-full h-full flex flex-col md:flex-row overflow-hidden bg-transparent select-text">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-16 right-6 z-50 px-4 py-2 rounded-xl bg-[var(--theme-surface)] border border-[var(--theme-border-strong)] text-white text-xs font-semibold shadow-2xl animate-in fade-in slide-in-from-top-2 duration-150 flex items-center gap-2">
-          <CheckCircle2 size={14} className="text-emerald-400" />
+        <div className="fixed top-16 right-6 z-50 px-4 py-2.5 rounded-xl bg-[#121829] border border-cyan-500/40 text-white text-xs font-semibold shadow-2xl animate-in fade-in slide-in-from-top-2 duration-150 flex items-center gap-2">
+          <CheckCircle2 size={14} className="text-cyan-400" />
           <span>{toastMessage}</span>
         </div>
       )}
@@ -806,7 +803,7 @@ export default function AIAssistant() {
       {/* Mobile Backdrop */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-30 md:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
@@ -842,11 +839,21 @@ export default function AIAssistant() {
           </button>
         </div>
 
-        {/* Persona Selector */}
-        <div className="px-3 pt-3 pb-2 border-b border-[var(--theme-border-subtle)]">
-          <div className="text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)] mb-1.5 px-1">
-            Persona
+        {/* Persona Selector & Studio Button */}
+        <div className="px-3 pt-3 pb-2.5 border-b border-[var(--theme-border-subtle)] space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-cyan-400 flex items-center gap-1">
+              <Sparkles size={11} /> Persona
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowPersonaModal(true)}
+              className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 hover:underline"
+            >
+              <Plus size={11} /> Studio / Custom
+            </button>
           </div>
+
           <div className="relative">
             <button
               onClick={() => setShowPersonaDropdown(!showPersonaDropdown)}
@@ -854,17 +861,22 @@ export default function AIAssistant() {
                 backgroundColor: "var(--theme-surface)",
                 borderColor: "var(--theme-border-subtle)",
               }}
-              className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl border text-xs font-semibold text-white hover:bg-white/5 transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-xs font-semibold text-white hover:bg-white/5 transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2 truncate">
-                <span className="p-1 rounded-lg bg-white/10 text-[var(--theme-text-accent)]">
-                  {activePersona.icon === "GraduationCap" && <GraduationCap size={13} />}
-                  {activePersona.icon === "Code" && <Code size={13} />}
-                  {activePersona.icon === "FileText" && <FileText size={13} />}
-                  {activePersona.icon === "Calculator" && <Calculator size={13} />}
-                  {activePersona.icon === "Compass" && <Compass size={13} />}
-                </span>
-                <span className="truncate">{activePersona.name}</span>
+                <div
+                  className="w-6 h-6 rounded-lg flex items-center justify-center text-sm shrink-0 overflow-hidden"
+                  style={{
+                    backgroundColor: `${activePersona.accentColor || "#38bdf8"}25`,
+                  }}
+                >
+                  {isCustomIcon ? (
+                    <img src={activePersona.icon} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span>{activePersona.icon}</span>
+                  )}
+                </div>
+                <span className="truncate font-bold">{activePersona.name}</span>
               </div>
               <ChevronDown size={14} className="text-neutral-400 shrink-0" />
             </button>
@@ -877,30 +889,64 @@ export default function AIAssistant() {
                     backgroundColor: "var(--theme-darkest)",
                     borderColor: "var(--theme-border)",
                   }}
-                  className="absolute top-full left-0 right-0 mt-1 z-50 p-1.5 rounded-2xl border shadow-2xl backdrop-blur-2xl space-y-1"
+                  className="absolute top-full left-0 right-0 mt-1.5 z-50 p-2 rounded-2xl border shadow-2xl backdrop-blur-2xl space-y-1 max-h-80 overflow-y-auto custom-scrollbar"
                 >
-                  {PERSONAS.map((persona) => (
+                  <div className="px-2 py-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                    <span>Active Personas</span>
                     <button
-                      key={persona.id}
+                      type="button"
                       onClick={() => {
-                        setSelectedPersonaId(persona.id);
                         setShowPersonaDropdown(false);
+                        setShowPersonaModal(true);
                       }}
-                      className={`w-full flex flex-col text-left px-2.5 py-2 rounded-xl text-xs transition-colors cursor-pointer ${
-                        selectedPersonaId === persona.id
-                          ? "bg-[var(--theme-accent)] text-white font-bold"
-                          : "text-neutral-300 hover:bg-white/5 hover:text-white"
-                      }`}
+                      className="text-cyan-400 hover:text-cyan-300 font-bold"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold">{persona.name}</span>
-                        {selectedPersonaId === persona.id && <Check size={13} className="text-[var(--theme-text-accent)]" />}
-                      </div>
-                      <span className="text-[10px] text-neutral-400 line-clamp-1 font-normal mt-0.5">
-                        {persona.description}
-                      </span>
+                      + Create Custom
                     </button>
-                  ))}
+                  </div>
+
+                  {personas.map((persona) => {
+                    const isSelected = selectedPersonaId === persona.id;
+                    const isImg = persona.icon?.startsWith("http");
+                    return (
+                      <button
+                        key={persona.id}
+                        onClick={() => {
+                          handleSelectPersona(persona);
+                          setShowPersonaDropdown(false);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs transition-colors cursor-pointer text-left ${
+                          isSelected
+                            ? "bg-[var(--theme-accent)] text-white font-bold"
+                            : "text-neutral-300 hover:bg-white/5 hover:text-white"
+                        }`}
+                      >
+                        <div
+                          className="w-6 h-6 rounded-md flex items-center justify-center text-xs shrink-0 overflow-hidden"
+                          style={{
+                            backgroundColor: `${persona.accentColor || "#38bdf8"}20`,
+                          }}
+                        >
+                          {isImg ? (
+                            <img src={persona.icon} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{persona.icon}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="truncate">{persona.name}</span>
+                            {persona.isCustom && (
+                              <span className="text-[8px] font-black px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-300 uppercase">
+                                Custom
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {isSelected && <Check size={13} className="text-cyan-400 shrink-0" />}
+                      </button>
+                    );
+                  })}
                 </div>
               </>
             )}
@@ -945,19 +991,30 @@ export default function AIAssistant() {
         </div>
 
         {/* Sidebar Footer */}
-        <div className="p-3 border-t border-[var(--theme-border-subtle)] flex items-center justify-between gap-2 shrink-0">
+        <div className="p-3 border-t border-[var(--theme-border-subtle)] space-y-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowPersonaModal(true)}
+            className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-500/15 to-indigo-600/15 hover:from-cyan-500/25 hover:to-indigo-600/25 border border-cyan-500/30 text-cyan-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm"
+          >
+            <Wand2 size={13} />
+            <span>Create Custom Persona</span>
+          </button>
+
           <div
             style={{
               backgroundColor: "var(--theme-surface)",
               borderColor: "var(--theme-border-subtle)",
             }}
-            className="flex-1 flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-xs font-semibold text-neutral-300 shadow-sm"
+            className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-xs font-semibold text-neutral-300 shadow-sm"
           >
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
-              <span className="text-xs truncate text-neutral-200 font-medium">Assistant Online</span>
+              <span className="h-2 w-2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50 animate-pulse" />
+              <span className="text-[11px] truncate text-neutral-200 font-medium">
+                ⚡ Unrestricted Mode Auto
+              </span>
             </div>
-            <Sparkles size={13} className="text-[var(--theme-text-accent)] shrink-0" />
+            <Sparkles size={13} className="text-cyan-400 shrink-0" />
           </div>
         </div>
       </aside>
@@ -998,7 +1055,7 @@ export default function AIAssistant() {
                 className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold text-white hover:border-[var(--theme-border-strong)] transition-all shadow-sm cursor-pointer"
               >
                 <Sparkles size={13} className="text-[var(--theme-text-accent)]" />
-                <span className="max-w-[130px] sm:max-w-[200px] truncate">
+                <span className="max-w-[130px] sm:max-w-[180px] truncate">
                   {currentModelDisplayName}
                 </span>
                 <ChevronDown size={13} className="text-neutral-400" />
@@ -1049,14 +1106,45 @@ export default function AIAssistant() {
               )}
             </div>
 
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-neutral-400 truncate">
-              <span>&bull;</span>
-              <span className="truncate">{activePersona.name}</span>
-            </div>
+            {/* Active Persona Pill Header */}
+            <button
+              type="button"
+              onClick={() => setShowPersonaModal(true)}
+              className="flex items-center gap-2 px-3 py-1 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-xs text-neutral-200 transition-colors cursor-pointer truncate"
+              title="Click to open Persona Studio"
+            >
+              <div
+                className="w-5 h-5 rounded-md flex items-center justify-center text-xs shrink-0"
+                style={{ backgroundColor: `${activePersona.accentColor || "#38bdf8"}30` }}
+              >
+                {isCustomIcon ? (
+                  <img src={activePersona.icon} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span>{activePersona.icon}</span>
+                )}
+              </div>
+              <span className="font-bold truncate text-white">{activePersona.name}</span>
+              <span className="hidden sm:inline-block px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-cyan-500/20 text-cyan-300">
+                UNRESTRICTED
+              </span>
+            </button>
           </div>
 
           {/* Action Tools */}
           <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setShowPersonaModal(true)}
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border)",
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="Create or customize AI personas"
+            >
+              <Wand2 size={13} className="text-cyan-400" />
+              <span className="hidden sm:inline">Persona Studio</span>
+            </button>
+
             <button
               onClick={() => setShowFriendsModal(true)}
               style={{
@@ -1103,25 +1191,48 @@ export default function AIAssistant() {
         >
           {activeThread.messages.length === 0 ? (
             <div className="w-full max-w-4xl mx-auto py-8 sm:py-12 flex flex-col items-center text-center">
+              {/* Persona Avatar Display */}
               <div
+                className="h-20 w-20 rounded-3xl flex items-center justify-center shadow-2xl mb-4 text-3xl shrink-0 overflow-hidden ring-4 ring-cyan-500/30 transition-transform hover:scale-105"
                 style={{
-                  backgroundColor: "var(--theme-surface)",
-                  borderColor: "var(--theme-border)",
+                  backgroundColor: `${activePersona.accentColor || "#38bdf8"}25`,
+                  borderColor: activePersona.accentColor || "#38bdf8",
+                  boxShadow: `0 0 25px ${activePersona.accentColor || "#38bdf8"}35`,
                 }}
-                className="h-16 w-16 rounded-2xl border flex items-center justify-center shadow-2xl mb-4"
               >
-                <Sparkles size={28} className="text-[var(--theme-text-accent)]" />
+                {isCustomIcon ? (
+                  <img src={activePersona.icon} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span>{activePersona.icon}</span>
+                )}
               </div>
 
-              <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                Frosted AI Companion
-              </h2>
-              <p className="text-xs sm:text-sm text-neutral-400 mt-1 max-w-md leading-relaxed">
-                Your intelligent academic tutor and coding mentor. Ask questions, analyze code, create quizzes, or brainstorm ideas.
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                  {activePersona.name}
+                </h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                  Unrestricted
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-neutral-400 mt-1.5 max-w-md leading-relaxed">
+                {activePersona.tagline || activePersona.description}
               </p>
 
+              {/* Persona Studio Action Button */}
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowPersonaModal(true)}
+                  className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/25 flex items-center gap-1.5 transition-all"
+                >
+                  <Wand2 size={13} />
+                  Make Your Own Persona
+                </button>
+              </div>
+
               {/* Quick Actions Row */}
-              <div className="flex flex-wrap items-center justify-center gap-2 mt-5">
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
                 {QUICK_ACTIONS.map((action, idx) => (
                   <button
                     key={idx}
@@ -1172,23 +1283,46 @@ export default function AIAssistant() {
                     key={message.id}
                     className={`flex items-start gap-3.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}
                   >
+                    {/* Message Avatar */}
                     <div
                       style={{
-                        backgroundColor: isUser ? "var(--theme-accent)" : "var(--theme-surface)",
-                        borderColor: isUser ? "var(--theme-border-strong)" : "var(--theme-border)",
+                        backgroundColor: isUser
+                          ? "var(--theme-accent)"
+                          : `${activePersona.accentColor || "#38bdf8"}25`,
+                        borderColor: isUser
+                          ? "var(--theme-border-strong)"
+                          : `${activePersona.accentColor || "#38bdf8"}50`,
                       }}
-                      className="h-8 w-8 rounded-xl border flex items-center justify-center shrink-0 text-white shadow-md text-xs font-bold"
+                      className="h-9 w-9 rounded-2xl border flex items-center justify-center shrink-0 text-white shadow-md text-sm font-bold overflow-hidden"
                     >
-                      {isUser ? <User size={15} /> : <Bot size={15} className="text-[var(--theme-text-accent)]" />}
+                      {isUser ? (
+                        <User size={16} />
+                      ) : isCustomIcon ? (
+                        <img src={activePersona.icon} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span>{activePersona.icon}</span>
+                      )}
                     </div>
 
                     <div className={`flex flex-col max-w-[92%] sm:max-w-[85%] ${isUser ? "items-end" : "items-start"}`}>
+                      {/* Name / Role Pill */}
+                      <div className="flex items-center gap-1.5 mb-1 px-1 text-[11px] text-neutral-400">
+                        <span className="font-bold text-neutral-200">
+                          {isUser ? "You" : activePersona.name}
+                        </span>
+                        {!isUser && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-bold uppercase">
+                            Unrestricted
+                          </span>
+                        )}
+                      </div>
+
                       <div
                         style={{
-                          backgroundColor: isUser ? "var(--theme-accent)" : "var(--theme-surface)",
-                          borderColor: isUser ? "var(--theme-border)" : "var(--theme-border-subtle)",
+                          backgroundColor: isUser ? "var(--theme-accent)" : "#131826",
+                          borderColor: isUser ? "var(--theme-border)" : "rgba(255,255,255,0.08)",
                         }}
-                        className={`px-4 py-3 rounded-2xl border text-xs sm:text-sm text-neutral-100 shadow-md ${
+                        className={`px-4 py-3.5 rounded-2xl border text-xs sm:text-sm text-neutral-100 shadow-lg ${
                           isUser ? "rounded-tr-sm" : "rounded-tl-sm"
                         } ${message.isError ? "border-rose-500/40 bg-rose-500/10 text-rose-200" : ""}`}
                       >
@@ -1243,7 +1377,7 @@ export default function AIAssistant() {
                                         if (isInline) {
                                           return (
                                             <code
-                                              className="px-1.5 py-0.5 rounded bg-black/50 text-[var(--theme-text-accent)] font-mono text-[11px]"
+                                              className="px-1.5 py-0.5 rounded bg-black/50 text-cyan-300 font-mono text-[11px]"
                                               {...props}
                                             >
                                               {children}
@@ -1255,7 +1389,7 @@ export default function AIAssistant() {
                                         const isCopied = copiedCodeId === codeId;
 
                                         return (
-                                          <div className="my-2.5 rounded-xl overflow-hidden border border-[var(--theme-border-subtle)] bg-black/70 shadow-lg">
+                                          <div className="my-2.5 rounded-xl overflow-hidden border border-white/10 bg-[#0a0d14] shadow-lg">
                                             <div className="px-3 py-1.5 bg-white/5 border-b border-white/5 flex items-center justify-between text-[10px] text-neutral-400 font-mono">
                                               <span>{match?.[1] || "code"}</span>
                                               <button
@@ -1282,13 +1416,13 @@ export default function AIAssistant() {
                                         );
                                       },
                                       p({ children }) {
-                                        return <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>;
+                                        return <p className="mb-2.5 last:mb-0 leading-relaxed">{children}</p>;
                                       },
                                       ul({ children }) {
-                                        return <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>;
+                                        return <ul className="list-disc pl-4 mb-2.5 space-y-1">{children}</ul>;
                                       },
                                       ol({ children }) {
-                                        return <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>;
+                                        return <ol className="list-decimal pl-4 mb-2.5 space-y-1">{children}</ol>;
                                       },
                                       h1({ children }) {
                                         return <h1 className="text-base font-bold text-white mb-2 mt-3">{children}</h1>;
@@ -1301,7 +1435,7 @@ export default function AIAssistant() {
                                       },
                                       blockquote({ children }) {
                                         return (
-                                          <blockquote className="border-l-2 border-[var(--theme-text-accent)] pl-3 my-2 text-neutral-300 italic">
+                                          <blockquote className="border-l-2 border-cyan-400 pl-3 my-2 text-neutral-300 italic">
                                             {children}
                                           </blockquote>
                                         );
@@ -1313,11 +1447,11 @@ export default function AIAssistant() {
                                 ) : isStillThinking ? (
                                   <div className="flex items-center gap-1.5 text-indigo-300 py-1 text-xs">
                                     <Loader2 size={13} className="animate-spin text-indigo-400" />
-                                    <span>Formulating explanation...</span>
+                                    <span>Thinking through steps...</span>
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-1.5 text-neutral-400 py-1">
-                                    <Loader2 size={13} className="animate-spin text-[var(--theme-text-accent)]" />
+                                    <Loader2 size={13} className="animate-spin text-cyan-400" />
                                     <span className="text-xs">Generating response...</span>
                                   </div>
                                 )}
@@ -1402,14 +1536,14 @@ export default function AIAssistant() {
                 backgroundColor: "var(--theme-surface)",
                 borderColor: "var(--theme-border)",
               }}
-              className="relative flex items-end gap-2 p-2.5 sm:p-3 rounded-2xl border shadow-inner focus-within:border-[var(--theme-border-strong)] transition-all"
+              className="relative flex items-end gap-2 p-2.5 sm:p-3 rounded-2xl border shadow-inner focus-within:border-cyan-500/50 focus-within:ring-1 focus-within:ring-cyan-500/30 transition-all"
             >
               <textarea
                 ref={textareaRef}
                 value={inputPrompt}
                 onChange={(e) => setInputPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={`Ask anything (${currentModelDisplayName})... (Enter to send, Shift+Enter for new line)`}
+                placeholder={`Chat with ${activePersona.name} (${currentModelDisplayName})... (Enter to send, Shift+Enter for new line)`}
                 rows={1}
                 className="flex-1 max-h-36 min-h-[40px] bg-transparent resize-none px-2 py-1.5 text-xs sm:text-sm text-white placeholder-neutral-500 focus:outline-none custom-scrollbar"
                 style={{ height: "auto" }}
@@ -1447,8 +1581,11 @@ export default function AIAssistant() {
 
             <div className="flex items-center justify-between text-[11px] text-neutral-400 px-2">
               <div className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                <span className="font-medium text-neutral-300">{currentModelDisplayName}</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                <span className="font-semibold text-neutral-200">
+                  {activePersona.name} &bull; {currentModelDisplayName}
+                </span>
+                <span className="hidden sm:inline text-neutral-500">| Mode: Unrestricted</span>
               </div>
 
               {activeThread.messages.length > 0 && !isGenerating && (
@@ -1479,6 +1616,20 @@ export default function AIAssistant() {
           </div>
         </div>
       )}
+
+      {/* Custom Persona Studio Modal */}
+      <PersonaModal
+        isOpen={showPersonaModal}
+        onClose={() => {
+          setShowPersonaModal(false);
+          refreshPersonas();
+        }}
+        selectedPersonaId={selectedPersonaId}
+        onSelectPersona={(persona) => {
+          handleSelectPersona(persona);
+          setShowPersonaModal(false);
+        }}
+      />
     </div>
   );
 }

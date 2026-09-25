@@ -18,6 +18,15 @@ import {
   RefreshCw,
   Sparkles,
   Zap,
+  Cpu,
+  Video,
+  Image as ImageIcon,
+  Volume2,
+  ShieldCheck,
+  CheckCircle2,
+  AlertOctagon,
+  ArrowRight,
+  FileCode,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { db, doc, setDoc, deleteDoc, collection, onSnapshot, getDocs, query, limit, orderBy } from "../supabase-adapter";
@@ -39,7 +48,7 @@ interface ModeratorPanelModalProps {
   onSetSlowmode?: (seconds: number) => void;
 }
 
-type ModTab = "members" | "banned" | "chat_controls" | "blacklist" | "audit_log";
+type ModTab = "members" | "banned" | "chat_controls" | "blacklist" | "ai_moderation" | "audit_log";
 
 export default function ModeratorPanelModal({
   isOpen,
@@ -69,12 +78,54 @@ export default function ModeratorPanelModal({
   const [muteDuration, setMuteDuration] = useState(15 * 60 * 1000); // 15 mins
   const [banDuration, setBanDuration] = useState(24 * 60 * 60 * 1000); // 24 hours
 
+  // AI Moderation test state
+  const [aiTestType, setAiTestType] = useState<"text" | "image" | "audio" | "video">("text");
+  const [aiTestContent, setAiTestContent] = useState("");
+  const [aiTestRunning, setAiTestRunning] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<any>(null);
+  const [moderationModels, setModerationModels] = useState<any>(null);
+
   // Feedback notifications
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const showToast = (text: string, type: "success" | "error" = "success") => {
     setFeedbackMsg({ type, text });
     setTimeout(() => setFeedbackMsg(null), 3500);
+  };
+
+  // Fetch moderation models info
+  useEffect(() => {
+    if (activeTab === "ai_moderation") {
+      fetch("/api/moderation/models")
+        .then((r) => r.json())
+        .then((data) => setModerationModels(data))
+        .catch(() => {});
+    }
+  }, [activeTab]);
+
+  const handleRunAiTest = async () => {
+    if (!aiTestContent.trim()) {
+      showToast("Please enter text or a media link to inspect", "error");
+      return;
+    }
+    setAiTestRunning(true);
+    setAiTestResult(null);
+    try {
+      const res = await fetch("/api/moderation/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: aiTestType,
+          content: aiTestContent.trim(),
+        }),
+      });
+      const data = await res.json();
+      setAiTestResult(data);
+    } catch (err: any) {
+      setAiTestResult({ safe: false, error: err?.message || "Failed to execute moderation test" });
+    } finally {
+      setAiTestRunning(false);
+    }
   };
 
   // Fetch blacklisted words and audit logs in real time
@@ -405,6 +456,24 @@ export default function ModeratorPanelModal({
             >
               <ListFilter size={14} className={activeTab === "blacklist" ? "text-red-400" : ""} />
               <span>Auto-Mod Words ({blacklistedWords.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("ai_moderation")}
+              className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === "ai_moderation"
+                  ? "border-emerald-500 text-white bg-emerald-950/20 rounded-t-xl"
+                  : "border-transparent text-neutral-400 hover:text-white hover:bg-white/[0.02]"
+              }`}
+            >
+              <Cpu size={14} className={activeTab === "ai_moderation" ? "text-emerald-400" : "text-neutral-400"} />
+              <span className="flex items-center gap-1.5">
+                <span>AI Moderation</span>
+                <span className="px-1.5 py-0.2 bg-emerald-500/20 border border-emerald-500/40 text-[9px] font-mono text-emerald-300 rounded font-bold">
+                  GROQ
+                </span>
+              </span>
             </button>
 
             <button
@@ -776,7 +845,233 @@ export default function ModeratorPanelModal({
               </div>
             )}
 
-            {/* 5. AUDIT LOG TAB */}
+            {/* 5. AI MODERATION (GROQ ENGINE) TAB */}
+            {activeTab === "ai_moderation" && (
+              <div className="space-y-4">
+                {/* Header overview */}
+                <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-950/50 via-[#0a1024] to-indigo-950/40 border border-emerald-500/30 flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
+                        <span>Groq Multi-Modal Moderation Engine</span>
+                      </h4>
+                    </div>
+                    <p className="text-xs text-neutral-300 leading-relaxed">
+                      Every medium is inspected with dedicated, specialized Groq models running on ultra-fast LPU inference hardware.
+                    </p>
+                  </div>
+
+                  <div className="shrink-0 flex items-center gap-2 bg-emerald-900/30 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-emerald-300 text-xs font-mono font-bold">
+                    <ShieldCheck size={16} className="text-emerald-400" />
+                    <span>Active & Enforcing</span>
+                  </div>
+                </div>
+
+                {/* Model Configuration Matrix */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* 1. Video Moderation */}
+                  <div className="p-3.5 rounded-xl bg-[#080b1a] border border-white/10 hover:border-indigo-500/40 transition-all space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-indigo-400 font-bold text-xs">
+                        <Video size={16} />
+                        <span>VIDEO MODERATION MODEL</span>
+                      </div>
+                      <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
+                        90B VISION + WHISPER
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-mono font-bold text-white">llama-3.2-90b-vision-preview</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ whisper-large-v3-turbo (audio)</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ llama-3.3-70b-versatile (timeline synthesis)</div>
+                    </div>
+                    <p className="text-[11px] text-neutral-400">
+                      Samples multi-frame visual keyframes across the timeline, extracts & transcribes audio speech, and checks for nudity, gore, or prohibited acts.
+                    </p>
+                  </div>
+
+                  {/* 2. Audio Moderation */}
+                  <div className="p-3.5 rounded-xl bg-[#080b1a] border border-white/10 hover:border-amber-500/40 transition-all space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-amber-400 font-bold text-xs">
+                        <Volume2 size={16} />
+                        <span>AUDIO MODERATION MODEL</span>
+                      </div>
+                      <span className="text-[10px] bg-amber-950 text-amber-300 border border-amber-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
+                        WHISPER TURBO + LLAMA GUARD 3
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-mono font-bold text-white">whisper-large-v3-turbo</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ llama-guard-3-8b (speech guard)</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ llama-3.2-11b-vision-preview (spectrogram acoustics)</div>
+                    </div>
+                    <p className="text-[11px] text-neutral-400">
+                      Transcribes spoken voice tracks, evaluates spoken slurs and vulgarity, and analyzes spectrogram frequencies for moaning and erotic sounds.
+                    </p>
+                  </div>
+
+                  {/* 3. Image Moderation */}
+                  <div className="p-3.5 rounded-xl bg-[#080b1a] border border-white/10 hover:border-emerald-500/40 transition-all space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                        <ImageIcon size={16} />
+                        <span>IMAGE MODERATION MODEL</span>
+                      </div>
+                      <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
+                        11B VISION
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-mono font-bold text-white">llama-3.2-11b-vision-preview</div>
+                      <div className="text-[11px] font-mono text-neutral-400">Fallback: llama-3.2-90b-vision-preview</div>
+                    </div>
+                    <p className="text-[11px] text-neutral-400">
+                      Evaluates static images, photos, artwork, and animated GIFs for nudity, sexual content, violence, hate symbols, and OCR overlays.
+                    </p>
+                  </div>
+
+                  {/* 4. Text Moderation */}
+                  <div className="p-3.5 rounded-xl bg-[#080b1a] border border-white/10 hover:border-red-500/40 transition-all space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-red-400 font-bold text-xs">
+                        <MessageSquare size={16} />
+                        <span>TEXT & CHAT MODERATION MODEL</span>
+                      </div>
+                      <span className="text-[10px] bg-red-950 text-red-300 border border-red-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
+                        LLAMA GUARD 3
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-mono font-bold text-white">llama-guard-3-8b</div>
+                      <div className="text-[11px] font-mono text-neutral-400">Fallback: llama-3.1-8b-instant</div>
+                    </div>
+                    <p className="text-[11px] text-neutral-400">
+                      Zero-latency LPU check on all live chat messages, usernames, and file titles against slurs, harassment, and disallowed profanity.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Interactive Moderation Test Bench */}
+                <div className="p-4 rounded-xl bg-[#080b1a] border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <h5 className="text-xs font-extrabold text-white flex items-center gap-2">
+                      <Sparkles size={14} className="text-amber-400" />
+                      <span>Live Moderation Test Bench</span>
+                    </h5>
+                    <span className="text-[10px] text-neutral-400">Test any text or media link with the respective Groq model</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {(["text", "image", "audio", "video"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => {
+                          setAiTestType(m);
+                          setAiTestResult(null);
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all cursor-pointer ${
+                          aiTestType === m
+                            ? "bg-emerald-600 text-white shadow-sm"
+                            : "bg-white/5 text-neutral-400 hover:text-white"
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={aiTestContent}
+                      onChange={(e) => setAiTestContent(e.target.value)}
+                      placeholder={
+                        aiTestType === "text"
+                          ? "Type a sample chat message or sentence to test..."
+                          : `Enter ${aiTestType} URL (e.g. /uploads/sample.${aiTestType === "image" ? "png" : aiTestType === "audio" ? "mp3" : "mp4"} or external link)...`
+                      }
+                      className="flex-1 bg-[#050713] text-xs text-white border border-white/10 rounded-xl px-3.5 py-2.5 placeholder-neutral-500 focus:outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleRunAiTest}
+                      disabled={aiTestRunning}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-md shrink-0"
+                    >
+                      {aiTestRunning ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" />
+                          <span>Inspecting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap size={14} />
+                          <span>Inspect with Groq</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Test Result Output Box */}
+                  {aiTestResult && (
+                    <div
+                      className={`p-3.5 rounded-xl border text-xs space-y-1.5 ${
+                        aiTestResult.safe
+                          ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-200"
+                          : "bg-red-950/40 border-red-500/40 text-red-200"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 font-bold">
+                          {aiTestResult.safe ? (
+                            <CheckCircle2 size={16} className="text-emerald-400" />
+                          ) : (
+                            <AlertOctagon size={16} className="text-red-400" />
+                          )}
+                          <span className="uppercase tracking-wide">
+                            {aiTestResult.safe ? "Content Approved (SAFE)" : "Content Flagged (UNSAFE)"}
+                          </span>
+                        </div>
+                        {aiTestResult.model && (
+                          <span className="font-mono text-[10px] bg-black/40 px-2 py-0.5 rounded border border-white/10 text-white">
+                            Model: {aiTestResult.model}
+                          </span>
+                        )}
+                      </div>
+
+                      {aiTestResult.reason && (
+                        <p className="text-[11px] text-neutral-200">
+                          <strong>Reason:</strong> {aiTestResult.reason}
+                        </p>
+                      )}
+
+                      {aiTestResult.transcript && (
+                        <p className="text-[11px] text-neutral-300">
+                          <strong>Audio Transcript:</strong> "{aiTestResult.transcript}"
+                        </p>
+                      )}
+
+                      {aiTestResult.extractedText && (
+                        <p className="text-[11px] text-neutral-300">
+                          <strong>OCR Extracted Text:</strong> "{aiTestResult.extractedText}"
+                        </p>
+                      )}
+
+                      {aiTestResult.moderator && (
+                        <div className="text-[10px] text-neutral-400 pt-1 border-t border-white/10">
+                          Processed by: <span className="text-white font-semibold">{aiTestResult.moderator}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 6. AUDIT LOG TAB */}
             {activeTab === "audit_log" && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-neutral-400 px-1 mb-1 font-bold">

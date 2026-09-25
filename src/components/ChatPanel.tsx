@@ -3262,7 +3262,7 @@ export default function ChatPanel({
         )}
       </AnimatePresence>
 
-      {/* Moderation Warning Modal */}
+      {/* Friendly Community Moderation Warning Modal */}
       <AnimatePresence>
         {moderationWarning && moderationWarning.open && (
           <motion.div
@@ -3281,27 +3281,38 @@ export default function ChatPanel({
               exit={{ opacity: 0, scale: 0.95, y: 8 }}
               transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
               onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-sm bg-[#121420] border border-white/10 rounded-2xl p-6 shadow-2xl overflow-hidden text-white flex flex-col items-center text-center"
+              className="relative w-full max-w-sm bg-[#121420] border border-amber-500/20 rounded-2xl p-6 shadow-2xl overflow-hidden text-white flex flex-col items-center text-center space-y-3.5"
             >
               {/* Soft friendly warning icon */}
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-3.5 shadow-sm">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-sm">
                 <AlertTriangle size={24} />
               </div>
 
-              <h3 className="text-base font-bold text-white tracking-tight mb-2">
-                {moderationWarning.title || "Hold on a second"}
-              </h3>
+              <div>
+                <h3 className="text-base font-bold text-white tracking-tight">
+                  {moderationWarning.title || "Friendly Heads-Up"}
+                </h3>
+                <p className="text-[11px] text-amber-300/80 font-medium mt-0.5">
+                  Community Guideline Note
+                </p>
+              </div>
 
-              <p className="text-xs text-neutral-300 leading-relaxed mb-5 max-w-xs break-words">
-                {moderationWarning.reason}
+              <div className="bg-[#090b16] border border-white/5 rounded-xl p-3 w-full">
+                <p className="text-xs text-neutral-200 leading-relaxed break-words">
+                  {moderationWarning.reason}
+                </p>
+              </div>
+
+              <p className="text-[11px] text-neutral-400 leading-normal">
+                Please rephrase your message and keep the conversation friendly for all members.
               </p>
 
               <button
                 type="button"
                 onClick={() => setModerationWarning(null)}
-                className="w-full py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-medium text-xs tracking-wide transition-all shadow-sm active:scale-[0.98] cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs tracking-wide transition-all shadow-md active:scale-[0.98] cursor-pointer"
               >
-                Acknowledge & Dismiss
+                Got It, Thanks!
               </button>
             </motion.div>
           </motion.div>

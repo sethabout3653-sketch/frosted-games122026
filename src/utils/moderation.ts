@@ -98,7 +98,17 @@ const SEXUAL_PATTERNS: RegExp[] = [
   /\b(?:c+a+m+g+[i1!l|]+r+l+|o+n+l+y+f+a+n+s+)\b/i,
 ];
 
-// 4. Obfuscated / Evaded patterns (spaced letters, punctuation)
+// 4. Threats of violence, death, physical assault, doxxing, swatting, self-harm
+const THREAT_PATTERNS: RegExp[] = [
+  /\b(?:i+l+l+|i\s*will|im\s*gonna|i\s*am\s*going\s*to)\s*(?:k+i+l+l|m+u+r+d+e+r|e+x+t+e+r+m+i+n+a+t+e|s+l+a+u+g+h+t+e+r|s+h+o+o+t|s+t+a+b|s+l+i+t|g+u+t|e+n+d)\s*(?:y+o+u|u|y+a|u+r\s*f+a+m+i+l+y|u+r\s*l+i+f+e)\b/i,
+  /\b(?:g+o\s*k+i+l+l\s*y+o+u+r+s+e+l+f|g+o\s*k+y+s|k+y+s|k+i+l+l\s*y+o+u+r\s*s+e+l+f|e+n+d\s*y+o+u+r\s*l+i+f+e|h+a+n+g\s*y+o+u+r+s+e+l+f)\b/i,
+  /\b(?:d+i+e\s*b+i+t+c+h|i\s*h+o+p+e\s*y+o+u\s*d+i+e|y+o+u\s*s+h+o+u+l+d\s*d+i+e|g+o\s*d+i+e)\b/i,
+  /\b(?:i+l+l+|i\s*will|im\s*gonna)\s*(?:b+e+a+t|s+m+a+s+h|b+r+e+a+k|h+u+r+t|p+u+n+c+h|s+t+r+a+n+g+l+e)\s*(?:y+o+u+r|y+o+u|u)\b/i,
+  /\b(?:i\s*k+n+o+w\s*w+h+e+r+e\s*y+o+u\s*l+i+v+e|i\s*h+a+v+e\s*y+o+u+r\s*i+p|i\s*w+i+l+l\s*d+o+x+x|i+l+l\s*l+e+a+k\s*y+o+u+r)\b/i,
+  /\b(?:s+w+a+t+t+i+n+g\s*y+o+u|s+w+a+t\s*y+o+u+r\s*h+o+u+s+e|b+o+m+b\s*y+o+u+r\s*h+o+u+s+e)\b/i,
+];
+
+// 5. Obfuscated / Evaded patterns (spaced letters, punctuation)
 const OBFUSCATED_PATTERNS = [
   { regex: /f[\s._\-*~+^#%&/\\|!@$]+u[\s._\-*~+^#%&/\\|!@$]+c[\s._\-*~+^#%&/\\|!@$]+k/i, type: "curse word" },
   { regex: /s[\s._\-*~+^#%&/\\|!@$]+h[\s._\-*~+^#%&/\\|!@$]+i[\s._\-*~+^#%&/\\|!@$]+t/i, type: "curse word" },
@@ -164,7 +174,89 @@ export interface ModerationResult {
  * Checks text against all slurs, curse words, and sexual terms with zero quota limits.
  * Allows "damn" and "hell" as acceptable exceptions.
  */
-export function checkTextModeration(input: string): ModerationResult {
+export function checkTextModeration(input: string, customBlacklist: string[] = []): ModerationResult {
+  if (!input || typeof input !== "string" || !input.trim()) {
+    return { safe: true };
+  }
+
+  const raw = input.trim();
+  const normalized = normalizeForSafety(raw);
+
+  // 1. Check Threats of violence, death, harassment, or doxxing (Highest priority)
+  for (const pattern of THREAT_PATTERNS) {
+    if (pattern.test(raw) || pattern.test(normalized)) {
+      return {
+        safe: false,
+        category: "threat" as any,
+        reason: "Please keep the chat safe for everyone and avoid making threats, doxxing, or aggressive remarks.",
+      };
+    }
+  }
+
+  // 2. Custom blacklist check
+  if (customBlacklist && customBlacklist.length > 0) {
+    for (const word of customBlacklist) {
+      if (!word) continue;
+      const cleanW = normalizeForSafety(word);
+      if (cleanW && (normalized.includes(cleanW) || new RegExp(`\\b${cleanW}\\b`, "i").test(normalized))) {
+        return {
+          safe: false,
+          category: "curse word",
+          reason: `Please avoid using restricted terms in chat: "${word}".`,
+        };
+      }
+    }
+  }
+
+  // 2. Check Slurs (Highest priority)
+  for (const pattern of SLUR_PATTERNS) {
+    if (pattern.test(raw) || pattern.test(normalized)) {
+      return {
+        safe: false,
+        category: "slur",
+        reason: "Please keep the conversation respectful and avoid hate speech or slurs.",
+      };
+    }
+  }
+
+  // 3. Check Obfuscated patterns
+  for (const item of OBFUSCATED_PATTERNS) {
+    if (item.regex.test(raw)) {
+      return {
+        safe: false,
+        category: item.type as any,
+        reason: `Please avoid masked or altered ${item.type}s in chat.`,
+      };
+    }
+  }
+
+  // 4. Check Sexual & NSFW terms
+  for (const pattern of SEXUAL_PATTERNS) {
+    if (pattern.test(raw) || pattern.test(normalized)) {
+      return {
+        safe: false,
+        category: "sexual term",
+        reason: "Please keep chat friendly for everyone and avoid explicit or sexual language.",
+      };
+    }
+  }
+
+  // 5. Check Curse words & Profanity (Excluding allowed damn/hell)
+  for (const pattern of CURSE_PATTERNS) {
+    if (pattern.test(raw) || pattern.test(normalized)) {
+      // Double check if matched segment is purely an allowed exception
+      const match = raw.match(pattern)?.[0]?.toLowerCase() || normalized.match(pattern)?.[0]?.toLowerCase();
+      if (match && ALLOWED_EXCEPTIONS.has(match)) {
+        continue;
+      }
+      return {
+        safe: false,
+        category: "curse word",
+        reason: "Please keep the chat clean and avoid harsh curse words.",
+      };
+    }
+  }
+
   return { safe: true };
 }
 
@@ -172,6 +264,12 @@ export function checkTextModeration(input: string): ModerationResult {
  * Validates a GIF search query to enforce PG guidelines.
  */
 export function isQuerySafeForGif(query: string): { safe: boolean; reason?: string } {
+  if (!query || !query.trim()) return { safe: true };
+  const check = checkTextModeration(query);
+  if (!check.safe) {
+    return { safe: false, reason: check.reason };
+  }
   return { safe: true };
 }
+
 

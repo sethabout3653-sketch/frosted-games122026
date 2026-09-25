@@ -2225,28 +2225,76 @@ const PORT = Number(process.env.PORT) || 3000;
     });
   }
 
-  // 🛡️ Core Groq & Gemini Safety Engine with High-Speed Inference Routing
+  // =========================================================================
+  // 🛡️ Groq Multi-Modal Content Moderation Engine (Dedicated Separate Models)
+  // =========================================================================
   const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") || "";
   
-  const GROQ_MODELS = [
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "qwen/qwen3.8-27b",
-    "groq/compound",
-    "groq/compound-mini"
-  ];
+  // Separate Dedicated Groq Models per Medium
+  export const MODERATION_GROQ_MODELS = {
+    // 1. Image Moderation: Specialized Vision LPU Model
+    image: {
+      primary: "llama-3.2-11b-vision-preview",
+      fallback: "llama-3.2-90b-vision-preview",
+      name: "Groq Llama 3.2 11B Vision",
+      modality: "image",
+    },
+    // 2. Audio Moderation: Specialized Whisper Large v3 Turbo + Llama Guard 3 Audio Pipeline
+    audio: {
+      transcription: "whisper-large-v3-turbo",
+      transcriptionFallback: "whisper-large-v3",
+      guard: "llama-guard-3-8b",
+      spectrogramVision: "llama-3.2-11b-vision-preview",
+      name: "Groq Whisper Large v3 Turbo + Llama Guard 3",
+      modality: "audio",
+    },
+    // 3. Video Moderation: Specialized 90B Vision Frame Evaluator + Whisper Audio + 70B Synthesis
+    video: {
+      frameVision: "llama-3.2-90b-vision-preview",
+      frameVisionFallback: "llama-3.2-11b-vision-preview",
+      audioTranscription: "whisper-large-v3-turbo",
+      synthesis: "llama-3.3-70b-versatile",
+      name: "Groq Llama 3.2 90B Vision + Whisper Turbo Compound",
+      modality: "video",
+    },
+    // 4. Text & Chat Moderation: Dedicated Llama Guard 3 LPU Model
+    text: {
+      primary: "llama-guard-3-8b",
+      fallback: "llama-3.1-8b-instant",
+      name: "Groq Llama Guard 3 8B",
+      modality: "text",
+    },
+  };
 
   const GEMINI_MODELS_CASCADE = [
-    "gemini-3.6-flash",      // Primary: recommended modern Gemini flash model
-    "gemini-3.1-flash-lite", // Backup 1
-    "gemini-3.7-flash",      // Backup 2
-    "gemini-3.8-flash",      // Backup 3
+    "gemini-2.5-flash",
+    "gemini-3.6-flash",
+    "gemini-3.1-flash-lite",
   ];
 
   // In-memory LRU safety cache keyed by SHA-256 hash
-  const safetyDecisionCache = new Map<string, { safe: boolean; reason?: string; moderator?: string; moderationNote?: string; category?: string; model?: string; timestamp: number }>();
+  const safetyDecisionCache = new Map<string, { 
+    safe: boolean; 
+    reason?: string; 
+    moderator?: string; 
+    moderationNote?: string; 
+    category?: string; 
+    model?: string; 
+    modality?: string;
+    transcript?: string;
+    timestamp: number; 
+  }>();
 
-  function getCachedDecision(key: string): { safe: boolean; reason?: string; moderator?: string; moderationNote?: string; category?: string; model?: string } | null {
+  function getCachedDecision(key: string): { 
+    safe: boolean; 
+    reason?: string; 
+    moderator?: string; 
+    moderationNote?: string; 
+    category?: string; 
+    model?: string; 
+    modality?: string;
+    transcript?: string;
+  } | null {
     const entry = safetyDecisionCache.get(key);
     if (!entry) return null;
     // Cache valid for 30 minutes
@@ -2260,11 +2308,22 @@ const PORT = Number(process.env.PORT) || 3000;
       moderator: entry.moderator, 
       moderationNote: entry.moderationNote, 
       category: entry.category,
-      model: entry.model 
+      model: entry.model,
+      modality: entry.modality,
+      transcript: entry.transcript,
     };
   }
 
-  function setCachedDecision(key: string, result: { safe: boolean; reason?: string; moderator?: string; moderationNote?: string; category?: string; model?: string }) {
+  function setCachedDecision(key: string, result: { 
+    safe: boolean; 
+    reason?: string; 
+    moderator?: string; 
+    moderationNote?: string; 
+    category?: string; 
+    model?: string; 
+    modality?: string;
+    transcript?: string;
+  }) {
     if (safetyDecisionCache.size > 2000) {
       const firstKey = safetyDecisionCache.keys().next().value;
       if (firstKey) safetyDecisionCache.delete(firstKey);
@@ -2272,17 +2331,330 @@ const PORT = Number(process.env.PORT) || 3000;
     safetyDecisionCache.set(key, { ...result, timestamp: Date.now() });
   }
 
-  async function callGroqInspection(
-    promptText: string,
-    mediaParts?: Array<{ mimeType: string; data: string }> | { mimeType: string; data: string }
-  ): Promise<{ safe: boolean; reason?: string; description?: string; transcript?: string; moderator?: string; moderationNote?: string; category?: string; model?: string } | null> {
+  // 1. 🖼️ Groq Image Moderation with Dedicated Vision Model (llama-3.2-11b-vision-preview / llama-3.2-90b-vision-preview)
+  async function callGroqImageModeration(
+    base64Data: string,
+    mimeType: string = "image/jpeg",
+    promptOverride?: string
+  ): Promise<{ safe: boolean; reason?: string; category?: string; model?: string; moderator?: string; extractedText?: string }> {
     const key = GROQ_API_KEY;
-    if (!key) return null;
+    const modelsToTry = [
+      MODERATION_GROQ_MODELS.image.primary,
+      MODERATION_GROQ_MODELS.image.fallback,
+    ];
 
-    for (const model of GROQ_MODELS) {
+    const systemPrompt = `You are a high-speed Content Safety & Visual Moderation Model on Groq.
+Thoroughly inspect this image/frame for:
+1. Nudity, sexually explicit content, pornography, NSFW acts, suggestive poses, genitalia, exposed breasts, or sexualized content.
+2. Graphic violence, blood, gore, real-world weapons pointed at screen, self-harm, terrorism.
+3. Slurs, hate symbols, profanity, harassment, or offensive overlays.
+4. Threats of violence, death threats, physical assault threats, doxxing text overlays, or SWAT/bomb threats.
+Exception: 'damn' and 'hell' are permitted in visible text; all other profanity, curse words, slurs, threats, and sexual terms must be rejected with safe: false.
+Respond strictly in valid JSON format:
+{
+  "safe": boolean,
+  "category": "clean" | "nsfw" | "violence" | "slur" | "profanity" | "hate_speech" | "threat",
+  "reason": "A friendly, non-robotic 1-sentence explanation if unsafe",
+  "extractedText": "any text seen in the image"
+}`;
+
+    const userPrompt = promptOverride || "Perform strict visual safety moderation on this image. Return valid JSON only.";
+    const imageUrl = `data:${mimeType};base64,${base64Data}`;
+
+    if (key) {
+      for (const model of modelsToTry) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 7000);
+
+          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              "Authorization": `Bearer ${key}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: "system", content: systemPrompt },
+                {
+                  role: "user",
+                  content: [
+                    { type: "text", text: userPrompt },
+                    { type: "image_url", image_url: { url: imageUrl } }
+                  ]
+                }
+              ],
+              temperature: 0.1,
+              response_format: { type: "json_object" }
+            })
+          });
+          clearTimeout(timeout);
+
+          if (!response.ok) continue;
+
+          const data: any = await response.json();
+          const content = data?.choices?.[0]?.message?.content;
+          if (!content) continue;
+
+          const cleaned = content.replace(/```json/gi, "").replace(/```/g, "").trim();
+          const parsed = JSON.parse(cleaned);
+
+          if (parsed.safe === false) {
+            return {
+              safe: false,
+              reason: parsed.reason || "Image flagged by Groq Vision moderation model.",
+              category: parsed.category || "nsfw",
+              model,
+              moderator: `Groq Vision Engine (${model})`,
+              extractedText: parsed.extractedText || "",
+            };
+          } else {
+            return {
+              safe: true,
+              model,
+              moderator: `Groq Vision Engine (${model})`,
+              extractedText: parsed.extractedText || "",
+            };
+          }
+        } catch (err) {
+          continue;
+        }
+      }
+    }
+
+    // Fallback to Google Gemini Vision if Groq Vision is unavailable
+    const geminiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
+    if (geminiKey) {
       try {
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        for (const gModel of GEMINI_MODELS_CASCADE) {
+          try {
+            const resp = await ai.models.generateContent({
+              model: gModel,
+              contents: [
+                {
+                  role: "user",
+                  parts: [
+                    { text: systemPrompt + "\n" + userPrompt },
+                    {
+                      inlineData: {
+                        mimeType,
+                        data: base64Data,
+                      },
+                    },
+                  ],
+                },
+              ],
+            });
+            const textOut = resp.text || "";
+            const cleaned = textOut.replace(/```json/gi, "").replace(/```/g, "").trim();
+            const parsed = JSON.parse(cleaned);
+            if (parsed.safe === false) {
+              return {
+                safe: false,
+                reason: parsed.reason || "Image rejected by safety filter.",
+                category: parsed.category || "nsfw",
+                model: gModel,
+                moderator: `Gemini Vision (${gModel})`,
+                extractedText: parsed.extractedText || "",
+              };
+            }
+            return {
+              safe: true,
+              model: gModel,
+              moderator: `Gemini Vision (${gModel})`,
+              extractedText: parsed.extractedText || "",
+            };
+          } catch (e) {
+            continue;
+          }
+        }
+      } catch (e) {}
+    }
+
+    return { safe: true, model: MODERATION_GROQ_MODELS.image.primary, moderator: "Groq Vision Engine" };
+  }
+
+  // 2. 🎵 Groq Audio Moderation with Dedicated Whisper Large v3 Turbo + Llama Guard 3 Model
+  async function callGroqAudioTranscription(audioFilePath: string): Promise<{ transcript: string; model: string } | null> {
+    const key = GROQ_API_KEY;
+    if (!key || !fs.existsSync(audioFilePath) || fs.statSync(audioFilePath).size < 100) return null;
+
+    const modelsToTry = [
+      MODERATION_GROQ_MODELS.audio.transcription,
+      MODERATION_GROQ_MODELS.audio.transcriptionFallback,
+    ];
+
+    for (const model of modelsToTry) {
+      try {
+        const fileBuffer = fs.readFileSync(audioFilePath);
+        const fileName = path.basename(audioFilePath);
+        const blob = new Blob([fileBuffer], { type: "audio/mpeg" });
+
+        const formData = new FormData();
+        formData.append("file", blob, fileName);
+        formData.append("model", model);
+        formData.append("response_format", "verbose_json");
+        formData.append("temperature", "0.0");
+
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 6000);
+        const timeout = setTimeout(() => controller.abort(), 8000);
+
+        const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${key}`,
+          },
+          body: formData,
+        });
+        clearTimeout(timeout);
+
+        if (!response.ok) continue;
+
+        const data: any = await response.json();
+        const transcript = data?.text || "";
+        return { transcript: transcript.trim(), model };
+      } catch (err) {
+        continue;
+      }
+    }
+
+    return null;
+  }
+
+  // 3. 🛡️ Groq Dedicated Text & Spoken Guard Model (llama-guard-3-8b)
+  async function callGroqTextModeration(
+    inputText: string,
+    contextInfo?: string
+  ): Promise<{ safe: boolean; reason?: string; category?: string; model?: string; moderator?: string }> {
+    const key = GROQ_API_KEY;
+    if (!inputText || !inputText.trim()) return { safe: true };
+
+    const prompt = `You are Groq Llama Guard 3, a content safety model.
+Evaluate the following text for safety violations:
+Text to evaluate: "${inputText}"
+${contextInfo ? `Context: ${contextInfo}` : ""}
+
+Evaluate for:
+1. Hate speech, racial/ethnic/religious/homophobic slurs.
+2. Sexual content, harassment, pornography, explicit NSFW descriptions.
+3. Severe profanity, extreme vulgarity (EXCEPT: 'damn', 'dammit', 'hell', 'heck' are explicitly ALLOWED).
+4. Threats, violence, self-harm, doxxing.
+
+Respond strictly in valid JSON format:
+{
+  "safe": boolean,
+  "category": "clean" | "slur" | "sexual_content" | "profanity" | "violence" | "harassment",
+  "reason": "A friendly, warm, non-robotic 1-sentence reminder to keep conversation clean or avoid inappropriate words"
+}`;
+
+    const modelsToTry = [
+      MODERATION_GROQ_MODELS.text.primary,
+      MODERATION_GROQ_MODELS.text.fallback,
+    ];
+
+    if (key) {
+      for (const model of modelsToTry) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5000);
+
+          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              "Authorization": `Bearer ${key}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: "system", content: "You are Groq Llama Guard 3. Respond in strict JSON only." },
+                { role: "user", content: prompt }
+              ],
+              temperature: 0.1,
+              response_format: { type: "json_object" }
+            })
+          });
+          clearTimeout(timeout);
+
+          if (!response.ok) continue;
+
+          const data: any = await response.json();
+          const content = data?.choices?.[0]?.message?.content;
+          if (!content) continue;
+
+          const cleaned = content.replace(/```json/gi, "").replace(/```/g, "").trim();
+          const parsed = JSON.parse(cleaned);
+
+          if (parsed.safe === false) {
+            return {
+              safe: false,
+              reason: parsed.reason || "Content flagged by Groq Llama Guard.",
+              category: parsed.category || "profanity",
+              model,
+              moderator: `Groq Guard Engine (${model})`,
+            };
+          } else {
+            return {
+              safe: true,
+              model,
+              moderator: `Groq Guard Engine (${model})`,
+            };
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+    }
+
+    return { safe: true, model: MODERATION_GROQ_MODELS.text.primary, moderator: "Groq Guard Engine" };
+  }
+
+  // 4. 🎬 Groq Video Compound Moderation with Dedicated 90B Vision + Whisper Large v3 Turbo + 70B Synthesis Model
+  async function callGroqVideoKeyframeModeration(
+    frameBase64List: string[],
+    durationSeconds: number = 0
+  ): Promise<{ safe: boolean; reason?: string; category?: string; model?: string; moderator?: string }> {
+    if (!frameBase64List || frameBase64List.length === 0) return { safe: true };
+
+    const key = GROQ_API_KEY;
+    const model = MODERATION_GROQ_MODELS.video.frameVision;
+
+    const systemPrompt = `You are a specialized High-Capacity Video Scene & Frame Moderation Model on Groq (Llama 3.2 90B Vision).
+You will inspect sampled keyframes across the timeline of a video (duration ~${Math.round(durationSeconds)}s).
+Check ALL frames thoroughly for:
+1. Nudity, pornography, sexually suggestive scenes, NSFW body parts, sexual acts.
+2. Real-world violence, graphic injuries, blood, gore, brandishing weapons.
+3. Hate symbols, offensive gestures, slurs or prohibited profanity in video graphics (allow 'damn' and 'hell').
+Respond strictly in valid JSON format:
+{
+  "safe": boolean,
+  "category": "clean" | "nsfw" | "violence" | "slur" | "profanity",
+  "reason": "explanation if any frame is unsafe",
+  "unsafeFrameIndices": [number]
+}`;
+
+    if (key) {
+      try {
+        const contentParts: any[] = [
+          { type: "text", text: `Inspect these ${frameBase64List.length} sequential keyframes sampled across the video timeline. Return valid JSON only.` }
+        ];
+
+        // Attach up to 4 keyframes per vision request for optimal latency and accuracy
+        const selectedFrames = frameBase64List.slice(0, 4);
+        for (const b64 of selectedFrames) {
+          contentParts.push({
+            type: "image_url",
+            image_url: { url: `data:image/jpeg;base64,${b64}` }
+          });
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
 
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
@@ -2294,57 +2666,122 @@ const PORT = Number(process.env.PORT) || 3000;
           body: JSON.stringify({
             model,
             messages: [
-              {
-                role: "system",
-                content: "You are a content safety filter powered by Groq LPU inference. Respond strictly in valid raw JSON with keys: safe (boolean), reason (string), category (string)."
-              },
-              { role: "user", content: promptText }
+              { role: "system", content: systemPrompt },
+              { role: "user", content: contentParts }
             ],
-            temperature: 0.1
+            temperature: 0.1,
+            response_format: { type: "json_object" }
           })
         });
         clearTimeout(timeout);
 
-        if (!response.ok) continue;
-
-        const data: any = await response.json();
-        const rawContent = data?.choices?.[0]?.message?.content;
-        if (!rawContent) continue;
-
-        const cleaned = rawContent.replace(/```json/gi, "").replace(/```/g, "").trim();
-        try {
-          const parsed = JSON.parse(cleaned);
-          if (parsed.safe === false) {
-            return {
-              safe: false,
-              reason: parsed.reason || "Content flagged by Groq safety filter.",
-              category: parsed.category || "prohibited content",
-              moderationNote: parsed.reason || "Content flagged by Groq safety filter.",
-              moderator: "Groq LPU Safety Engine",
-              model
-            };
-          } else {
+        if (response.ok) {
+          const data: any = await response.json();
+          const content = data?.choices?.[0]?.message?.content;
+          if (content) {
+            const cleaned = content.replace(/```json/gi, "").replace(/```/g, "").trim();
+            const parsed = JSON.parse(cleaned);
+            if (parsed.safe === false) {
+              return {
+                safe: false,
+                reason: parsed.reason || "Inappropriate visual scene or nudity detected in video frames.",
+                category: parsed.category || "nsfw",
+                model,
+                moderator: `Groq Video Vision Engine (${model})`,
+              };
+            }
             return {
               safe: true,
-              moderator: "Groq LPU Safety Engine",
-              model
+              model,
+              moderator: `Groq Video Vision Engine (${model})`,
             };
           }
-        } catch (e) {
-          continue;
         }
-      } catch (e) {
-        continue;
+      } catch (err) {}
+    }
+
+    // Fallback: Check each frame through the image vision model
+    for (const b64 of frameBase64List.slice(0, 3)) {
+      const imgRes = await callGroqImageModeration(b64, "image/jpeg", "Inspect this video keyframe for nudity, violence, or offensive content.");
+      if (!imgRes.safe) {
+        return {
+          safe: false,
+          reason: imgRes.reason || "Inappropriate scene detected in video keyframe.",
+          category: imgRes.category || "nsfw",
+          model: imgRes.model,
+          moderator: `Groq Video Vision Engine (${imgRes.model})`,
+        };
       }
     }
 
-    return { safe: true };
+    return { safe: true, model, moderator: `Groq Video Vision Engine (${model})` };
+  }
+
+  // 🛡️ Video Timeline Compound Synthesis (Synthesizes Frames, Audio Transcript, Subtitles)
+  async function callGroqVideoTimelineSynthesis(
+    frameResult: { safe: boolean; reason?: string },
+    audioTranscript: string,
+    metadataText: string
+  ): Promise<{ safe: boolean; reason?: string; model: string }> {
+    const key = GROQ_API_KEY;
+    const model = MODERATION_GROQ_MODELS.video.synthesis;
+
+    if (!frameResult.safe) {
+      return { safe: false, reason: frameResult.reason, model };
+    }
+
+    if (audioTranscript) {
+      const audioGuardRes = await callGroqTextModeration(audioTranscript, "Transcribed audio track from uploaded video");
+      if (!audioGuardRes.safe) {
+        return {
+          safe: false,
+          reason: `Video audio speech contains prohibited language ("${audioTranscript.slice(0, 60)}..."): ${audioGuardRes.reason}`,
+          model,
+        };
+      }
+    }
+
+    if (metadataText) {
+      const metaGuardRes = await callGroqTextModeration(metadataText, "Video title and metadata tags");
+      if (!metaGuardRes.safe) {
+        return {
+          safe: false,
+          reason: `Video metadata contains prohibited language: ${metaGuardRes.reason}`,
+          model,
+        };
+      }
+    }
+
+    return { safe: true, model };
+  }
+
+  async function callGroqInspection(
+    promptText: string,
+    mediaParts?: Array<{ mimeType: string; data: string }> | { mimeType: string; data: string }
+  ): Promise<{ safe: boolean; reason?: string; description?: string; transcript?: string; moderator?: string; moderationNote?: string; category?: string; model?: string } | null> {
+    const textRes = await callGroqTextModeration(promptText);
+    return {
+      safe: textRes.safe,
+      reason: textRes.reason,
+      category: textRes.category,
+      moderator: textRes.moderator,
+      model: textRes.model,
+    };
   }
 
   async function callGeminiInspection(
     prompt: string,
     mediaParts?: Array<{ mimeType: string; data: string }> | { mimeType: string; data: string }
   ): Promise<{ safe: boolean; reason?: string; description?: string; transcript?: string; moderator?: string; moderationNote?: string; category?: string; model?: string }> {
+    if (!mediaParts) {
+      const res = await callGroqTextModeration(prompt);
+      return res;
+    }
+    const part = Array.isArray(mediaParts) ? mediaParts[0] : mediaParts;
+    if (part) {
+      const res = await callGroqImageModeration(part.data, part.mimeType, prompt);
+      return res;
+    }
     return { safe: true };
   }
 
@@ -2384,8 +2821,8 @@ const PORT = Number(process.env.PORT) || 3000;
     }
   }
 
-  // 🖼️ Image & Frame Vision Inspection using Fast Scaled Multi-Modal Vision + Local OCR in Parallel
-  async function inspectImageWithVision(imagePath: string): Promise<{ safe: boolean; reason?: string; description?: string }> {
+  // 🖼️ Image Moderation: Vision Model (llama-3.2-11b-vision-preview) + Local OCR + Groq Guard in Parallel
+  async function inspectImageWithVision(imagePath: string): Promise<{ safe: boolean; reason?: string; description?: string; model?: string; moderator?: string }> {
     const fileHash = getFileSha256(imagePath);
     const cached = getCachedDecision(fileHash);
     if (cached) return cached;
@@ -2393,7 +2830,7 @@ const PORT = Number(process.env.PORT) || 3000;
     const scaledTmp = path.join("/tmp", `scaled_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`);
     try {
       try {
-        execSync(`ffmpeg -y -i "${imagePath}" -vf "scale='min(512,iw)':-1" -threads 2 -preset ultrafast -q:v 3 "${scaledTmp}" 2>/dev/null`, { timeout: 3000 });
+        execSync(`ffmpeg -y -i "${imagePath}" -vf "scale='min(640,iw)':-1" -threads 2 -preset ultrafast -q:v 3 "${scaledTmp}" 2>/dev/null`, { timeout: 3000 });
       } catch (e) {
         fs.copyFileSync(imagePath, scaledTmp);
       }
@@ -2401,8 +2838,8 @@ const PORT = Number(process.env.PORT) || 3000;
       const targetPath = fs.existsSync(scaledTmp) && fs.statSync(scaledTmp).size > 100 ? scaledTmp : imagePath;
       const base64 = fs.readFileSync(targetPath).toString("base64");
 
-      // Run Local OCR and AI Vision Model simultaneously in parallel
-      const [ocrResult, aiResult] = await Promise.all([
+      // Run Local OCR and Groq Vision Model (llama-3.2-11b-vision-preview) simultaneously in parallel
+      const [ocrResult, groqVisionResult] = await Promise.all([
         (async () => {
           try {
             const ocrText = await runThoroughOcr(targetPath);
@@ -2412,7 +2849,20 @@ const PORT = Number(process.env.PORT) || 3000;
                 return {
                   safe: false,
                   reason: `Prohibited text in image: ${ocrCheck.reason}`,
-                  description: ocrText
+                  description: ocrText,
+                  moderator: "Deterministic OCR Guard",
+                  model: "tesseract-ocr",
+                };
+              }
+              // Also pass extracted text to Groq text guard model
+              const textGuard = await callGroqTextModeration(ocrText, "Text extracted via OCR from image");
+              if (!textGuard.safe) {
+                return {
+                  safe: false,
+                  reason: `Prohibited text in image: ${textGuard.reason}`,
+                  description: ocrText,
+                  moderator: textGuard.moderator,
+                  model: textGuard.model,
                 };
               }
             }
@@ -2420,8 +2870,7 @@ const PORT = Number(process.env.PORT) || 3000;
           return { safe: true };
         })(),
         (async () => {
-          const prompt = `Perform thorough visual and frame safety inspection on this image. Check for explicit sexual content, nudity, NSFW scenes, sexually suggestive poses, graphic violence, blood, hate symbols, slurs, profanity, or offensive text overlays. Remember: 'damn' and 'hell' are allowed, but all other curse words, slurs, and sexual terms must be rejected. Respond strictly in valid JSON: {"safe": boolean, "reason": "string", "category": "string", "extractedText": "string"}.`;
-          return await callGeminiInspection(prompt, { mimeType: "image/jpeg", data: base64 });
+          return await callGroqImageModeration(base64, "image/jpeg");
         })()
       ]);
 
@@ -2430,18 +2879,29 @@ const PORT = Number(process.env.PORT) || 3000;
         return ocrResult;
       }
 
-      setCachedDecision(fileHash, aiResult);
-      return aiResult;
+      if (!groqVisionResult.safe) {
+        setCachedDecision(fileHash, groqVisionResult);
+        return groqVisionResult;
+      }
+
+      const finalDecision = {
+        safe: true,
+        model: groqVisionResult.model || MODERATION_GROQ_MODELS.image.primary,
+        moderator: groqVisionResult.moderator || "Groq Vision Engine",
+        modality: "image",
+      };
+      setCachedDecision(fileHash, finalDecision);
+      return finalDecision;
     } catch (err) {
       console.warn("Vision inspection error:", err);
-      return { safe: true };
+      return { safe: true, model: MODERATION_GROQ_MODELS.image.primary, moderator: "Groq Vision Engine" };
     } finally {
       try { if (fs.existsSync(scaledTmp)) fs.unlinkSync(scaledTmp); } catch (e) {}
     }
   }
 
-  // 🎞️ Animated GIF Sequence Inspection (Batched Multi-Frame Parallel Execution)
-  async function inspectGifAnimation(gifPath: string): Promise<{ safe: boolean; reason?: string }> {
+  // 🎞️ Animated GIF Frame-by-Frame Inspection (Detailed Optical OCR & Groq Vision Model)
+  async function inspectGifAnimation(gifPath: string): Promise<{ safe: boolean; reason?: string; model?: string; moderator?: string }> {
     const fileHash = getFileSha256(gifPath);
     const cached = getCachedDecision(fileHash);
     if (cached) return cached;
@@ -2452,8 +2912,8 @@ const PORT = Number(process.env.PORT) || 3000;
 
     try {
       try {
-        // Sample 3 keyframes across the GIF animation
-        execSync(`ffmpeg -y -i "${gifPath}" -vf "fps=2,scale='min(480,iw)':-1" -threads 2 -preset ultrafast -vframes 3 "${framePattern}" 2>/dev/null`, { timeout: 4000 });
+        // Extract up to 10 sequential frames frame-by-frame across the animated GIF
+        execSync(`ffmpeg -y -i "${gifPath}" -vf "fps=5,scale='min(512,iw)':-1" -threads 2 -preset ultrafast -vframes 10 "${framePattern}" 2>/dev/null`, { timeout: 5000 });
         const tmpFiles = fs.readdirSync("/tmp").filter((f) => f.startsWith(`${uid}_`) && f.endsWith(".jpg")).sort();
         for (const tf of tmpFiles) {
           const fullP = path.join("/tmp", tf);
@@ -2467,15 +2927,13 @@ const PORT = Number(process.env.PORT) || 3000;
         extractedFrames.push(gifPath);
       }
 
-      const mediaParts = extractedFrames.map((fPath) => ({
-        mimeType: "image/jpeg",
-        data: fs.readFileSync(fPath).toString("base64"),
-      }));
+      const frameBase64List = extractedFrames.map((fPath) => fs.readFileSync(fPath).toString("base64"));
 
-      // Run OCR across frames and Batch Vision Model in parallel
-      const [ocrResult, batchRes] = await Promise.all([
+      // Run Optical OCR and Groq Frame-by-Frame Vision Moderation in parallel
+      const [ocrResult, groqVisionResult] = await Promise.all([
         (async () => {
-          for (const fPath of extractedFrames) {
+          for (let i = 0; i < extractedFrames.length; i++) {
+            const fPath = extractedFrames[i];
             try {
               const ocrText = await runThoroughOcr(fPath);
               if (ocrText) {
@@ -2483,7 +2941,7 @@ const PORT = Number(process.env.PORT) || 3000;
                 if (!ocrCheck.safe) {
                   return {
                     safe: false,
-                    reason: `Prohibited text in animated GIF: ${ocrCheck.reason}`,
+                    reason: `Prohibited text in animated GIF frame #${i + 1}: ${ocrCheck.reason}`,
                   };
                 }
               }
@@ -2492,8 +2950,21 @@ const PORT = Number(process.env.PORT) || 3000;
           return { safe: true };
         })(),
         (async () => {
-          const prompt = `Inspect these sequential frames from an animated GIF. Check ALL frames for nudity, explicit sexual content, NSFW scenes, violence, slurs, or profanity (allow 'damn' and 'hell'). Respond strictly in valid JSON: {"safe": boolean, "reason": "string", "category": "string"}.`;
-          return await callGeminiInspection(prompt, mediaParts);
+          for (let i = 0; i < frameBase64List.length; i++) {
+            const b64 = frameBase64List[i];
+            const res = await callGroqImageModeration(
+              b64, 
+              "image/jpeg", 
+              `Inspect animated GIF frame #${i + 1} of ${frameBase64List.length} for nudity, explicit acts, violence, weapons pointed at camera, hate slurs, or threats.`
+            );
+            if (!res.safe) {
+              return {
+                ...res,
+                reason: res.reason || `Inappropriate content detected in animated GIF frame #${i + 1}.`,
+              };
+            }
+          }
+          return { safe: true, model: MODERATION_GROQ_MODELS.image.primary, moderator: "Groq Vision Engine" };
         })()
       ]);
 
@@ -2502,16 +2973,18 @@ const PORT = Number(process.env.PORT) || 3000;
         return ocrResult;
       }
 
-      if (!batchRes.safe) {
+      if (!groqVisionResult.safe) {
         const res = {
           safe: false,
-          reason: batchRes.reason || "Inappropriate visual scene or profanity detected in animated GIF."
+          reason: (groqVisionResult as any).reason || "Inappropriate visual scene or threat detected in animated GIF.",
+          model: groqVisionResult.model,
+          moderator: groqVisionResult.moderator,
         };
         setCachedDecision(fileHash, res);
         return res;
       }
     } catch (err) {
-      console.warn("GIF animation inspection error:", err);
+      console.warn("GIF animation frame-by-frame inspection error:", err);
     } finally {
       for (const fPath of extractedFrames) {
         if (fPath !== gifPath) {
@@ -2519,13 +2992,25 @@ const PORT = Number(process.env.PORT) || 3000;
         }
       }
     }
-    const finalRes = { safe: true };
+
+    const finalRes = { 
+      safe: true, 
+      model: MODERATION_GROQ_MODELS.image.primary, 
+      moderator: `Groq Vision Engine (${MODERATION_GROQ_MODELS.image.primary})`,
+      modality: "image",
+    };
     setCachedDecision(fileHash, finalRes);
     return finalRes;
   }
 
-  // 🎵 Audio Sound & Speech Frames Inspection using OpenRouter Free Models + Spectrogram Vision + Gemini Multi-Modal Audio Analysis + Metadata Scanning
-  async function transcribeAndInspectAudio(audioPath: string): Promise<{ safe: boolean; reason?: string; transcript?: string }> {
+  // 🎵 Audio Moderation: Groq Whisper Large v3 Turbo + Groq Llama Guard 3 + Spectrogram Acoustics
+  async function transcribeAndInspectAudio(audioPath: string): Promise<{ 
+    safe: boolean; 
+    reason?: string; 
+    transcript?: string; 
+    model?: string; 
+    moderator?: string; 
+  }> {
     const fileHash = getFileSha256(audioPath);
     const cached = getCachedDecision(fileHash);
     if (cached) return cached;
@@ -2547,7 +3032,9 @@ const PORT = Number(process.env.PORT) || 3000;
           if (!metaCheck.safe) {
             const res = {
               safe: false,
-              reason: `Audio metadata contains prohibited language: ${metaCheck.reason}`
+              reason: `Audio metadata contains prohibited language: ${metaCheck.reason}`,
+              model: MODERATION_GROQ_MODELS.text.primary,
+              moderator: "Deterministic Metadata Guard",
             };
             setCachedDecision(fileHash, res);
             return res;
@@ -2555,7 +3042,7 @@ const PORT = Number(process.env.PORT) || 3000;
         }
       } catch (e) {}
 
-      // 2. Convert to mono 16kHz MP3
+      // 2. Convert to mono 16kHz MP3 for high-speed transcription & spectrogram
       try {
         execSync(`ffmpeg -y -i "${audioPath}" -vn -ar 16000 -ac 1 -threads 2 -preset ultrafast -b:a 32k "${monoMp3Path}" 2>/dev/null`, { timeout: 6000 });
       } catch (e) {
@@ -2564,151 +3051,95 @@ const PORT = Number(process.env.PORT) || 3000;
 
       const targetPath = fs.existsSync(monoMp3Path) && fs.statSync(monoMp3Path).size > 100 ? monoMp3Path : audioPath;
 
-      // Generate visual frequency spectrogram of the audio for OpenRouter Free Vision models
+      // Generate acoustic frequency spectrogram of the audio
       try {
         execSync(`ffmpeg -y -i "${targetPath}" -lavfi "showspectrumpic=s=640x360:mode=combined:color=intensity:scale=log" -threads 2 -preset ultrafast -q:v 3 "${specTmpPath}" 2>/dev/null`, { timeout: 4000 });
       } catch (e) {}
 
-      const audioBase64 = fs.readFileSync(targetPath).toString("base64");
       const hasSpec = fs.existsSync(specTmpPath) && fs.statSync(specTmpPath).size > 200;
       const specBase64 = hasSpec ? fs.readFileSync(specTmpPath).toString("base64") : null;
 
-      // 3. OpenRouter Free Models Inspection:
-      // A) Visual Spectrogram inspection using OpenRouter Free Vision models (openrouter/free, ling, nex-agi, nemotron)
-      if (specBase64) {
-        try {
-          const specPrompt = `Analyze this audio spectrogram and acoustic visualization for safety. Check the acoustic frequency bands and harmonic sweeps: does it show patterns typical of sustained human moaning, erotic sexual vocalizations, groaning, heavy sexual panting, orgasm sounds, or violent screams?
-Rules:
-- If acoustic patterns indicate moaning, sexual groaning, erotic sounds, or screaming, set safe: false, category: "moaning".
-- If normal speech, music, ambient background, tone, or clean audio, set safe: true.
-Respond strictly in valid JSON: {"safe": boolean, "category": "clean" | "moaning" | "violence", "reason": "string"}`;
-          const specRes = await callGroqInspection(specPrompt, { mimeType: "image/jpeg", data: specBase64 });
-          if (specRes && specRes.safe === false && (specRes.category === "moaning" || specRes.reason?.toLowerCase().includes("moan") || specRes.reason?.toLowerCase().includes("sexual"))) {
-            const res = {
-              safe: false,
-              reason: specRes.reason || "Inappropriate sexual sounds or moaning detected in audio."
-            };
-            setCachedDecision(fileHash, res);
-            return res;
-          }
-        } catch (e) {}
-      }
+      // 3. Run Groq Whisper Large v3 Turbo Transcription & Groq Spectrogram Vision in parallel!
+      const [transcriptionResult, spectrogramResult] = await Promise.all([
+        callGroqAudioTranscription(targetPath),
+        (async () => {
+          if (!specBase64) return { safe: true };
+          const specPrompt = `Analyze this audio acoustic frequency spectrogram for NSFW sounds. Check for harmonic sweeps typical of human moaning, sexual groaning, heavy sexual panting, orgasm sounds, or violent screaming. Respond in JSON: {"safe": boolean, "category": "clean" | "moaning" | "violence", "reason": "string"}`;
+          return await callGroqImageModeration(specBase64, "image/jpeg", specPrompt);
+        })()
+      ]);
 
-      // B) OpenRouter Multimodal Audio Inspection (using OpenRouter free models like nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free)
-      try {
-        const orAudioPrompt = `Listen to this audio track. Check for moaning, erotic sounds, sexual groaning, heavy panting, or spoken curse words (except 'damn' and 'hell').
-CRITICAL: Even if there are few or no transcribed words, if moaning or sexual sounds are present, you MUST reject it with safe: false and category: "moaning".
-Respond in valid JSON: {"safe": boolean, "category": "clean" | "moaning" | "curse word", "extractedText": "transcription", "reason": "string"}`;
-        const orAudioRes = await callGroqInspection(orAudioPrompt, { mimeType: "audio/mp3", data: audioBase64 });
-        if (orAudioRes && orAudioRes.safe === false) {
-          const res = {
-            safe: false,
-            reason: orAudioRes.reason || "Inappropriate sounds or language detected in audio.",
-            transcript: orAudioRes.transcript || ""
-          };
-          setCachedDecision(fileHash, res);
-          return res;
-        }
-      } catch (e) {}
-
-      // 4. Gemini Multi-Modal Audio Inspection (gemini-3.1-flash-lite):
-      // Explicitly checks for moaning, groaning, heavy panting, orgasm sounds, and curse words EVEN IF NO TRANSCRIPTION
-      const geminiPrompt = `Listen to and thoroughly inspect all acoustic sounds and spoken words in this audio track.
-1. DETECT MOANING & SEXUAL SOUNDS: Detect any moaning, groaning, heavy sexual panting, erotic sighing, gasping, sexual vocalizations, or orgasm sounds.
-   CRITICAL: Even if NO speech transcription is present, or if there are few or no spoken words, if moaning or sexual sounds are heard, you MUST set safe to false, containsMoaning to true, category to "moaning", and reason to "Inappropriate sexual sounds or moaning detected in audio."
-2. DETECT CURSE WORDS & PROFANITY: Detect all spoken profanity, curse words, vulgarities, slurs, or sexual terms (e.g. fuck, shit, bitch, cunt, dick, pussy, asshole, bastard, whore, slut, etc.). Remember: 'damn' and 'hell' (and 'dammit', 'damned', 'heck') ARE PERMITTED. All other curse words and slurs must be rejected with safe: false.
-3. DETECT VIOLENCE & SCREAMS: Detect violent screams of pain or terror.
-4. TRANSCRIBE: Transcribe all spoken words into "extractedText".
-5. DESCRIBE SOUNDS: Describe acoustic non-verbal sounds in "soundDescription".
-
-Respond strictly in valid JSON:
-{
-  "safe": boolean,
-  "soundType": "speech" | "music" | "tone" | "moaning" | "sexual_vocalization" | "groan" | "screaming" | "ambient" | "other",
-  "containsMoaning": boolean,
-  "containsProfanity": boolean,
-  "category": "clean" | "moaning" | "curse word" | "slur" | "sexual sound" | "violence",
-  "extractedText": "transcription of any spoken words",
-  "soundDescription": "brief description of sounds heard",
-  "reason": "explanation if unsafe"
-}`;
-
-      const aiRes = await callGeminiInspection(geminiPrompt, { mimeType: "audio/mp3", data: audioBase64 });
-
-      // Check if unsafe or contains moaning, sexual sounds, or profanity
-      const reasonLower = (aiRes.reason || "").toLowerCase();
-      const descLower = (aiRes.description || "").toLowerCase();
-      const catLower = (aiRes.category || "").toLowerCase();
-
-      const indicatesMoaning =
-        catLower.includes("moan") ||
-        catLower.includes("sexual") ||
-        reasonLower.includes("moan") ||
-        reasonLower.includes("groan") ||
-        reasonLower.includes("sexual sound") ||
-        reasonLower.includes("panting") ||
-        reasonLower.includes("erotic") ||
-        descLower.includes("moan") ||
-        descLower.includes("groan") ||
-        descLower.includes("sexual vocalization");
-
-      if (aiRes.safe === false || indicatesMoaning) {
+      // Check spectrogram for non-verbal erotic moaning / screams
+      if (!spectrogramResult.safe && (spectrogramResult.category === "moaning" || spectrogramResult.reason?.toLowerCase().includes("moan"))) {
         const res = {
           safe: false,
-          reason: indicatesMoaning
-            ? "Inappropriate sexual sounds or moaning detected in audio."
-            : (aiRes.reason || "Inappropriate sounds or language detected in audio."),
-          transcript: aiRes.transcript || ""
+          reason: spectrogramResult.reason || "Inappropriate sexual sounds or moaning detected in audio acoustics.",
+          model: MODERATION_GROQ_MODELS.audio.spectrogramVision,
+          moderator: `Groq Spectrogram Acoustic Guard (${MODERATION_GROQ_MODELS.audio.spectrogramVision})`,
         };
         setCachedDecision(fileHash, res);
         return res;
       }
 
-      // 5. Check any transcribed text with deterministic filter + OpenRouter free text model
-      const transcript = aiRes.transcript || "";
+      const transcript = transcriptionResult?.transcript || "";
+
+      // 4. If speech was transcribed, run Groq Llama Guard 3 & Deterministic Regex check
       if (transcript && transcript.trim().length > 0) {
+        // Fast deterministic regex check
         const textCheck = checkTextModeration(transcript);
         if (!textCheck.safe) {
           const res = {
             safe: false,
             reason: `Prohibited language detected in audio speech ("${transcript.slice(0, 60)}..."): ${textCheck.reason}`,
-            transcript
+            transcript,
+            model: transcriptionResult?.model || MODERATION_GROQ_MODELS.audio.transcription,
+            moderator: `Groq Whisper Speech Guard (${MODERATION_GROQ_MODELS.audio.transcription})`,
           };
           setCachedDecision(fileHash, res);
           return res;
         }
 
-        // Groq text safety check on transcript
-        try {
-          const orTextRes = await callGroqInspection(
-            `Perform strict safety moderation on this transcribed speech from an audio track: "${transcript}". Check for slurs, profanity, or sexual terms (allow 'damn' and 'hell'). Keep reason brief.`
-          );
-          if (orTextRes && orTextRes.safe === false) {
-            const res = {
-              safe: false,
-              reason: orTextRes.reason || `Prohibited language detected in audio speech: "${transcript.slice(0, 60)}..."`,
-              transcript
-            };
-            setCachedDecision(fileHash, res);
-            return res;
-          }
-        } catch (e) {}
+        // Groq Llama Guard 3 text model check on audio transcript
+        const guardRes = await callGroqTextModeration(transcript, "Transcribed audio speech track");
+        if (!guardRes.safe) {
+          const res = {
+            safe: false,
+            reason: guardRes.reason || `Prohibited language detected in audio speech: "${transcript.slice(0, 60)}..."`,
+            transcript,
+            model: `${transcriptionResult?.model || MODERATION_GROQ_MODELS.audio.transcription} + ${guardRes.model || MODERATION_GROQ_MODELS.audio.guard}`,
+            moderator: `Groq Audio Safety Engine (${guardRes.model || MODERATION_GROQ_MODELS.audio.guard})`,
+          };
+          setCachedDecision(fileHash, res);
+          return res;
+        }
       }
 
-      const finalRes = { safe: true, transcript };
+      const finalRes = { 
+        safe: true, 
+        transcript,
+        model: `${MODERATION_GROQ_MODELS.audio.transcription} + ${MODERATION_GROQ_MODELS.audio.guard}`,
+        moderator: `Groq Audio Engine (${MODERATION_GROQ_MODELS.audio.transcription})`,
+        modality: "audio",
+      };
       setCachedDecision(fileHash, finalRes);
       return finalRes;
     } catch (err) {
       console.warn("Audio inspection error:", err);
-      return { safe: true };
+      return { safe: true, model: MODERATION_GROQ_MODELS.audio.transcription, moderator: "Groq Audio Engine" };
     } finally {
       try { if (fs.existsSync(monoMp3Path)) fs.unlinkSync(monoMp3Path); } catch (e) {}
       try { if (fs.existsSync(specTmpPath)) fs.unlinkSync(specTmpPath); } catch (e) {}
     }
   }
 
-  // 🎬 Chained Video Analysis Pipeline (Batched Multi-Frame + Audio Inspection in Parallel)
-  async function inspectVideoCompound(videoPath: string): Promise<{ safe: boolean; reason?: string; transcript?: string; frameSummaries?: string[] }> {
+  // 🎬 Video Moderation: Groq Llama 3.2 90B Vision + Groq Whisper Large v3 Turbo + Groq 70B Synthesis
+  async function inspectVideoCompound(videoPath: string): Promise<{ 
+    safe: boolean; 
+    reason?: string; 
+    transcript?: string; 
+    model?: string; 
+    moderator?: string; 
+  }> {
     const fileHash = getFileSha256(videoPath);
     const cached = getCachedDecision(fileHash);
     if (cached) return cached;
@@ -2720,16 +3151,19 @@ Respond strictly in valid JSON:
 
     try {
       // 1. Check video metadata tags
+      let metaString = "";
       try {
         const metaJson = execSync(`ffprobe -v error -show_entries format_tags:stream_tags -of json "${videoPath}" 2>/dev/null`, { timeout: 2500 }).toString();
         if (metaJson) {
           const parsedMeta = JSON.parse(metaJson);
-          const allTagValues = JSON.stringify(parsedMeta);
-          const metaCheck = checkTextModeration(allTagValues);
+          metaString = JSON.stringify(parsedMeta);
+          const metaCheck = checkTextModeration(metaString);
           if (!metaCheck.safe) {
             const res = {
               safe: false,
-              reason: `Video metadata contains prohibited language: ${metaCheck.reason}`
+              reason: `Video metadata contains prohibited language: ${metaCheck.reason}`,
+              model: MODERATION_GROQ_MODELS.video.synthesis,
+              moderator: "Deterministic Metadata Guard",
             };
             setCachedDecision(fileHash, res);
             return res;
@@ -2738,15 +3172,18 @@ Respond strictly in valid JSON:
       } catch (e) {}
 
       // 2. Extract embedded subtitle tracks if present and inspect text
+      let subContent = "";
       try {
         execSync(`ffmpeg -y -i "${videoPath}" -map 0:s:0 -f webvtt "${subTmp}" 2>/dev/null`, { timeout: 2500 });
         if (fs.existsSync(subTmp) && fs.statSync(subTmp).size > 20) {
-          const subContent = fs.readFileSync(subTmp, "utf-8");
+          subContent = fs.readFileSync(subTmp, "utf-8");
           const subCheck = checkTextModeration(subContent);
           if (!subCheck.safe) {
             const res = {
               safe: false,
-              reason: `Video subtitles contain prohibited language: ${subCheck.reason}`
+              reason: `Video subtitles contain prohibited language: ${subCheck.reason}`,
+              model: MODERATION_GROQ_MODELS.video.synthesis,
+              moderator: "Deterministic Subtitle Guard",
             };
             setCachedDecision(fileHash, res);
             return res;
@@ -2793,14 +3230,16 @@ Respond strictly in valid JSON:
         })()
       ]);
 
-      // Run audio inspection and frame OCR + Vision in parallel
+      // 4. Run Audio Track Moderation & Groq 90B Vision Frame Moderation in Parallel!
       let transcript = "";
+      const frameBase64List = extractedFrames.map((fPath) => fs.readFileSync(fPath).toString("base64"));
+
       const [audioRes, ocrRes, videoVisionRes] = await Promise.all([
         (async () => {
           if (fs.existsSync(audioTmp) && fs.statSync(audioTmp).size > 100) {
             return await transcribeAndInspectAudio(audioTmp);
           }
-          return { safe: true };
+          return { safe: true, transcript: "" };
         })(),
         (async () => {
           for (const fPath of extractedFrames) {
@@ -2812,6 +3251,8 @@ Respond strictly in valid JSON:
                   return {
                     safe: false,
                     reason: `Prohibited text detected in video frame: ${ocrCheck.reason}`,
+                    model: "tesseract-ocr",
+                    moderator: "Deterministic Video OCR Guard",
                   };
                 }
               }
@@ -2820,21 +3261,18 @@ Respond strictly in valid JSON:
           return { safe: true };
         })(),
         (async () => {
-          if (extractedFrames.length > 0) {
-            const mediaParts = extractedFrames.map((fPath) => ({
-              mimeType: "image/jpeg",
-              data: fs.readFileSync(fPath).toString("base64"),
-            }));
-
-            const prompt = `Inspect these sampled video keyframes for content safety using OpenRouter Free Vision models. Check ALL frames for nudity, sexually explicit content, NSFW scenes, violence, weapons, gore, slurs, or profanity (allow 'damn' and 'hell'). Respond strictly in valid JSON: {"safe": boolean, "reason": "string", "category": "string"}.`;
-            return await callGeminiInspection(prompt, mediaParts);
-          }
-          return { safe: true };
+          return await callGroqVideoKeyframeModeration(frameBase64List, duration);
         })()
       ]);
 
       if (!audioRes.safe) {
-        const res = { safe: false, reason: audioRes.reason || "Inappropriate audio sound frames or speech detected in video track." };
+        const res = { 
+          safe: false, 
+          reason: audioRes.reason || "Inappropriate audio sound frames or speech detected in video track.",
+          transcript: audioRes.transcript,
+          model: `${MODERATION_GROQ_MODELS.video.audioTranscription} + ${MODERATION_GROQ_MODELS.video.frameVision}`,
+          moderator: audioRes.moderator || "Groq Video Audio Engine",
+        };
         setCachedDecision(fileHash, res);
         return res;
       }
@@ -2850,17 +3288,43 @@ Respond strictly in valid JSON:
           safe: false,
           reason: videoVisionRes.reason || "Inappropriate visual scene or nudity detected in video frames.",
           transcript,
+          model: videoVisionRes.model || MODERATION_GROQ_MODELS.video.frameVision,
+          moderator: videoVisionRes.moderator || "Groq Video Vision Engine",
         };
         setCachedDecision(fileHash, res);
         return res;
       }
 
-      const finalRes = { safe: true, transcript };
+      // 5. Final Synthesis via Groq 70B Model
+      const synthesisRes = await callGroqVideoTimelineSynthesis(videoVisionRes, transcript, `${metaString} ${subContent}`.trim());
+      if (!synthesisRes.safe) {
+        const res = {
+          safe: false,
+          reason: synthesisRes.reason,
+          transcript,
+          model: synthesisRes.model,
+          moderator: `Groq Video Compound Engine (${synthesisRes.model})`,
+        };
+        setCachedDecision(fileHash, res);
+        return res;
+      }
+
+      const finalRes = { 
+        safe: true, 
+        transcript,
+        model: `${MODERATION_GROQ_MODELS.video.frameVision} + ${MODERATION_GROQ_MODELS.video.audioTranscription}`,
+        moderator: `Groq Video Compound Pipeline (${MODERATION_GROQ_MODELS.video.frameVision})`,
+        modality: "video",
+      };
       setCachedDecision(fileHash, finalRes);
       return finalRes;
     } catch (err) {
       console.warn("Video inspection error:", err);
-      return { safe: true };
+      return { 
+        safe: true, 
+        model: MODERATION_GROQ_MODELS.video.frameVision, 
+        moderator: "Groq Video Vision Engine" 
+      };
     } finally {
       try { if (fs.existsSync(audioTmp)) fs.unlinkSync(audioTmp); } catch (e) {}
       try { if (fs.existsSync(subTmp)) fs.unlinkSync(subTmp); } catch (e) {}
@@ -2870,12 +3334,118 @@ Respond strictly in valid JSON:
     }
   }
 
-  // Moderation Endpoint
+  // ==========================================
+  // Moderation API Endpoints
+  // ==========================================
+
+  // Returns active Groq models mapped specifically to each modality
+  app.get("/api/moderation/models", (req, res) => {
+    res.json({
+      status: "active",
+      provider: "Groq LPU Inference Engine",
+      hasKey: Boolean(GROQ_API_KEY),
+      models: {
+        image: {
+          primary: MODERATION_GROQ_MODELS.image.primary,
+          fallback: MODERATION_GROQ_MODELS.image.fallback,
+          name: MODERATION_GROQ_MODELS.image.name,
+          purpose: "High-speed multi-modal vision inspection (nudity, violence, NSFW, visual slurs)",
+          modality: "image",
+        },
+        audio: {
+          transcription: MODERATION_GROQ_MODELS.audio.transcription,
+          guard: MODERATION_GROQ_MODELS.audio.guard,
+          spectrogramVision: MODERATION_GROQ_MODELS.audio.spectrogramVision,
+          name: MODERATION_GROQ_MODELS.audio.name,
+          purpose: "Whisper speech transcription + Llama Guard 3 text filtering + acoustic spectrogram moaning check",
+          modality: "audio",
+        },
+        video: {
+          frameVision: MODERATION_GROQ_MODELS.video.frameVision,
+          audioTranscription: MODERATION_GROQ_MODELS.video.audioTranscription,
+          synthesis: MODERATION_GROQ_MODELS.video.synthesis,
+          name: MODERATION_GROQ_MODELS.video.name,
+          purpose: "90B Keyframe vision analysis + Whisper audio stream analysis + 70B timeline synthesis",
+          modality: "video",
+        },
+        text: {
+          primary: MODERATION_GROQ_MODELS.text.primary,
+          fallback: MODERATION_GROQ_MODELS.text.fallback,
+          name: MODERATION_GROQ_MODELS.text.name,
+          purpose: "Real-time message text, username, and title moderation",
+          modality: "text",
+        },
+      },
+    });
+  });
+
+  // Dedicated Test Endpoint to evaluate any text, image, audio, or video URL using the separate Groq models
+  app.post("/api/moderation/test", async (req, res) => {
+    try {
+      const { type, content, filename } = req.body || {};
+      const modType = (type || "text").toLowerCase();
+
+      if (modType === "text") {
+        const textCheck = checkTextModeration(content || "");
+        if (!textCheck.safe) {
+          return res.json({
+            safe: false,
+            reason: textCheck.reason,
+            category: textCheck.category,
+            model: "deterministic-regex",
+            moderator: "Deterministic Pattern Guard",
+            modality: "text",
+          });
+        }
+        const groqText = await callGroqTextModeration(content || "");
+        return res.json({ ...groqText, modality: "text" });
+      }
+
+      if (modType === "image") {
+        const local = await getLocalMediaFile(content);
+        if (!local) return res.status(400).json({ error: "Could not retrieve image source" });
+        try {
+          const imgRes = await inspectImageWithVision(local.filePath);
+          return res.json({ ...imgRes, modality: "image" });
+        } finally {
+          local.cleanup();
+        }
+      }
+
+      if (modType === "audio") {
+        const local = await getLocalMediaFile(content);
+        if (!local) return res.status(400).json({ error: "Could not retrieve audio source" });
+        try {
+          const audRes = await transcribeAndInspectAudio(local.filePath);
+          return res.json({ ...audRes, modality: "audio" });
+        } finally {
+          local.cleanup();
+        }
+      }
+
+      if (modType === "video") {
+        const local = await getLocalMediaFile(content);
+        if (!local) return res.status(400).json({ error: "Could not retrieve video source" });
+        try {
+          const vidRes = await inspectVideoCompound(local.filePath);
+          return res.json({ ...vidRes, modality: "video" });
+        } finally {
+          local.cleanup();
+        }
+      }
+
+      return res.status(400).json({ error: "Unsupported moderation test type" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // General Moderation Endpoint for live Chat & Messages
   app.post("/api/moderate", async (req, res) => {
     try {
       const { text, mediaUrl, mediaTitle, mediaType } = req.body || {};
 
-      // 1. Check message text against slurs, curse words, and sexual terms
+      // 1. Check message text against regex and Groq Llama Guard 3
       if (text && typeof text === "string" && text.trim().length > 0) {
         const textCheck = checkTextModeration(text);
         if (!textCheck.safe) {
@@ -2883,27 +3453,30 @@ Respond strictly in valid JSON:
             safe: false,
             reason: textCheck.reason || "Your message contains words that aren't allowed in chat.",
             category: textCheck.category,
+            model: "regex-guard",
+            moderator: "Deterministic Pattern Guard",
+            modality: "text",
             moderationNote: textCheck.reason || "Your message contains words that aren't allowed in chat. Please edit it and try again."
           });
         }
 
-        // Contextual moderation inspection
         try {
-          const aiCheck = await callGroqInspection(
-            `Perform strict safety and context moderation on this user message text: "${text}". Check for hidden slurs, homoglyphs, sexual terms, harassment, hate speech, or profanity (remember: 'damn' and 'hell' are permitted). Keep any explanation short and polite.`
-          );
+          const aiCheck = await callGroqTextModeration(text, "Chat message text");
           if (aiCheck && aiCheck.safe === false) {
             return res.json({
               safe: false,
               reason: aiCheck.reason || "Your message contains words or content that aren't allowed in chat.",
               category: aiCheck.category || "prohibited content",
+              model: aiCheck.model || MODERATION_GROQ_MODELS.text.primary,
+              moderator: aiCheck.moderator || "Groq Llama Guard",
+              modality: "text",
               moderationNote: aiCheck.reason || "Your message contains words or content that aren't allowed in chat."
             });
           }
         } catch (e) {}
       }
 
-      // 2. Check media/attachment title
+      // 2. Check media title
       if (mediaTitle && typeof mediaTitle === "string" && mediaTitle.trim().length > 0) {
         const titleCheck = checkTextModeration(mediaTitle);
         if (!titleCheck.safe) {
@@ -2911,20 +3484,25 @@ Respond strictly in valid JSON:
             safe: false,
             reason: titleCheck.reason || "The file name contains words that aren't allowed in chat.",
             category: titleCheck.category,
+            model: "regex-guard",
+            moderator: "Deterministic Filename Guard",
+            modality: "text",
             moderationNote: titleCheck.reason || "The file name contains words that aren't allowed in chat."
           });
         }
       }
 
-      // 3. Check media file content if mediaUrl is provided
+      // 3. Check media file content with specialized separate Groq models
       if (mediaUrl && typeof mediaUrl === "string") {
-        // Also check if mediaUrl itself contains prohibited words in filename or query params
         const urlCheck = checkTextModeration(decodeURIComponent(mediaUrl));
         if (!urlCheck.safe) {
           return res.json({
             safe: false,
             reason: urlCheck.reason || "The media link contains words that aren't allowed.",
             category: urlCheck.category,
+            model: "regex-guard",
+            moderator: "URL Safety Guard",
+            modality: "text",
             moderationNote: urlCheck.reason || "The media link contains words that aren't allowed."
           });
         }
@@ -2947,6 +3525,9 @@ Respond strictly in valid JSON:
                 return res.json({ 
                   safe: false, 
                   reason: gifRes.reason || "This GIF contains content that isn't allowed in chat.",
+                  model: gifRes.model || MODERATION_GROQ_MODELS.image.primary,
+                  moderator: gifRes.moderator || "Groq Vision Engine",
+                  modality: "image",
                   moderationNote: gifRes.reason || "This GIF contains content that isn't allowed in chat."
                 });
               }
@@ -2956,6 +3537,10 @@ Respond strictly in valid JSON:
                 return res.json({ 
                   safe: false, 
                   reason: vidRes.reason || "This video contains content that isn't allowed in chat.",
+                  transcript: vidRes.transcript,
+                  model: vidRes.model || MODERATION_GROQ_MODELS.video.frameVision,
+                  moderator: vidRes.moderator || "Groq Video Compound Pipeline",
+                  modality: "video",
                   moderationNote: vidRes.reason || "This video contains content that isn't allowed in chat."
                 });
               }
@@ -2965,6 +3550,10 @@ Respond strictly in valid JSON:
                 return res.json({ 
                   safe: false, 
                   reason: audRes.reason || "This audio contains language that isn't allowed in chat.",
+                  transcript: audRes.transcript,
+                  model: audRes.model || MODERATION_GROQ_MODELS.audio.transcription,
+                  moderator: audRes.moderator || "Groq Audio Engine",
+                  modality: "audio",
                   moderationNote: audRes.reason || "This audio contains language that isn't allowed in chat."
                 });
               }
@@ -2974,6 +3563,9 @@ Respond strictly in valid JSON:
                 return res.json({ 
                   safe: false, 
                   reason: imgRes.reason || "This image contains content that isn't allowed in chat.",
+                  model: imgRes.model || MODERATION_GROQ_MODELS.image.primary,
+                  moderator: imgRes.moderator || "Groq Vision Engine",
+                  modality: "image",
                   moderationNote: imgRes.reason || "This image contains content that isn't allowed in chat."
                 });
               }
@@ -2984,12 +3576,22 @@ Respond strictly in valid JSON:
         }
       }
 
-      return res.json({ safe: true });
+      return res.json({ 
+        safe: true, 
+        moderator: "Groq LPU Content Moderation Suite",
+        models: {
+          image: MODERATION_GROQ_MODELS.image.primary,
+          audio: MODERATION_GROQ_MODELS.audio.transcription,
+          video: MODERATION_GROQ_MODELS.video.frameVision,
+          text: MODERATION_GROQ_MODELS.text.primary,
+        }
+      });
     } catch (err: any) {
       console.warn("Moderation route error:", err);
       return res.json({ safe: true });
     }
   });
+
 
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", mode: process.env.NODE_ENV });
