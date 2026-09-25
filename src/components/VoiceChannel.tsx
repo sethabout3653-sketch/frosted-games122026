@@ -389,8 +389,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           echoCancellation: { ideal: true },
           noiseSuppression: { ideal: true },
           autoGainControl: { ideal: true },
-          channelCount: { ideal: 2, min: 1 },
-          sampleRate: { ideal: 48000, min: 44100 },
+          // Mono keeps echo cancellation and CPU usage stable during voice calls.
+          channelCount: { ideal: 1, min: 1 },
+          sampleRate: { ideal: 48000 },
           sampleSize: { ideal: 16 },
         },
         video: false,
@@ -848,16 +849,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         candidate: type === "candidate" ? data : undefined,
         timestamp: Date.now(),
       };
-      // WebSocket is the primary signaling path: it avoids database round-trips and
-      // stays responsive while ICE candidates are flowing.
+      // WebSocket is the single signaling path. Sending the same offer/candidate
+      // through multiple transports makes peers negotiate twice and causes audio
+      // glitches, duplicate tracks, and unnecessary database work.
       wsClient.sendSignal(payload);
-      // Keep the existing broadcast as a second low-latency path. Persist only the
-      // offer/answer/control messages; ICE candidates are transient and should never
-      // queue database work or make voice feel delayed.
-      sendBroadcastSignal(payload);
-      if (type !== "candidate") {
-        addDoc("signals", payload).catch(() => {});
-      }
     },
     [profile.uid]
   );

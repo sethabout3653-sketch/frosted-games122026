@@ -1205,15 +1205,10 @@ const PORT = Number(process.env.PORT) || 3000;
             timestamp: payload.timestamp || Date.now(),
           };
 
-          // Store in DB for reliability
-          getDb().then(async (db) => {
-            try {
-              await db.run(
-                "INSERT INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, timestamp = EXCLUDED.timestamp",
-                [sigObj.id, sigObj.targetUid, sigObj.uid, JSON.stringify(sigObj), sigObj.timestamp]
-              );
-            } catch (e) {}
-          }).catch(() => {});
+          // WebRTC signaling is ephemeral. Persisting every ICE candidate and
+          // SDP message serializes disk/database work on the voice path and can
+          // stall the event loop under load. The socket is the authoritative
+          // low-latency transport; peers reconnect and renegotiate when needed.
 
           // Direct instant delivery to peer(s)
           broadcastWebSocketSignal(sigObj, ws);
