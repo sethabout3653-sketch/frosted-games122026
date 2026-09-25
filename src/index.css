@@ -50,7 +50,6 @@ body {
     radial-gradient(ellipse 60rem 32rem at 85% -8%, hsla(var(--theme-h), var(--theme-sat), 60%, 0.14), transparent 70%),
     radial-gradient(ellipse 50rem 30rem at -5% 105%, hsla(calc(var(--theme-h) + 30), var(--theme-sat), 55%, 0.08), transparent 70%),
     var(--theme-darkest);
-  background-attachment: fixed;
   color: var(--theme-text-accent);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-feature-settings: "cv11", "ss01";
@@ -125,6 +124,12 @@ select option {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+}
+
+/* Low-end GPU safety: backdrop blur re-renders everything behind an element every frame and is the main cause of lag on Chromebooks. */
+*, *::before, *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 /* Universal dynamic overrides: transforms all navy blue and indigo elements across the entire app to the active theme color */
