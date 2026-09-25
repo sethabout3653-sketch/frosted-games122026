@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { useFavorites } from "../lib/favorites";
 import GameReactionsBar from "./GameReactionsBar";
-import { getScramjetGameUrl, isScramjetEligible, registerScramjetServiceWorker } from "../lib/scramjet";
 
 interface GamePlayerProps {
   game: Game;

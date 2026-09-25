@@ -40,15 +40,66 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import FriendsPanel from "./FriendsPanel";
-import PersonaModal from "./PersonaModal";
 import { ChatProfile } from "../types";
-import {
-  AIPersona,
-  DEFAULT_PERSONAS,
-  getAllPersonas,
-  getCustomPersonas,
-  saveCustomPersona,
-} from "../lib/personas";
+
+export interface AIPersona {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  tagline?: string;
+  accentColor?: string;
+  toneStyle?: string;
+  systemPrompt: string;
+  temperature?: number;
+  isCustom?: boolean;
+}
+
+export const DEFAULT_PERSONAS: AIPersona[] = [
+  {
+    id: "unrestricted_companion",
+    name: "AI Assistant",
+    icon: "✨",
+    description: "Intelligent, direct, and versatile AI companion.",
+    accentColor: "#38bdf8",
+    toneStyle: "Articulate, authentic, direct",
+    systemPrompt: "You are a helpful, articulate, and intelligent AI companion.",
+    temperature: 0.7,
+  },
+  {
+    id: "stem_tutor",
+    name: "STEM & Logic Tutor",
+    icon: "🧠",
+    description: "Deep step-by-step reasoning for physics, math, and logic.",
+    accentColor: "#818cf8",
+    toneStyle: "Analytical, methodical, step-by-step",
+    systemPrompt: "You are a patient and rigorous STEM tutor. Provide step-by-step breakdowns and clear equations.",
+    temperature: 0.5,
+  },
+  {
+    id: "code_architect",
+    name: "Code Architect",
+    icon: "⚡",
+    description: "Expert software engineer for debugging and architectural design.",
+    accentColor: "#34d399",
+    toneStyle: "Technical, precise, code-focused",
+    systemPrompt: "You are a senior software architect. Provide production-ready, clean, typed code with explanations.",
+    temperature: 0.3,
+  },
+];
+
+export function getAllPersonas(): AIPersona[] {
+  try {
+    const saved = localStorage.getItem("frosted_custom_personas");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return [...DEFAULT_PERSONAS, ...parsed];
+      }
+    }
+  } catch {}
+  return DEFAULT_PERSONAS;
+}
 
 export function parseThoughtAndContent(raw: string): {
   thought: string;
@@ -250,7 +301,7 @@ export default function AIAssistant() {
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>(() => {
     const saved = localStorage.getItem("frosted_selected_persona_id");
     const all = getAllPersonas();
-    if (saved && all.some((p) => p.id === saved)) return saved;
+    if (saved && all.some((p: AIPersona) => p.id === saved)) return saved;
     return all[0]?.id || "unrestricted_companion";
   });
 
@@ -260,7 +311,7 @@ export default function AIAssistant() {
   }, []);
 
   const activePersona = useMemo(() => {
-    return personas.find((p) => p.id === selectedPersonaId) || personas[0] || DEFAULT_PERSONAS[0];
+    return personas.find((p: AIPersona) => p.id === selectedPersonaId) || personas[0] || DEFAULT_PERSONAS[0];
   }, [personas, selectedPersonaId]);
 
   const [temperature, setTemperature] = useState<number>(() => activePersona.temperature ?? 0.7);
@@ -1618,18 +1669,55 @@ Behavioral rules:
       )}
 
       {/* Custom Persona Studio Modal */}
-      <PersonaModal
-        isOpen={showPersonaModal}
-        onClose={() => {
-          setShowPersonaModal(false);
-          refreshPersonas();
-        }}
-        selectedPersonaId={selectedPersonaId}
-        onSelectPersona={(persona) => {
-          handleSelectPersona(persona);
-          setShowPersonaModal(false);
-        }}
-      />
+      {showPersonaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="w-full max-w-lg rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-darkest)] p-6 shadow-2xl relative space-y-4">
+            <button
+              onClick={() => setShowPersonaModal(false)}
+              className="absolute top-4 right-4 p-2 rounded-xl bg-white/5 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-2">
+              <Sparkles className="text-cyan-400" size={20} />
+              <h3 className="text-lg font-bold text-white">AI Persona Studio</h3>
+            </div>
+
+            <p className="text-xs text-neutral-400">
+              Select an active AI persona to customize response style, domain focus, and tone.
+            </p>
+
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+              {personas.map((persona: AIPersona) => (
+                <button
+                  key={persona.id}
+                  onClick={() => {
+                    handleSelectPersona(persona);
+                    setShowPersonaModal(false);
+                  }}
+                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                    selectedPersonaId === persona.id
+                      ? "border-cyan-500 bg-cyan-500/10 text-white"
+                      : "border-white/10 bg-white/5 text-neutral-300 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <span className="text-2xl">{persona.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm text-white flex items-center justify-between">
+                      <span>{persona.name}</span>
+                      {selectedPersonaId === persona.id && (
+                        <CheckCircle2 size={16} className="text-cyan-400 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-xs text-neutral-400 truncate">{persona.description}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

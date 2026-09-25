@@ -2119,9 +2119,9 @@ const PORT = Number(process.env.PORT) || 3000;
         } catch (e) {}
       }
 
-      // 3. Inspect Animated & Static GIF
+      // 3. Inspect Animated GIF
       if (lowerMime.includes("gif") || ext === ".gif") {
-        const res = await inspectGifDedicated(filePath);
+        const res = await inspectGifAnimation(filePath);
         setCachedModeration(cacheKey, res);
         return res;
       }
@@ -2257,15 +2257,7 @@ const PORT = Number(process.env.PORT) || 3000;
       name: "Groq Llama 3.2 90B Vision + Whisper Turbo Compound",
       modality: "video",
     },
-    // 4. Dedicated GIF Moderation: Static Native Vision & Animated Burst Frame-by-Frame Pipeline
-    gif: {
-      staticModel: "llama-3.2-11b-vision-preview",
-      animatedModel: "llama-3.2-11b-vision-preview",
-      animatedFallback: "llama-3.2-90b-vision-preview",
-      name: "Groq Llama 3.2 11B GIF Vision Engine",
-      modality: "image",
-    },
-    // 5. Text & Chat Moderation: Dedicated Llama Guard 3 LPU Model
+    // 4. Text & Chat Moderation: Dedicated Llama Guard 3 LPU Model
     text: {
       primary: "llama-guard-3-8b",
       fallback: "llama-3.1-8b-instant",
@@ -2911,115 +2903,37 @@ Respond strictly in valid JSON format:
     }
   }
 
-  // Helper to determine if GIF is static (1 frame) or animated (>1 frame)
-  function detectGifFrameCount(gifPath: string): number {
-    try {
-      const probeOutput = execSync(
-        `ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of default=nokey=1:noprint_wrappers=1 "${gifPath}" 2>/dev/null`,
-        { timeout: 3000 }
-      ).toString().trim();
-      const count = parseInt(probeOutput, 10);
-      if (!isNaN(count) && count > 0) return count;
-    } catch (e) {}
-
-    // Buffer inspection fallback for GIF image descriptors (0x2C)
-    try {
-      const buf = fs.readFileSync(gifPath);
-      let frames = 0;
-      for (let i = 0; i < buf.length - 1; i++) {
-        if (buf[i] === 0x2C) { // GIF Image Separator
-          frames++;
-          if (frames > 1) return frames;
-        }
-      }
-      return frames || 1;
-    } catch (e) {
-      return 1;
-    }
-  }
-
-  // 🎞️ Dedicated GIF Inspection (1. Static GIFs Native Vision vs 2. Animated GIF Preprocessed Frame Burst)
-  async function inspectGifDedicated(gifPath: string): Promise<{ safe: boolean; reason?: string; category?: string; model?: string; moderator?: string }> {
+  // 🎞️ GIF Inspection: Distinguishes Static GIFs vs Animated GIF Sequence (llama-3.2-11b-vision-preview)
+  async function inspectGifAnimation(gifPath: string): Promise<{ safe: boolean; reason?: string; model?: string; moderator?: string }> {
     const fileHash = getFileSha256(gifPath);
     const cached = getCachedDecision(fileHash);
     if (cached) return cached;
 
-    const key = GROQ_API_KEY;
-    const modelName = MODERATION_GROQ_MODELS.gif.animatedModel; // "llama-3.2-11b-vision-preview"
-    const frameCount = detectGifFrameCount(gifPath);
-    const isAnimated = frameCount > 1;
-
-    // ----------------------------------------------------------------------
-    // 1. FOR STATIC GIFs (Single Image)
-    // Pass directly via base64 or URL to Groq llama-3.2-11b-vision-preview natively
-    // ----------------------------------------------------------------------
-    if (!isAnimated) {
-      try {
-        const rawBuf = fs.readFileSync(gifPath);
-        const base64 = rawBuf.toString("base64");
-
-        const [ocrText, visionRes] = await Promise.all([
-          runThoroughOcr(gifPath),
-          callGroqImageModeration(
-            base64,
-            "image/gif",
-            "Inspect this static GIF for nudity, explicit acts, violence, weapons pointed at screen, slurs, or threats."
-          )
-        ]);
-
-        if (ocrText) {
-          const ocrCheck = checkTextModeration(ocrText);
-          if (!ocrCheck.safe) {
-            const res = {
-              safe: false,
-              reason: `Prohibited text in static GIF: ${ocrCheck.reason}`,
-              category: ocrCheck.category,
-              model: modelName,
-              moderator: "Groq Static GIF Vision Guard",
-            };
-            setCachedDecision(fileHash, res);
-            return res;
-          }
-        }
-
-        if (!visionRes.safe) {
-          const res = {
-            safe: false,
-            reason: visionRes.reason || "Static GIF contains disallowed visual content.",
-            category: visionRes.category,
-            model: visionRes.model || modelName,
-            moderator: visionRes.moderator || "Groq Static GIF Vision Guard",
-          };
-          setCachedDecision(fileHash, res);
-          return res;
-        }
-
-        const finalRes = {
-          safe: true,
-          model: modelName,
-          moderator: "Groq Static GIF Vision Guard",
-        };
-        setCachedDecision(fileHash, finalRes);
-        return finalRes;
-      } catch (err) {
-        console.warn("Static GIF inspection error:", err);
-        return { safe: true, model: modelName, moderator: "Groq Static GIF Vision Guard" };
-      }
-    }
-
-    // ----------------------------------------------------------------------
-    // 2. FOR ANIMATED GIFs (Moving Images)
-    // Frame Extraction: Preprocess and burst animated GIF into sequential JPEG frames using ffmpeg
-    // Batch Processing: Pass extracted frames sequentially into llama-3.2-11b-vision-preview
-    // ----------------------------------------------------------------------
-    const uid = `gif_anim_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const uid = `gif_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const framePattern = path.join("/tmp", `${uid}_%02d.jpg`);
     const extractedFrames: string[] = [];
+    let isAnimatedGif = false;
 
     try {
+      // 1. Detect if GIF is static or animated via ffprobe frame count probe
+      let probedFrames = 0;
       try {
-        // Burst animated GIF into individual sequential JPEG frames
-        execSync(`ffmpeg -y -i "${gifPath}" -vf "fps=4,scale='min(512,iw)':-1" -threads 2 -preset ultrafast -vframes 10 "${framePattern}" 2>/dev/null`, { timeout: 6000 });
+        const probeOut = execSync(
+          `ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of default=nokey=1:nohide_wrapper=1 "${gifPath}" 2>/dev/null`,
+          { timeout: 3000 }
+        ).toString().trim();
+        const parsed = parseInt(probeOut, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          probedFrames = parsed;
+        }
+      } catch (e) {}
+
+      // 2. Extract sequential JPEG frames across GIF timeline using ffmpeg
+      try {
+        execSync(
+          `ffmpeg -y -i "${gifPath}" -vf "fps=5,scale='min(512,iw)':-1" -threads 2 -preset ultrafast -vframes 12 "${framePattern}" 2>/dev/null`,
+          { timeout: 5000 }
+        );
         const tmpFiles = fs.readdirSync("/tmp").filter((f) => f.startsWith(`${uid}_`) && f.endsWith(".jpg")).sort();
         for (const tf of tmpFiles) {
           const fullP = path.join("/tmp", tf);
@@ -3033,131 +2947,79 @@ Respond strictly in valid JSON format:
         extractedFrames.push(gifPath);
       }
 
+      isAnimatedGif = probedFrames > 1 || extractedFrames.length > 1;
+
+      // Handle Static GIF (Single Image Frame) via native Groq Vision payload
+      if (!isAnimatedGif) {
+        const staticImgRes = await inspectImageWithVision(extractedFrames[0] || gifPath);
+        const staticDecision = {
+          ...staticImgRes,
+          model: MODERATION_GROQ_MODELS.image.primary,
+          moderator: `Groq Vision Engine (${MODERATION_GROQ_MODELS.image.primary} - Static GIF)`,
+        };
+        setCachedDecision(fileHash, staticDecision);
+        return staticDecision;
+      }
+
+      // Handle Animated GIF (Batch Extraction & Sequential Processing)
       const frameBase64List = extractedFrames.map((fPath) => fs.readFileSync(fPath).toString("base64"));
 
-      // Optical OCR on extracted frames
-      for (let i = 0; i < extractedFrames.length; i++) {
-        try {
-          const ocrText = await runThoroughOcr(extractedFrames[i]);
-          if (ocrText) {
-            const ocrCheck = checkTextModeration(ocrText);
-            if (!ocrCheck.safe) {
-              const res = {
-                safe: false,
-                reason: `Animated GIF frame #${i + 1} contains prohibited text: ${ocrCheck.reason}`,
-                category: ocrCheck.category,
-                model: modelName,
-                moderator: "Groq Animated GIF OCR Guard",
+      // Run Optical OCR and Groq Frame-by-Frame Vision Moderation across extracted JPEG frames
+      const [ocrResult, groqVisionResult] = await Promise.all([
+        (async () => {
+          for (let i = 0; i < extractedFrames.length; i++) {
+            const fPath = extractedFrames[i];
+            try {
+              const ocrText = await runThoroughOcr(fPath);
+              if (ocrText) {
+                const ocrCheck = checkTextModeration(ocrText);
+                if (!ocrCheck.safe) {
+                  return {
+                    safe: false,
+                    reason: `Prohibited text in animated GIF frame #${i + 1}: ${ocrCheck.reason}`,
+                  };
+                }
+              }
+            } catch (e) {}
+          }
+          return { safe: true };
+        })(),
+        (async () => {
+          for (let i = 0; i < frameBase64List.length; i++) {
+            const b64 = frameBase64List[i];
+            const res = await callGroqImageModeration(
+              b64, 
+              "image/jpeg", 
+              `Inspect frame #${i + 1} of ${frameBase64List.length} from animated GIF for nudity, explicit acts, violence, weapons pointed at screen, slurs, or threats.`
+            );
+            if (!res.safe) {
+              return {
+                ...res,
+                reason: res.reason || `Inappropriate content detected in animated GIF frame #${i + 1}.`,
               };
-              setCachedDecision(fileHash, res);
-              return res;
             }
           }
-        } catch (e) {}
+          return { safe: true, model: MODERATION_GROQ_MODELS.image.primary, moderator: `Groq Frame Sequencer (${MODERATION_GROQ_MODELS.image.primary})` };
+        })()
+      ]);
+
+      if (!ocrResult.safe) {
+        setCachedDecision(fileHash, ocrResult);
+        return ocrResult;
       }
 
-      // Batch evaluate extracted frames sequentially with Groq llama-3.2-11b-vision-preview
-      if (key) {
-        try {
-          const contentParts: any[] = [
-            {
-              type: "text",
-              text: `You are Groq Llama 3.2 11B Vision evaluating an ANIMATED GIF burst into ${frameBase64List.length} sequential frames over time.
-Thoroughly inspect ALL frames for:
-1. Nudity, NSFW sexual content, suggestive poses, genitalia, or pornography (STRICTLY FORBIDDEN).
-2. Graphic violence, blood, gore, real-world weapons pointed at camera, or threats (STRICTLY FORBIDDEN).
-3. Racial/homophobic/ethnic slurs or hate symbols in frame overlays (STRICTLY FORBIDDEN).
-(General profanity/swearing text is PERMITTED).
-
-Respond strictly in valid JSON format:
-{
-  "safe": boolean,
-  "category": "clean" | "nsfw" | "violence" | "slur" | "threat",
-  "reason": "A friendly 1-sentence explanation if any frame is unsafe",
-  "failingFrameIndex": number
-}`
-            }
-          ];
-
-          for (const b64 of frameBase64List.slice(0, 8)) {
-            contentParts.push({
-              type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${b64}` }
-            });
-          }
-
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 9000);
-
-          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            signal: controller.signal,
-            headers: {
-              "Authorization": `Bearer ${key}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              model: modelName,
-              messages: [
-                { role: "user", content: contentParts }
-              ],
-              temperature: 0.1,
-              response_format: { type: "json_object" }
-            })
-          });
-          clearTimeout(timeout);
-
-          if (response.ok) {
-            const data = await response.json();
-            const rawContent = data.choices?.[0]?.message?.content || "";
-            const parsed = JSON.parse(rawContent);
-            if (parsed && parsed.safe === false) {
-              const res = {
-                safe: false,
-                reason: parsed.reason || `Animated GIF frame #${parsed.failingFrameIndex || 1} contains prohibited content.`,
-                category: parsed.category || "nsfw",
-                model: modelName,
-                moderator: `Groq Animated GIF Frame Engine (${modelName})`,
-              };
-              setCachedDecision(fileHash, res);
-              return res;
-            }
-          }
-        } catch (e) {
-          console.warn("Batch GIF vision call failed, falling back to sequential frame check:", e);
-        }
+      if (!groqVisionResult.safe) {
+        const res = {
+          safe: false,
+          reason: (groqVisionResult as any).reason || "Inappropriate visual scene or threat detected in animated GIF sequence.",
+          model: groqVisionResult.model || MODERATION_GROQ_MODELS.image.primary,
+          moderator: groqVisionResult.moderator || "Groq Vision Engine",
+        };
+        setCachedDecision(fileHash, res);
+        return res;
       }
-
-      // Sequential Frame Fallback
-      for (let i = 0; i < frameBase64List.length; i++) {
-        const res = await callGroqImageModeration(
-          frameBase64List[i],
-          "image/jpeg",
-          `Inspect animated GIF frame #${i + 1} of ${frameBase64List.length} for nudity, explicit acts, violence, weapons, slurs, or threats.`
-        );
-        if (!res.safe) {
-          const failRes = {
-            safe: false,
-            reason: res.reason || `Inappropriate content detected in animated GIF frame #${i + 1}.`,
-            category: res.category,
-            model: res.model || modelName,
-            moderator: `Groq Animated GIF Frame Engine (${res.model || modelName})`,
-          };
-          setCachedDecision(fileHash, failRes);
-          return failRes;
-        }
-      }
-
-      const finalRes = {
-        safe: true,
-        model: modelName,
-        moderator: `Groq Animated GIF Frame Engine (${modelName})`,
-      };
-      setCachedDecision(fileHash, finalRes);
-      return finalRes;
     } catch (err) {
-      console.warn("Animated GIF inspection error:", err);
-      return { safe: true, model: modelName, moderator: "Groq Animated GIF Frame Engine" };
+      console.warn("GIF animation frame-by-frame inspection error:", err);
     } finally {
       for (const fPath of extractedFrames) {
         if (fPath !== gifPath) {
@@ -3165,6 +3027,15 @@ Respond strictly in valid JSON format:
         }
       }
     }
+
+    const finalRes = { 
+      safe: true, 
+      model: MODERATION_GROQ_MODELS.image.primary, 
+      moderator: `Groq Vision Engine (${MODERATION_GROQ_MODELS.image.primary} - Animated GIF Batch)`,
+      modality: "image",
+    };
+    setCachedDecision(fileHash, finalRes);
+    return finalRes;
   }
 
   // 🎵 Audio Moderation: Groq Whisper Large v3 Turbo + Groq Llama Guard 3 + Spectrogram Acoustics
@@ -3516,13 +3387,6 @@ Respond strictly in valid JSON format:
           purpose: "High-speed multi-modal vision inspection (nudity, violence, NSFW, visual slurs)",
           modality: "image",
         },
-        gif: {
-          staticModel: MODERATION_GROQ_MODELS.gif.staticModel,
-          animatedModel: MODERATION_GROQ_MODELS.gif.animatedModel,
-          name: MODERATION_GROQ_MODELS.gif.name,
-          purpose: "Static GIFs: Native llama-3.2-11b-vision-preview; Animated GIFs: Preprocessed frame-by-frame JPEG burst + sequential 11B vision inspection",
-          modality: "image",
-        },
         audio: {
           transcription: MODERATION_GROQ_MODELS.audio.transcription,
           guard: MODERATION_GROQ_MODELS.audio.guard,
@@ -3572,16 +3436,10 @@ Respond strictly in valid JSON format:
         return res.json({ ...groqText, modality: "text" });
       }
 
-      if (modType === "gif" || modType === "image") {
+      if (modType === "image") {
         const local = await getLocalMediaFile(content);
-        if (!local) return res.status(400).json({ error: "Could not retrieve image/GIF source" });
+        if (!local) return res.status(400).json({ error: "Could not retrieve image source" });
         try {
-          const lowerUrl = (content || "").toLowerCase();
-          const isGif = modType === "gif" || lowerUrl.includes(".gif") || lowerUrl.includes("giphy.com") || lowerUrl.includes("tenor.com");
-          if (isGif) {
-            const gifRes = await inspectGifDedicated(local.filePath);
-            return res.json({ ...gifRes, modality: "image" });
-          }
           const imgRes = await inspectImageWithVision(local.filePath);
           return res.json({ ...imgRes, modality: "image" });
         } finally {
@@ -3691,19 +3549,19 @@ Respond strictly in valid JSON format:
             const lowerUrl = mediaUrl.toLowerCase();
             const ext = path.extname(lowerUrl.split("?")[0]);
 
-            const isGif = mType.includes("gif") || lowerUrl.includes(".gif") || lowerUrl.includes("giphy.com") || lowerUrl.includes("tenor.com");
+            const isGif = mType.includes("gif") || ext === ".gif";
             const isVideo = mType.startsWith("video/") || [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".flv", ".wmv", ".3gp", ".ts"].includes(ext);
             const isAudio = mType.startsWith("audio/") || [".mp3", ".wav", ".m4a", ".ogg", ".aac", ".flac", ".opus", ".weba", ".wma"].includes(ext);
             const isImage = mType.startsWith("image/") || [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".svg", ".tiff", ".heic"].includes(ext);
 
             if (isGif) {
-              const gifRes = await inspectGifDedicated(local.filePath);
+              const gifRes = await inspectGifAnimation(local.filePath);
               if (!gifRes.safe) {
                 return res.json({ 
                   safe: false, 
                   reason: gifRes.reason || "This GIF contains content that isn't allowed in chat.",
-                  model: gifRes.model || MODERATION_GROQ_MODELS.gif.animatedModel,
-                  moderator: gifRes.moderator || "Groq GIF Vision Engine",
+                  model: gifRes.model || MODERATION_GROQ_MODELS.image.primary,
+                  moderator: gifRes.moderator || "Groq Vision Engine",
                   modality: "image",
                   moderationNote: gifRes.reason || "This GIF contains content that isn't allowed in chat."
                 });
