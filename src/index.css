@@ -286,11 +286,43 @@ iframe[title*="Soundboard"] {
   scrollbar-width: auto !important;
 }
 
-/* High-performance rendering optimizations for large game catalogs */
+/* Global hardware-accelerated rendering optimizations for Chromebooks & low-spec laptops */
 .game-card-item {
   content-visibility: auto;
-  contain-intrinsic-size: 180px 240px;
+  contain-intrinsic-size: auto 240px;
+  contain: layout style paint;
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Optimize heavy UI surfaces (Chat, Assistant, Video & Audio lists) on Chromebooks */
+#chat-messages-container,
+#ai-messages-container,
+#friends-panel-list,
+#youtube-media-grid {
+  contain: layout style;
   transform: translateZ(0);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Modals & Dialog overlays: remove expensive full-screen Gaussian backdrop-filter churn on low-end GPUs */
+.modal-overlay-backdrop {
+  background-color: rgba(2, 6, 14, 0.92) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Smooth scrolling and text rasterization */
+html {
+  scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+#game-grid-container {
+  contain: layout;
 }
 
 #lumin-headless-container {
@@ -392,29 +424,6 @@ iframe[title*="Soundboard"] {
 
 .animate-ripple-fade {
   animation: rippleFade 0.45s ease-out forwards;
-}
-
-/* High-performance rendering optimizations for Chromebooks and low-end hardware */
-.game-card-item {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 240px;
-  contain: layout style paint;
-  transform: translate3d(0, 0, 0);
-  -webkit-transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  will-change: transform;
-}
-
-/* Optimize smooth scrolling across ChromeOS */
-html {
-  scroll-behavior: smooth;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
-
-#game-grid-container {
-  contain: layout;
 }
 
 

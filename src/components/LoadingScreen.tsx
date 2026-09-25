@@ -73,11 +73,11 @@ export default function LoadingScreen({ onComplete, themeColor }: LoadingScreenP
       setPhraseIndex((prev) => (prev + 1) % FRIENDLY_PHRASES.length);
     }, 450);
 
-    // Smooth completion after ~1.6 seconds
+    // Smooth completion after ~0.9 seconds for fast app startup
     const completeTimer = setTimeout(() => {
       setProgress(100);
       onComplete();
-    }, 1600);
+    }, 900);
 
     return () => {
       clearInterval(progressInterval);
@@ -93,9 +93,8 @@ export default function LoadingScreen({ onComplete, themeColor }: LoadingScreenP
       animate={{ opacity: 1 }}
       exit={{
         opacity: 0,
-        scale: 1.04,
-        filter: "blur(10px)",
-        transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] },
+        scale: 1.01,
+        transition: { duration: 0.22, ease: "easeOut" },
       }}
       className="fixed inset-0 z-[9999] flex flex-col items-center justify-center overflow-hidden select-none text-white cursor-wait"
       style={{
