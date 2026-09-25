@@ -22,11 +22,41 @@ export const BUILTIN_RINGTONES: RingtoneDefinition[] = [
     description: "Default incoming call ringtone",
     url: SOUND_ASSETS.incomingCall,
   },
+  {
+    id: "chimpanzini_bananini",
+    name: "Chimpanzini Bananini",
+    description: "Brainrot classic voice ringtone",
+    url: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Voicy_Chimpanzini%20bananini-EGVXDrBhtKg92XFuYSbKzNot5vPZPp.mp3",
+  },
+  {
+    id: "marimba_mp3",
+    name: "Marimba",
+    description: "Iconic mallet phone ringtone",
+    url: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/marimba-mHesi68iYRjsWw0mxwO46QC2yWgMGt.mp3",
+  },
+  {
+    id: "brr_brr_patapim",
+    name: "Brr Brr Patapim",
+    description: "Alarm clock style wake-up call",
+    url: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/brr-brr-patapim-alarm-clock-OMmzyXlVm1W6XFCxLfrqQTLqcYdJ9q.mp3",
+  },
+  {
+    id: "yo_phone_ringing",
+    name: "Yo Phone Ringing",
+    description: "Chino's phone is ringing",
+    url: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/yo-phone-ringing-chino-hEhf6SH1wCKSWdVgF6CJ3FGLyJIsDT.mp3",
+  },
+  {
+    id: "samsung_homecoming",
+    name: "Samsung Homecoming",
+    description: "Smooth Samsung-style melody",
+    url: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/samsung-homecoming-T3lueTIsOorr13EWvFlJa3QSCXxgbP.mp3",
+  },
 ];
 
 export const AVAILABLE_RINGTONES = BUILTIN_RINGTONES;
 export const DEFAULT_RINGTONES = BUILTIN_RINGTONES;
-export const DEFAULT_RINGTONE = "piano_default";
+export const DEFAULT_RINGTONE = "incoming_default";
 const STORAGE_KEY = "frosted_call_ringtone_id";
 
 export function getAllRingtones(): RingtoneDefinition[] {
@@ -275,13 +305,15 @@ export function previewRingtone(ringtoneId: string, onEnded?: () => void): () =>
   return cleanup;
 }
 
-export function startRingtoneLoop(_ringtoneId?: string): () => void {
+export function startRingtoneLoop(ringtoneId?: string): () => void {
   if (activeRingtoneStopFn) {
     activeRingtoneStopFn();
     activeRingtoneStopFn = null;
   }
 
-  const target = { url: SOUND_ASSETS.incomingCall };
+  const id = ringtoneId || getSavedRingtone();
+  const selected = BUILTIN_RINGTONES.find((r) => r.id === id);
+  const target = { url: selected?.url || SOUND_ASSETS.incomingCall };
 
   if (target.url) {
     try {

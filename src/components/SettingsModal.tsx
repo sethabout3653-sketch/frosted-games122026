@@ -340,7 +340,7 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
                 </div>
 
                 <p className="text-xs text-neutral-300 leading-relaxed">
-                  Choose your preferred built-in ringtone for incoming audio/video calls. The default is a custom piano melody synthesized live on a piano!
+                  Choose your preferred ringtone for incoming audio/video calls. Tap play to preview, then click a card to set it.
                 </p>
 
                 {/* Ringtone List */}
