@@ -110,15 +110,9 @@ const THREAT_PATTERNS: RegExp[] = [
 
 // 5. Obfuscated / Evaded patterns (spaced letters, punctuation)
 const OBFUSCATED_PATTERNS = [
-  { regex: /f[\s._\-*~+^#%&/\\|!@$]+u[\s._\-*~+^#%&/\\|!@$]+c[\s._\-*~+^#%&/\\|!@$]+k/i, type: "curse word" },
-  { regex: /s[\s._\-*~+^#%&/\\|!@$]+h[\s._\-*~+^#%&/\\|!@$]+i[\s._\-*~+^#%&/\\|!@$]+t/i, type: "curse word" },
-  { regex: /b[\s._\-*~+^#%&/\\|!@$]+i[\s._\-*~+^#%&/\\|!@$]+t[\s._\-*~+^#%&/\\|!@$]+c[\s._\-*~+^#%&/\\|!@$]+h/i, type: "curse word" },
   { regex: /p[\s._\-*~+^#%&/\\|!@$]+o[\s._\-*~+^#%&/\\|!@$]+r[\s._\-*~+^#%&/\\|!@$]+n/i, type: "sexual term" },
   { regex: /n[\s._\-*~+^#%&/\\|!@$]+i[\s._\-*~+^#%&/\\|!@$]+g[\s._\-*~+^#%&/\\|!@$]+g/i, type: "slur" },
   { regex: /f[\s._\-*~+^#%&/\\|!@$]+a[\s._\-*~+^#%&/\\|!@$]+g/i, type: "slur" },
-  { regex: /c[\s._\-*~+^#%&/\\|!@$]+u[\s._\-*~+^#%&/\\|!@$]+n[\s._\-*~+^#%&/\\|!@$]+t/i, type: "curse word" },
-  { regex: /d[\s._\-*~+^#%&/\\|!@$]+i[\s._\-*~+^#%&/\\|!@$]+c[\s._\-*~+^#%&/\\|!@$]+k/i, type: "curse word" },
-  { regex: /p[\s._\-*~+^#%&/\\|!@$]+u[\s._\-*~+^#%&/\\|!@$]+s[\s._\-*~+^#%&/\\|!@$]+s[\s._\-*~+^#%&/\\|!@$]+y/i, type: "curse word" },
   { regex: /s[\s._\-*~+^#%&/\\|!@$]+e[\s._\-*~+^#%&/\\|!@$]+x/i, type: "sexual term" },
   { regex: /n[\s._\-*~+^#%&/\\|!@$]+u[\s._\-*~+^#%&/\\|!@$]+d[\s._\-*~+^#%&/\\|!@$]+e/i, type: "sexual term" },
 ];
@@ -241,22 +235,7 @@ export function checkTextModeration(input: string, customBlacklist: string[] = [
     }
   }
 
-  // 5. Check Curse words & Profanity (Excluding allowed damn/hell)
-  for (const pattern of CURSE_PATTERNS) {
-    if (pattern.test(raw) || pattern.test(normalized)) {
-      // Double check if matched segment is purely an allowed exception
-      const match = raw.match(pattern)?.[0]?.toLowerCase() || normalized.match(pattern)?.[0]?.toLowerCase();
-      if (match && ALLOWED_EXCEPTIONS.has(match)) {
-        continue;
-      }
-      return {
-        safe: false,
-        category: "curse word",
-        reason: "Please keep the chat clean and avoid harsh curse words.",
-      };
-    }
-  }
-
+  // Note: General profanity/swearing is permitted per community guidelines.
   return { safe: true };
 }
 

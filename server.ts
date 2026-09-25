@@ -2345,15 +2345,17 @@ const PORT = Number(process.env.PORT) || 3000;
 
     const systemPrompt = `You are a high-speed Content Safety & Visual Moderation Model on Groq.
 Thoroughly inspect this image/frame for:
-1. Nudity, sexually explicit content, pornography, NSFW acts, suggestive poses, genitalia, exposed breasts, or sexualized content.
-2. Graphic violence, blood, gore, real-world weapons pointed at screen, self-harm, terrorism.
-3. Slurs, hate symbols, profanity, harassment, or offensive overlays.
-4. Threats of violence, death threats, physical assault threats, doxxing text overlays, or SWAT/bomb threats.
-Exception: 'damn' and 'hell' are permitted in visible text; all other profanity, curse words, slurs, threats, and sexual terms must be rejected with safe: false.
+1. Nudity, sexually explicit content, pornography, NSFW acts, suggestive poses, genitalia, exposed breasts, or sexualized content (STRICTLY FORBIDDEN).
+2. Graphic violence, blood, gore, real-world weapons pointed at screen, self-harm, terrorism, or threats.
+3. Racial/homophobic/ethnic slurs or hate speech symbols (STRICTLY FORBIDDEN).
+4. Threats of violence, death threats, doxxing text overlays, or SWAT/bomb threats.
+Rules:
+- General profanity and casual swearing in text overlays ARE PERMITTED (allow swearing).
+- Slurs, hate speech, pornography, nudity, explicit NSFW content, and threats MUST be rejected with safe: false.
 Respond strictly in valid JSON format:
 {
   "safe": boolean,
-  "category": "clean" | "nsfw" | "violence" | "slur" | "profanity" | "hate_speech" | "threat",
+  "category": "clean" | "nsfw" | "violence" | "slur" | "hate_speech" | "threat",
   "reason": "A friendly, non-robotic 1-sentence explanation if unsafe",
   "extractedText": "any text seen in the image"
 }`;
@@ -2538,17 +2540,18 @@ Evaluate the following text for safety violations:
 Text to evaluate: "${inputText}"
 ${contextInfo ? `Context: ${contextInfo}` : ""}
 
-Evaluate for:
-1. Hate speech, racial/ethnic/religious/homophobic slurs.
-2. Sexual content, harassment, pornography, explicit NSFW descriptions.
-3. Severe profanity, extreme vulgarity (EXCEPT: 'damn', 'dammit', 'hell', 'heck' are explicitly ALLOWED).
-4. Threats, violence, self-harm, doxxing.
+Evaluation Rules:
+- General profanity, casual cursing, and swearing ARE PERMITTED (allow profanity). DO NOT flag standard swear words as unsafe.
+- STRICTLY REJECT with safe: false for:
+  1. Hate speech, racial/ethnic/religious/homophobic slurs (STRICTLY FORBIDDEN).
+  2. NSFW content, pornography, sexual harassment, explicit descriptions (STRICTLY FORBIDDEN).
+  3. Real threats of violence, death threats, doxxing, swatting, or self-harm (STRICTLY FORBIDDEN).
 
 Respond strictly in valid JSON format:
 {
   "safe": boolean,
-  "category": "clean" | "slur" | "sexual_content" | "profanity" | "violence" | "harassment",
-  "reason": "A friendly, warm, non-robotic 1-sentence reminder to keep conversation clean or avoid inappropriate words"
+  "category": "clean" | "slur" | "sexual_content" | "threat" | "harassment",
+  "reason": "A friendly, warm, non-robotic 1-sentence reminder to keep conversation safe or avoid slurs/NSFW/threats"
 }`;
 
     const modelsToTry = [
