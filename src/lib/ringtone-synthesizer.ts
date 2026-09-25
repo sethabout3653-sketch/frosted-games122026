@@ -9,42 +9,18 @@ export interface RingtoneDefinition {
   isCustom?: boolean;
 }
 
+export const SOUND_ASSETS = {
+  message: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/message-oH37eN3NuxyqL0qOGI0pKj7WimRMQ5.mp3",
+  outgoingCall: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/discord-outgoing-call%20%28mp3cut.net%29-jjILTq3AG0ah6jyVMdKpa6gkYXUlMK.mp3",
+  incomingCall: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/discord-call-sound%20%281%29-KRLRihBPEboaV59Y0n5AyQcCdTeQJR.mp3",
+} as const;
+
 export const BUILTIN_RINGTONES: RingtoneDefinition[] = [
   {
-    id: "piano_default",
-    name: "Custom Piano Melody (Default)",
-    description: "Elegant custom piano arpeggio ringtone synthesized on a piano",
-  },
-  {
-    id: "piano_nocturne",
-    name: "Piano Nocturne",
-    description: "Lyrical Chopin-style piano ringtone",
-  },
-  {
-    id: "piano_chime",
-    name: "Bright Piano Chimes",
-    description: "Upbeat sparkling piano chord melody",
-  },
-  {
-    id: "marimba",
-    name: "Classic Marimba",
-    description: "Iconic wooden marimba melody",
-  },
-  {
-    id: "crystal_synth",
-    name: "Crystal Synth Waves",
-    description: "Futuristic crystal synth harmonics",
-  },
-  {
-    id: "harmony_bell",
-    name: "Harmonic Bell Chime",
-    description: "Resonant bell chimes",
-  },
-  {
-    id: "patapim",
-    name: "Brr Brr Patapim",
-    description: "Brr Brr Patapim ringtone",
-    url: "/ringtones/patapim.mp3",
+    id: "incoming_default",
+    name: "Incoming call",
+    description: "Default incoming call ringtone",
+    url: SOUND_ASSETS.incomingCall,
   },
 ];
 
@@ -299,14 +275,13 @@ export function previewRingtone(ringtoneId: string, onEnded?: () => void): () =>
   return cleanup;
 }
 
-export function startRingtoneLoop(ringtoneId?: string): () => void {
+export function startRingtoneLoop(_ringtoneId?: string): () => void {
   if (activeRingtoneStopFn) {
     activeRingtoneStopFn();
     activeRingtoneStopFn = null;
   }
 
-  const id = ringtoneId || getSavedRingtone();
-  const target = BUILTIN_RINGTONES.find((r) => r.id === id) || BUILTIN_RINGTONES[0];
+  const target = { url: SOUND_ASSETS.incomingCall };
 
   if (target.url) {
     try {
@@ -325,12 +300,7 @@ export function startRingtoneLoop(ringtoneId?: string): () => void {
     }
   }
 
-  const ctx = getAudioContext();
-  if (!ctx) return () => {};
-
-  const stopFn = playPianoRingtoneSequence(ctx, target.id, true);
-  activeRingtoneStopFn = stopFn;
-  return stopFn;
+  return () => {};
 }
 
 // ----------------------------------------------------------------------------
@@ -433,22 +403,18 @@ export function playCallTone(type: "calling" | "connected" | "declined" | "switc
   if (!ctx) return () => {};
 
   if (type === "calling") {
-    let isCancelled = false;
-    let timer: any = null;
-
-    const ringPulse = () => {
-      if (isCancelled || ctx.state !== "running") return;
-      playPianoNote(ctx, 440, ctx.currentTime, 0.8, 0.35);
-      playPianoNote(ctx, 554.37, ctx.currentTime + 0.1, 0.8, 0.35);
-    };
-
-    ringPulse();
-    timer = setInterval(ringPulse, 2800);
-
-    return () => {
-      isCancelled = true;
-      if (timer) clearInterval(timer);
-    };
+    try {
+      const audio = new Audio(SOUND_ASSETS.outgoingCall);
+      audio.loop = true;
+      audio.volume = 0.8;
+      audio.play().catch(() => {});
+      return () => {
+        audio.pause();
+        audio.currentTime = 0;
+      };
+    } catch {
+      return () => {};
+    }
   }
 
   if (type === "connected") {
