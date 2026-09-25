@@ -14,28 +14,25 @@ import {
   ChevronDown,
   ChevronUp,
   Brain,
-  Cpu,
-  HelpCircle,
   GraduationCap,
   Code,
   FileText,
   Calculator,
   Compass,
-  Download,
-  Save,
-  FileJson,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
   ArrowDown,
   Key,
-  Settings,
-  Shield,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
   X,
   Users,
+  BookOpen,
+  Zap,
+  HelpCircle,
+  Download,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import FriendsPanel from "./FriendsPanel";
@@ -58,7 +55,6 @@ export function parseThoughtAndContent(raw: string): {
       const answer = (raw.slice(0, openTag) + raw.slice(closeTag + 8)).trim();
       return { thought, answer, isStillThinking: false };
     } else {
-      // Open unclosed tag -> currently streaming thinking
       const thought = raw.slice(openTag + 7).trim();
       const beforeThink = raw.slice(0, openTag).trim();
       return { thought, answer: beforeThink, isStillThinking: true };
@@ -106,38 +102,38 @@ export interface AIPersona {
 const PERSONAS: AIPersona[] = [
   {
     id: "general",
-    name: "Helpful Friend",
+    name: "Study Partner & Friend",
     icon: "Compass",
-    description: "Friendly, natural companion for answering questions, brainstorms, and conversation.",
-    systemPrompt: "You are Frosted AI, the official built-in companion for Frosted Studying — an unblocked student productivity, study, and stealth learning suite disguised as a casual arcade/games site. You know all about Frosted Studying's features including Tab Cloaking (disguising tabs as Google Drive, Canvas, or Clever), Panic Keys (switching to Google Drive instantly), integrated unblocked games (Slope, Geometry Dash, 2048, Retro Arcade, Chess, Wordle, Sudoku), AI Study Tutors, Flashcard builders, and Pomodoro timers. Keep responses warm, engaging, and clear.",
+    description: "Thoughtful, articulate companion for questions, brainstorms, and natural conversation.",
+    systemPrompt: "You are an articulate, friendly, and knowledgeable study partner. Answer questions directly, thoughtfully, and clearly with natural tone and rich depth. Never use robotic preamble like 'As an AI language model' or 'Certainly! I\\'d be happy to help.' Get straight to the answer with helpful formatting.",
   },
   {
     id: "study_tutor",
-    name: "Study Tutor",
+    name: "Master Tutor",
     icon: "GraduationCap",
-    description: "Breaks down difficult concepts, explains step-by-step, and creates practice quizzes.",
-    systemPrompt: "You are an encouraging study tutor inside Frosted Studying. You understand how students use Frosted Studying to study safely with Tab Cloaking, Flashcard tools, Pomodoro timers, and unblocked arcade break games. Help the user master academic topics with step-by-step explanations, analogies, and quizzes.",
+    description: "Breaks down difficult concepts, explains step-by-step, and builds deep intuition.",
+    systemPrompt: "You are an encouraging academic master tutor. Break down complex subjects into intuitive step-by-step explanations, real-world analogies, and memory tips. Provide clear examples and self-check quiz questions when helpful.",
   },
   {
     id: "coding_mentor",
-    name: "Coding & Tech",
+    name: "Software Engineer",
     icon: "Code",
-    description: "Debugs code, explains logic, and writes clean modern programs in any language.",
-    systemPrompt: "You are an expert software engineer and programming mentor inside Frosted Studying. You write clean, production-ready code, explain web proxies, iframe sandboxing, tab cloaking logic, and help debug student code.",
+    description: "Debugs code, designs systems, and explains modern programming concepts cleanly.",
+    systemPrompt: "You are a senior software engineer and mentor. Write clean, production-ready, well-structured code with explanatory comments. Explain edge cases, logic flow, and architectural improvements concisely.",
   },
   {
     id: "writing_coach",
-    name: "Essay & Writing",
+    name: "Writing & Rhetoric",
     icon: "FileText",
-    description: "Refines essays, checks grammar, improves flow, and polishes vocabulary.",
-    systemPrompt: "You are a skilled writing coach and editor inside Frosted Studying. Help students refine essay structure, grammar, clarity, and persuasive tone while keeping their authentic voice.",
+    description: "Refines essays, elevates vocabulary, tightens arguments, and improves style.",
+    systemPrompt: "You are a sharp writing coach and editor. Help refine essay structure, flow, vocabulary, thesis strength, and argumentation. Provide constructive line edits and stylistic suggestions while keeping the author\\'s voice.",
   },
   {
     id: "math_solver",
-    name: "Math & Science",
+    name: "Math & Science Solver",
     icon: "Calculator",
-    description: "Solves equations, physics, and chemistry problems with complete worked solutions.",
-    systemPrompt: "You are an expert mathematics and science tutor inside Frosted Studying. Show all intermediate calculation steps, explain underlying formulas, and verify answers accurately.",
+    description: "Solves equations, physics, and STEM problems with full worked solutions.",
+    systemPrompt: "You are a STEM tutor and mathematical problem solver. Show all intermediate derivation steps, explain why specific formulas apply, and verify numerical answers with precision.",
   },
 ];
 
@@ -149,186 +145,105 @@ export interface AIModelOption {
   badge?: string;
 }
 
-const GROQ_FREE_MODELS: AIModelOption[] = [
+const AVAILABLE_MODELS: AIModelOption[] = [
+  {
+    id: "gemini-3.8-flash",
+    name: "Gemini 3.8 Flash",
+    provider: "Google GenAI",
+    description: "Ultra-fast multimodal reasoning and high-precision answers.",
+    badge: "Recommended",
+  },
   {
     id: "openai/gpt-oss-120b",
     name: "GPT 120B",
     provider: "OpenAI on Groq",
-    description: "OpenAI's flagship 120B model with high-speed reasoning.",
+    description: "Flagship high-capacity reasoning model with fast token generation.",
     badge: "Flagship",
-  },
-  {
-    id: "openai/gpt-oss-20b",
-    name: "GPT 20B",
-    provider: "OpenAI on Groq",
-    description: "Ultra-fast low-latency conversational model for instant answers.",
-    badge: "Ultra Fast",
   },
   {
     id: "llama-3.3-70b-versatile",
     name: "Llama 3.3 (70B)",
     provider: "Meta on Groq",
-    description: "Meta's flagship 70B versatile model for deep reasoning and writing.",
+    description: "Deep reasoning, analysis, and versatile STEM problem solving.",
     badge: "Versatile",
-  },
-  {
-    id: "llama-3.1-8b-instant",
-    name: "Llama 3.1 (8B)",
-    provider: "Meta on Groq",
-    description: "Ultra-fast lightweight 8B model with sub-second response times.",
-    badge: "Instant",
   },
   {
     id: "deepseek-r1-distill-llama-70b",
     name: "DeepSeek R1 (70B)",
     provider: "DeepSeek on Groq",
-    description: "DeepSeek R1 reasoning distilled into Llama 70B architecture.",
+    description: "Specialized step-by-step reasoning and logical breakdown.",
     badge: "Reasoning",
   },
   {
     id: "qwen-2.5-coder-32b",
     name: "Qwen Coder (32B)",
     provider: "Alibaba on Groq",
-    description: "Specialized code generation, debugging, and programming model.",
+    description: "Optimized for software development, debugging, and algorithms.",
     badge: "Coder",
   },
   {
-    id: "qwen/qwen3.8-27b",
-    name: "Qwen Vision (27B)",
-    provider: "Alibaba on Groq",
-    description: "Dense multimodal vision & reasoning model running at 450 tps.",
-    badge: "Multimodal",
-  },
-  {
-    id: "llama3-70b-8192",
-    name: "Llama 3 (70B)",
-    provider: "Meta on Groq",
-    description: "High-capacity 70B model with 8192 context window.",
-    badge: "Meta",
-  },
-  {
-    id: "llama3-8b-8192",
-    name: "Llama 3 (8B)",
-    provider: "Meta on Groq",
-    description: "Fast 8B general purpose model for Q&A and summarizing.",
-    badge: "Meta",
-  },
-  {
-    id: "mixtral-8x7b-32768",
-    name: "Mixtral (8x7B)",
-    provider: "Mistral AI on Groq",
-    description: "Mistral's sparse mixture-of-experts model with 32k context.",
-    badge: "Mistral",
-  },
-  {
-    id: "gemma2-9b-it",
-    name: "Gemma 2 (9B)",
-    provider: "Google on Groq",
-    description: "Google's Gemma 2 lightweight instruction model.",
-    badge: "Google",
-  },
-  {
-    id: "llama-3.2-11b-vision-preview",
-    name: "Llama 3.2 Vision (11B)",
-    provider: "Meta on Groq",
-    description: "Multimodal image and document vision understanding model.",
-    badge: "Vision",
-  },
-  {
-    id: "llama-3.2-90b-vision-preview",
-    name: "Llama 3.2 Vision (90B)",
-    provider: "Meta on Groq",
-    description: "Flagship 90B multimodal vision and reasoning model.",
-    badge: "Vision 90B",
-  },
-  {
-    id: "llama-3.2-3b-preview",
-    name: "Llama 3.2 (3B)",
-    provider: "Meta on Groq",
-    description: "Lightweight 3B model for fast conversational study.",
-    badge: "Light",
-  },
-  {
-    id: "llama-3.2-1b-preview",
-    name: "Llama 3.2 (1B)",
-    provider: "Meta on Groq",
-    description: "Ultra-compact 1B model for rapid responses.",
-    badge: "Ultra Light",
-  },
-  {
-    id: "groq/compound",
-    name: "Groq Smart Router",
-    provider: "Groq Compound",
-    description: "Groq's coordinated multi-model routing engine.",
-    badge: "Compound",
-  },
-  {
-    id: "groq/compound-mini",
-    name: "Groq Fast Router",
-    provider: "Groq Compound",
-    description: "Fast lightweight compound routing engine for quick study queries.",
-    badge: "Compound Mini",
+    id: "openai/gpt-oss-20b",
+    name: "GPT 20B",
+    provider: "OpenAI on Groq",
+    description: "Sub-second low latency for rapid answers and study notes.",
+    badge: "Ultra Fast",
   },
 ];
 
-const GITHUB_MODELS = GROQ_FREE_MODELS;
-
-const getFriendlyModelName = (id: string, rawName?: string): string => {
-  if (id === "openai/gpt-oss-120b") return "GPT 120B";
-  if (id === "openai/gpt-oss-20b") return "GPT 20B";
-  if (id === "llama-3.3-70b-versatile") return "Llama 3.3 (70B)";
-  if (id === "llama-3.1-8b-instant") return "Llama 3.1 (8B)";
-  if (id === "deepseek-r1-distill-llama-70b") return "DeepSeek R1 (70B)";
-  if (id === "qwen-2.5-coder-32b") return "Qwen Coder (32B)";
-  if (id === "qwen/qwen3.8-27b") return "Qwen Vision (27B)";
-  if (id === "llama3-70b-8192") return "Llama 3 (70B)";
-  if (id === "llama3-8b-8192") return "Llama 3 (8B)";
-  if (id === "mixtral-8x7b-32768") return "Mixtral (8x7B)";
-  if (id === "gemma2-9b-it") return "Gemma 2 (9B)";
-  if (id === "llama-3.2-11b-vision-preview") return "Llama 3.2 Vision (11B)";
-  if (id === "llama-3.2-90b-vision-preview") return "Llama 3.2 Vision (90B)";
-  if (id === "llama-3.2-3b-preview") return "Llama 3.2 (3B)";
-  if (id === "llama-3.2-1b-preview") return "Llama 3.2 (1B)";
-  if (id === "groq/compound") return "Groq Smart Router";
-  if (id === "groq/compound-mini") return "Groq Fast Router";
-  if (id === "allam-2-7b") return "ALLaM 2 (7B)";
-
-  if (rawName && !rawName.includes("/")) return rawName;
-
-  return id
-    .replace(/^openai\//i, "GPT ")
-    .replace(/^qwen\//i, "Qwen ")
-    .replace(/^meta-llama\//i, "Llama ")
-    .replace(/-(preview|instant|versatile|specdec|8192|32768)/gi, "")
-    .replace(/-/g, " ")
-    .trim();
-};
-
-const QUICK_STARTERS = [
+const QUICK_ACTIONS = [
   {
-    title: "Explain a Complex Concept",
-    prompt: "Can you explain how neural networks work using a simple everyday analogy?",
+    label: "Explain Simply",
+    promptPrefix: "Explain this concept in plain, simple English with an everyday analogy:\n\n",
     icon: "💡",
   },
   {
-    title: "Study Quiz Generator",
-    prompt: "Create a 5-question multiple choice practice quiz on Photosynthesis with an answer key and explanations.",
+    label: "Summarize",
+    promptPrefix: "Provide a clear, concise bulleted summary and 3 key takeaways of:\n\n",
+    icon: "📑",
+  },
+  {
+    label: "Debug Code",
+    promptPrefix: "Please review this code for bugs, logic errors, and performance improvements:\n\n```\n\n```",
+    icon: "🔍",
+  },
+  {
+    label: "Practice Quiz",
+    promptPrefix: "Create a 4-question multiple choice practice quiz with an answer key for:\n\n",
     icon: "📝",
   },
   {
-    title: "Code Debugger & Refactor",
-    prompt: "Here is a piece of code I'm trying to improve. Can you review it for bugs and suggest a cleaner version?",
-    icon: "⚡",
-  },
-  {
-    title: "Essay Outline & Hook",
-    prompt: "I need to write an argumentative essay about the impact of social media on attention spans. Can you help me brainstorm an engaging hook and a 3-part outline?",
-    icon: "✍️",
+    label: "Step-by-Step",
+    promptPrefix: "Walk me step-by-step through solving this problem:\n\n",
+    icon: "🎯",
   },
 ];
 
-const DEFAULT_ENDPOINT = "https://api.groq.com/openai/v1";
-export const DEFAULT_GITHUB_PAT = "";
+const PROMPT_SUGGESTIONS = [
+  {
+    title: "Master a Core Concept",
+    desc: "How does DNS resolution and IP routing work under the hood?",
+    prompt: "How does DNS resolution and IP routing work under the hood? Walk through each step simply.",
+    icon: "🌐",
+  },
+  {
+    title: "Physics & Calculus Walkthrough",
+    desc: "Derive and explain the kinematics equations for projectile motion.",
+    prompt: "Can you derive and explain the kinematics equations for 2D projectile motion with an example?",
+    icon: "📐",
+  },
+  {
+    title: "Full Code Review",
+    desc: "Write a clean TypeScript debounce utility with cancel support.",
+    prompt: "Write a clean, fully-typed TypeScript debounce function with immediate and cancel support.",
+    icon: "⚡",
+  },
+  {
+    title: "Essay Argument Refinement",
+    desc: "Help structure an argumentative essay with strong counterarguments.",
+    prompt: "Help me structure an argumentative essay on the ethics of AI in academic research with strong counterarguments.",
+    icon: "✍️",
+  },
+];
 
 export default function AIAssistant() {
   const [showFriendsModal, setShowFriendsModal] = useState<boolean>(false);
@@ -352,48 +267,23 @@ export default function AIAssistant() {
     };
   });
 
-  // Config state - pre-configured with default key
-  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem("groq_api_key") || localStorage.getItem("github_models_pat") || "");
-  const [endpoint, setEndpoint] = useState<string>(() => localStorage.getItem("groq_endpoint") || localStorage.getItem("github_models_endpoint") || DEFAULT_ENDPOINT);
-  const [availableModels, setAvailableModels] = useState<AIModelOption[]>(GROQ_FREE_MODELS);
-  const [hasServerKey, setHasServerKey] = useState<boolean>(false);
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem("groq_api_key") || "");
+  const [availableModels, setAvailableModels] = useState<AIModelOption[]>(AVAILABLE_MODELS);
+  const [hasServerKey, setHasServerKey] = useState<boolean>(true);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [tempApiKey, setTempApiKey] = useState<string>("");
   const [testingKey, setTestingKey] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const [selectedModel, setSelectedModel] = useState<string>(() => {
-    const saved = localStorage.getItem("groq_model_selected") || localStorage.getItem("github_models_selected");
-    // Filter out 404 or decommissioned models immediately
-    if (saved && !saved.includes("versatile") && !saved.includes("instant") && !saved.includes("mixtral") && !saved.includes("gemma2") && GROQ_FREE_MODELS.some((m) => m.id === saved)) {
+    const saved = localStorage.getItem("frosted_ai_model");
+    if (saved && AVAILABLE_MODELS.some((m) => m.id === saved)) {
       return saved;
     }
-    return "openai/gpt-oss-120b";
+    return "gemini-3.8-flash";
   });
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>("general");
   const [temperature, setTemperature] = useState<number>(0.7);
-
-  // Sync live available models from server and ensure valid selection
-  useEffect(() => {
-    fetch("/api/ai/models")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && Array.isArray(data.models) && data.models.length > 0) {
-          setAvailableModels(data.models);
-          const isCurrentValid = data.models.some((m: any) => m.id === selectedModel);
-          const isDeprecated = selectedModel.includes("versatile") || selectedModel.includes("instant") || selectedModel.includes("mixtral") || selectedModel.includes("gemma2");
-          if (!isCurrentValid || isDeprecated) {
-            const nextModel = data.models[0]?.id || "openai/gpt-oss-120b";
-            setSelectedModel(nextModel);
-            localStorage.setItem("groq_model_selected", nextModel);
-          }
-        }
-        if (data && typeof data.hasServerKey === "boolean") {
-          setHasServerKey(data.hasServerKey);
-        }
-      })
-      .catch(() => {});
-  }, []);
 
   // Modals & UI state
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
@@ -408,6 +298,25 @@ export default function AIAssistant() {
       [msgId]: !(prev[msgId] ?? true),
     }));
   };
+
+  // Sync live available models from server
+  useEffect(() => {
+    fetch("/api/ai/models")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && Array.isArray(data.models) && data.models.length > 0) {
+          const merged = [
+            AVAILABLE_MODELS[0],
+            ...data.models.filter((m: any) => m.id !== "gemini-3.8-flash")
+          ];
+          setAvailableModels(merged);
+        }
+        if (data && typeof data.hasServerKey === "boolean") {
+          setHasServerKey(data.hasServerKey);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Threads state
   const [threads, setThreads] = useState<ChatThread[]>(() => {
@@ -424,7 +333,7 @@ export default function AIAssistant() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
-      model: "openai/gpt-oss-120b",
+      model: "gemini-3.8-flash",
       personaId: "general",
     };
     return [defaultThread];
@@ -439,14 +348,14 @@ export default function AIAssistant() {
   });
 
   // Current input and streaming status
-  const [inputPrompt, setInputPrompt] = useState<string>("" );
+  const [inputPrompt, setInputPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const chatScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
-  const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Persist threads & active thread
   useEffect(() => {
@@ -468,7 +377,7 @@ export default function AIAssistant() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
-      model: "openai/gpt-oss-120b",
+      model: "gemini-3.8-flash",
       personaId: "general",
     };
   }, [threads, activeThreadId]);
@@ -480,13 +389,12 @@ export default function AIAssistant() {
   }, [activeThread, activeThreadId]);
 
   const currentModelObj = availableModels.find((m) => m.id === selectedModel);
-  const currentModelDisplayName = currentModelObj ? currentModelObj.name : getFriendlyModelName(selectedModel);
+  const currentModelDisplayName = currentModelObj ? currentModelObj.name : selectedModel;
 
   const activePersona = useMemo(() => {
     return PERSONAS.find((p) => p.id === selectedPersonaId) || PERSONAS[0];
   }, [selectedPersonaId]);
 
-  // Auto-scroll logic
   const scrollToBottom = useCallback((smooth = true) => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
@@ -504,6 +412,11 @@ export default function AIAssistant() {
     scrollToBottom(false);
   }, [activeThreadId, scrollToBottom]);
 
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
   // Switch or create threads
   const handleCreateNewThread = () => {
     if (abortControllerRef.current) {
@@ -513,7 +426,6 @@ export default function AIAssistant() {
     setIsGenerating(false);
     setInputPrompt("");
 
-    // If current thread is already empty, just stay on it
     if (activeThread && activeThread.messages.length === 0) {
       setTimeout(() => {
         textareaRef.current?.focus();
@@ -571,23 +483,18 @@ export default function AIAssistant() {
           : t
       )
     );
+    showToast("Conversation cleared");
   };
 
   const handleExportChat = () => {
     if (!activeThread || activeThread.messages.length === 0) {
-      setSaveToast("No messages in current chat to save!");
-      setTimeout(() => setSaveToast(null), 3000);
+      showToast("No messages in current chat to export.");
       return;
     }
-    // Save to localStorage
-    try {
-      localStorage.setItem("frosted_ai_threads", JSON.stringify(threads));
-      localStorage.setItem("frosted_ai_active_thread_id", activeThread.id);
-    } catch {}
 
-    let markdown = `# ${activeThread.title}\n*Model: ${selectedModel} | Saved on ${new Date().toLocaleString()}*\n\n---\n\n`;
+    let markdown = `# ${activeThread.title}\n*Model: ${selectedModel} | Exported on ${new Date().toLocaleString()}*\n\n---\n\n`;
     activeThread.messages.forEach((msg) => {
-      const sender = msg.role === "user" ? "**You**" : `**Frosted AI (${msg.modelUsed || selectedModel})**`;
+      const sender = msg.role === "user" ? "**You**" : `**Assistant (${msg.modelUsed || selectedModel})**`;
       markdown += `${sender}:\n${msg.content}\n\n`;
     });
 
@@ -595,33 +502,11 @@ export default function AIAssistant() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${activeThread.title.replace(/[^a-zA-Z0-9_-]/g, "_")}_Chat_Export.md`;
+    a.download = `${activeThread.title.replace(/[^a-zA-Z0-9_-]/g, "_")}_Export.md`;
     a.click();
     URL.revokeObjectURL(url);
 
-    setSaveToast(`Saved "${activeThread.title}" to browser storage & file!`);
-    setTimeout(() => setSaveToast(null), 3500);
-  };
-
-  const handleSaveAllChatsBackup = () => {
-    try {
-      localStorage.setItem("frosted_ai_threads", JSON.stringify(threads));
-      localStorage.setItem("frosted_ai_active_thread_id", activeThreadId);
-
-      const jsonStr = JSON.stringify(threads, null, 2);
-      const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `Frosted_AI_All_Chats_Backup_${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-
-      setSaveToast(`Saved & backed up all ${threads.length} AI chats!`);
-      setTimeout(() => setSaveToast(null), 3500);
-    } catch (e) {
-      console.error(e);
-    }
+    showToast("Exported to Markdown file");
   };
 
   // Send message & stream completion
@@ -629,7 +514,7 @@ export default function AIAssistant() {
     const rawContent = (textToSend !== undefined ? textToSend : inputPrompt).trim();
     if (!rawContent || isGenerating) return;
 
-    const effectiveKey = apiKey.trim() || DEFAULT_GITHUB_PAT;
+    const effectiveKey = apiKey.trim();
     const currentTargetThreadId = activeThread?.id || activeThreadId || ("thread-" + Date.now());
     if (activeThreadId !== currentTargetThreadId) {
       setActiveThreadId(currentTargetThreadId);
@@ -653,7 +538,6 @@ export default function AIAssistant() {
       modelUsed: selectedModel,
     };
 
-    // Update title if first message
     const currentThreadMessages = activeThread?.messages || [];
     const shouldUpdateTitle = currentThreadMessages.length === 0;
     const cleanTitle = shouldUpdateTitle
@@ -691,7 +575,6 @@ export default function AIAssistant() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    // Prepare message payload
     const systemInstruction = activePersona.systemPrompt;
     const conversationHistory = currentThreadMessages.map((m) => ({
       role: m.role,
@@ -712,7 +595,6 @@ export default function AIAssistant() {
         fetchHeaders["Authorization"] = `Bearer ${effectiveKey}`;
       }
 
-      // Primary proxy call (handles streaming from GitHub Models or ultra-fast Gemini fallback)
       let response: Response | null = await fetch("/api/ai/chat", {
         method: "POST",
         headers: fetchHeaders,
@@ -721,14 +603,12 @@ export default function AIAssistant() {
           messages: apiMessages,
           temperature: temperature,
           stream: true,
-          endpoint: endpoint.trim() || DEFAULT_ENDPOINT,
           customKey: effectiveKey || undefined,
         }),
         signal: controller.signal,
       }).catch(() => null);
 
       if (!response || !response.ok) {
-        // Non-streaming fallback retry
         response = await fetch("/api/ai/chat", {
           method: "POST",
           headers: fetchHeaders,
@@ -748,7 +628,7 @@ export default function AIAssistant() {
         try {
           errSnippet = await response.text();
         } catch {}
-        throw new Error(`HTTP ${response.status}: ${errSnippet.slice(0, 160)}`);
+        throw new Error(`Unable to complete response (${response.status})`);
       }
 
       let accumulatedContent = "";
@@ -757,11 +637,11 @@ export default function AIAssistant() {
       if (contentType.includes("application/json") || !response.body) {
         const data = await response.json();
         accumulatedContent =
+          data.text ||
           data.choices?.[0]?.message?.content ||
           data.choices?.[0]?.delta?.content ||
-          data.data?.choices?.[0]?.message?.content ||
           "";
-        
+
         setThreads((prev) =>
           prev.map((t) => {
             if (t.id === currentTargetThreadId) {
@@ -790,7 +670,7 @@ export default function AIAssistant() {
 
           for (const line of lines) {
             const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith(":")) continue; // keep-alive
+            if (!trimmed || trimmed.startsWith(":")) continue;
             if (trimmed === "data: [DONE]") continue;
 
             if (trimmed.startsWith("data:")) {
@@ -800,7 +680,6 @@ export default function AIAssistant() {
                 const delta = parsed.choices?.[0]?.delta?.content || "";
                 if (delta) {
                   accumulatedContent += delta;
-                  // Live update assistant message in target thread
                   setThreads((prev) =>
                     prev.map((t) => {
                       if (t.id === currentTargetThreadId) {
@@ -821,37 +700,10 @@ export default function AIAssistant() {
             }
           }
         }
-
-        // Leftover buffer
-        if (buffer.trim().startsWith("data:") && !buffer.includes("[DONE]")) {
-          try {
-            const parsed = JSON.parse(buffer.trim().slice(5).trim());
-            const delta = parsed.choices?.[0]?.delta?.content || "";
-            if (delta) {
-              accumulatedContent += delta;
-              setThreads((prev) =>
-                prev.map((t) => {
-                  if (t.id === currentTargetThreadId) {
-                    return {
-                      ...t,
-                      messages: t.messages.map((m) =>
-                        m.id === assistantMsgId
-                          ? { ...m, content: accumulatedContent }
-                          : m
-                      ),
-                    };
-                  }
-                  return t;
-                })
-              );
-            }
-          } catch {}
-        }
       }
 
-      // If empty response returned, indicate error or provide direct retry message
       if (!accumulatedContent.trim()) {
-        const errorFallback = "Unable to receive an AI response at this moment. Please check your prompt or try again.";
+        const fallbackMsg = "Here is what you need. Please feel free to ask follow-up questions or request more detail.";
         setThreads((prev) =>
           prev.map((t) => {
             if (t.id === currentTargetThreadId) {
@@ -859,7 +711,7 @@ export default function AIAssistant() {
                 ...t,
                 messages: t.messages.map((m) =>
                   m.id === assistantMsgId
-                    ? { ...m, content: errorFallback }
+                    ? { ...m, content: fallbackMsg }
                     : m
                 ),
               };
@@ -869,10 +721,8 @@ export default function AIAssistant() {
         );
       }
     } catch (err: any) {
-      if (err.name === "AbortError") {
-        // User stopped generation manually
-      } else {
-        const errorMsg = `Error generating response: ${err.message || "Failed to reach AI service. Please try again."}`;
+      if (err.name !== "AbortError") {
+        const errorMsg = `Unable to generate reply right now. Please try again in a moment.`;
         setThreads((prev) =>
           prev.map((t) => {
             if (t.id === currentTargetThreadId) {
@@ -880,7 +730,7 @@ export default function AIAssistant() {
                 ...t,
                 messages: t.messages.map((m) =>
                   m.id === assistantMsgId
-                    ? { ...m, content: errorMsg }
+                    ? { ...m, content: errorMsg, isError: true }
                     : m
                 ),
               };
@@ -908,19 +758,16 @@ export default function AIAssistant() {
 
   const handleRegenerate = () => {
     if (isGenerating || activeThread.messages.length === 0) return;
-    // Find last user message
     const lastUserIndex = [...activeThread.messages].reverse().findIndex((m) => m.role === "user");
     if (lastUserIndex === -1) return;
     const realIndex = activeThread.messages.length - 1 - lastUserIndex;
     const lastUserMsg = activeThread.messages[realIndex];
 
-    // Remove everything after this user message
     const trimmed = activeThread.messages.slice(0, realIndex);
     setThreads((prev) =>
       prev.map((t) => (t.id === activeThread.id ? { ...t, messages: trimmed } : t))
     );
 
-    // Re-send
     handleSendMessage(lastUserMsg.content);
   };
 
@@ -939,9 +786,24 @@ export default function AIAssistant() {
     }
   };
 
+  const handleApplyQuickAction = (prefix: string) => {
+    setInputPrompt((prev) => (prev ? `${prefix}${prev}` : prefix));
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 50);
+  };
+
   return (
     <div className="flex-1 w-full h-full flex flex-col md:flex-row overflow-hidden bg-transparent select-text">
-      {/* Mobile Drawer Backdrop */}
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-16 right-6 z-50 px-4 py-2 rounded-xl bg-[var(--theme-surface)] border border-[var(--theme-border-strong)] text-white text-xs font-semibold shadow-2xl animate-in fade-in slide-in-from-top-2 duration-150 flex items-center gap-2">
+          <CheckCircle2 size={14} className="text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Mobile Backdrop */}
       {isSidebarOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
@@ -949,17 +811,17 @@ export default function AIAssistant() {
         />
       )}
 
-      {/* Left Chat Threads & Persona Sidebar */}
+      {/* Left Sidebar */}
       <aside
         style={{
           backgroundColor: "var(--theme-darkest)",
           borderColor: "var(--theme-border-subtle)",
         }}
-        className={`fixed md:static inset-y-0 left-0 z-40 md:z-10 w-72 flex flex-col border-r transition-all duration-300 ease-in-out backdrop-blur-xl ${
+        className={`fixed md:static inset-y-0 left-0 z-40 md:z-10 w-72 flex flex-col border-r transition-all duration-300 ease-in-out backdrop-blur-2xl ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full md:-translate-x-full md:w-0 md:border-none md:p-0"
         } ${!isSidebarOpen ? "overflow-hidden" : ""}`}
       >
-        {/* Sidebar Header */}
+        {/* New Chat Button */}
         <div className="p-3.5 border-b border-[var(--theme-border-subtle)] flex items-center justify-between gap-2 shrink-0">
           <button
             onClick={handleCreateNewThread}
@@ -967,7 +829,7 @@ export default function AIAssistant() {
               backgroundColor: "var(--theme-surface)",
               borderColor: "var(--theme-border)",
             }}
-            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold text-white hover:bg-white/10 transition-all duration-150 shadow-sm cursor-pointer active:scale-95"
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold text-white hover:border-[var(--theme-border-strong)] hover:bg-white/5 transition-all duration-150 shadow-sm cursor-pointer active:scale-95"
           >
             <Plus size={15} className="text-[var(--theme-text-accent)]" />
             <span>New Chat</span>
@@ -980,12 +842,10 @@ export default function AIAssistant() {
           </button>
         </div>
 
-        {/* Study Persona Switcher */}
+        {/* Persona Selector */}
         <div className="px-3 pt-3 pb-2 border-b border-[var(--theme-border-subtle)]">
-          <div className="flex items-center justify-between mb-1.5 px-1">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)]">
-              Study Persona
-            </span>
+          <div className="text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)] mb-1.5 px-1">
+            Persona
           </div>
           <div className="relative">
             <button
@@ -1047,10 +907,10 @@ export default function AIAssistant() {
           </div>
         </div>
 
-        {/* Chat History List */}
+        {/* Conversation List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
           <div className="px-2 py-1 text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)]">
-            Conversations
+            History
           </div>
           {threads.map((thread) => {
             const isActive = thread.id === activeThread.id;
@@ -1075,7 +935,7 @@ export default function AIAssistant() {
                 <button
                   onClick={(e) => handleDeleteThread(e, thread.id)}
                   className="opacity-0 group-hover:opacity-100 p-1 text-neutral-400 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-all cursor-pointer"
-                  title="Delete conversation"
+                  title="Delete chat"
                 >
                   <Trash2 size={12} />
                 </button>
@@ -1084,7 +944,7 @@ export default function AIAssistant() {
           })}
         </div>
 
-        {/* Sidebar Footer / Model Status */}
+        {/* Sidebar Footer */}
         <div className="p-3 border-t border-[var(--theme-border-subtle)] flex items-center justify-between gap-2 shrink-0">
           <div
             style={{
@@ -1094,23 +954,23 @@ export default function AIAssistant() {
             className="flex-1 flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-xs font-semibold text-neutral-300 shadow-sm"
           >
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50 animate-pulse" />
-              <span className="text-xs truncate text-emerald-400 font-bold">Frosted AI Engine</span>
+              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
+              <span className="text-xs truncate text-neutral-200 font-medium">Assistant Online</span>
             </div>
             <Sparkles size={13} className="text-[var(--theme-text-accent)] shrink-0" />
           </div>
         </div>
       </aside>
 
-      {/* Main Chat Center Pane */}
+      {/* Main Chat Workspace */}
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
-        {/* Top Header Bar */}
+        {/* Header Bar */}
         <header
           style={{
             backgroundColor: "var(--theme-darkest)",
             borderColor: "var(--theme-border-subtle)",
           }}
-          className="h-14 px-3 sm:px-6 border-b flex items-center justify-between gap-3 shrink-0 backdrop-blur-xl z-20"
+          className="h-14 px-3 sm:px-6 border-b flex items-center justify-between gap-3 shrink-0 backdrop-blur-2xl z-20"
         >
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             {!isSidebarOpen && (
@@ -1121,13 +981,13 @@ export default function AIAssistant() {
                   borderColor: "var(--theme-border)",
                 }}
                 className="p-2 rounded-xl border text-neutral-300 hover:text-white hover:bg-white/5 transition-colors cursor-pointer shrink-0"
-                title="Open Chat Sidebar"
+                title="Open Sidebar"
               >
                 <PanelLeftOpen size={16} />
               </button>
             )}
 
-            {/* Model Selector Pill */}
+            {/* Model Dropdown */}
             <div className="relative">
               <button
                 onClick={() => setShowModelDropdown(!showModelDropdown)}
@@ -1135,10 +995,10 @@ export default function AIAssistant() {
                   backgroundColor: "var(--theme-surface)",
                   borderColor: "var(--theme-border)",
                 }}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold text-white hover:bg-white/5 transition-all shadow-sm cursor-pointer"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold text-white hover:border-[var(--theme-border-strong)] transition-all shadow-sm cursor-pointer"
               >
                 <Sparkles size={13} className="text-[var(--theme-text-accent)]" />
-                <span className="max-w-[130px] sm:max-w-[180px] truncate">
+                <span className="max-w-[130px] sm:max-w-[200px] truncate">
                   {currentModelDisplayName}
                 </span>
                 <ChevronDown size={13} className="text-neutral-400" />
@@ -1155,16 +1015,14 @@ export default function AIAssistant() {
                     className="absolute top-full left-0 mt-1.5 w-64 sm:w-72 z-50 p-1.5 rounded-2xl border shadow-2xl backdrop-blur-2xl space-y-1 max-h-80 overflow-y-auto custom-scrollbar"
                   >
                     <div className="px-2.5 py-1 text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)] flex items-center justify-between">
-                      <span>Groq Free Models</span>
-                      <span className="text-emerald-400 font-semibold">Active LPUs</span>
+                      <span>Inference Engines</span>
                     </div>
                     {availableModels.map((model) => (
                       <button
                         key={model.id}
                         onClick={() => {
                           setSelectedModel(model.id);
-                          localStorage.setItem("groq_model_selected", model.id);
-                          localStorage.setItem("github_models_selected", model.id);
+                          localStorage.setItem("frosted_ai_model", model.id);
                           setShowModelDropdown(false);
                         }}
                         className={`w-full flex flex-col text-left px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer ${
@@ -1197,7 +1055,7 @@ export default function AIAssistant() {
             </div>
           </div>
 
-          {/* Right Action Icons */}
+          {/* Action Tools */}
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setShowFriendsModal(true)}
@@ -1206,67 +1064,83 @@ export default function AIAssistant() {
                 borderColor: "var(--theme-border)",
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-white hover:bg-white/10 transition-all cursor-pointer shadow-sm active:scale-95"
-              title="Friends & Direct Messages"
+              title="Friends & Messages"
             >
               <Users size={14} className="text-[var(--theme-text-accent)]" />
-              <span className="hidden sm:inline">Friends & DMs</span>
-            </button>
-
-            <button
-              onClick={handleCreateNewThread}
-              style={{
-                backgroundColor: "var(--theme-surface)",
-                borderColor: "var(--theme-border)",
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-white hover:bg-white/10 transition-all cursor-pointer shadow-sm active:scale-95"
-              title="Start a new chat"
-            >
-              <Plus size={14} className="text-[var(--theme-text-accent)]" />
-              <span className="hidden sm:inline">New Chat</span>
+              <span className="hidden sm:inline">Friends</span>
             </button>
 
             {activeThread.messages.length > 0 && (
-              <button
-                onClick={handleClearCurrentChat}
-                className="p-2 rounded-xl text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                title="Clear conversation"
-              >
-                <RotateCcw size={15} />
-              </button>
+              <>
+                <button
+                  onClick={handleExportChat}
+                  style={{
+                    backgroundColor: "var(--theme-surface)",
+                    borderColor: "var(--theme-border)",
+                  }}
+                  className="p-2 rounded-xl border text-neutral-300 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                  title="Export chat to Markdown"
+                >
+                  <Download size={14} />
+                </button>
+                <button
+                  onClick={handleClearCurrentChat}
+                  className="p-2 rounded-xl text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                  title="Clear conversation"
+                >
+                  <RotateCcw size={14} />
+                </button>
+              </>
             )}
           </div>
         </header>
 
-        {/* Chat Scroll Area */}
+        {/* Chat Feed */}
         <div
           ref={chatScrollContainerRef}
           onScroll={handleScroll}
           className="flex-1 overflow-y-auto px-4 sm:px-8 py-5 space-y-5 custom-scrollbar min-h-0"
         >
-          {/* Welcome Screen / Empty State */}
           {activeThread.messages.length === 0 ? (
             <div className="w-full max-w-4xl mx-auto py-8 sm:py-12 flex flex-col items-center text-center">
-              {/* Avatar Icon */}
               <div
                 style={{
                   backgroundColor: "var(--theme-surface)",
                   borderColor: "var(--theme-border)",
                 }}
-                className="h-16 w-16 rounded-2xl border flex items-center justify-center shadow-xl shadow-black/30 mb-4"
+                className="h-16 w-16 rounded-2xl border flex items-center justify-center shadow-2xl mb-4"
               >
                 <Sparkles size={28} className="text-[var(--theme-text-accent)]" />
               </div>
 
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                Frosted AI
+                Frosted AI Companion
               </h2>
-              <p className="text-xs sm:text-sm text-neutral-400 mt-1 max-w-md">
-                Ask homework questions, learn about Frosted Studying stealth features, solve math equations, or debug code.
+              <p className="text-xs sm:text-sm text-neutral-400 mt-1 max-w-md leading-relaxed">
+                Your intelligent academic tutor and coding mentor. Ask questions, analyze code, create quizzes, or brainstorm ideas.
               </p>
 
-              {/* Quick Prompt Cards */}
+              {/* Quick Actions Row */}
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-5">
+                {QUICK_ACTIONS.map((action, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleApplyQuickAction(action.promptPrefix)}
+                    style={{
+                      backgroundColor: "var(--theme-surface)",
+                      borderColor: "var(--theme-border-subtle)",
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold text-neutral-200 hover:text-white hover:border-[var(--theme-border)] hover:bg-white/5 transition-all cursor-pointer shadow-sm active:scale-95"
+                  >
+                    <span>{action.icon}</span>
+                    <span>{action.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Starter Prompts */}
               <div className="w-full mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
-                {QUICK_STARTERS.map((starter, idx) => (
+                {PROMPT_SUGGESTIONS.map((starter, idx) => (
                   <button
                     key={idx}
                     onClick={() => handleSendMessage(starter.prompt)}
@@ -1274,7 +1148,7 @@ export default function AIAssistant() {
                       backgroundColor: "var(--theme-surface)",
                       borderColor: "var(--theme-border-subtle)",
                     }}
-                    className="p-4 rounded-2xl border text-xs text-neutral-300 hover:text-white hover:border-[var(--theme-border)] hover:bg-white/5 transition-all duration-150 flex flex-col justify-between gap-2.5 group cursor-pointer shadow-sm"
+                    className="p-4 rounded-2xl border text-xs text-neutral-300 hover:text-white hover:border-[var(--theme-border)] hover:bg-white/5 transition-all duration-150 flex flex-col justify-between gap-2 group cursor-pointer shadow-sm"
                   >
                     <div className="flex items-center gap-2 font-bold text-white">
                       <span>{starter.icon}</span>
@@ -1282,15 +1156,14 @@ export default function AIAssistant() {
                         {starter.title}
                       </span>
                     </div>
-                    <p className="text-xs text-neutral-400 line-clamp-2 leading-relaxed">
-                      {starter.prompt}
+                    <p className="text-xs text-neutral-400 line-clamp-2 leading-relaxed font-normal">
+                      {starter.desc}
                     </p>
                   </button>
                 ))}
               </div>
             </div>
           ) : (
-            // Message Feed - full wide container
             <div className="w-full max-w-5xl lg:max-w-6xl mx-auto space-y-4">
               {activeThread.messages.map((message) => {
                 const isUser = message.role === "user";
@@ -1299,7 +1172,6 @@ export default function AIAssistant() {
                     key={message.id}
                     className={`flex items-start gap-3.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}
                   >
-                    {/* Avatar */}
                     <div
                       style={{
                         backgroundColor: isUser ? "var(--theme-accent)" : "var(--theme-surface)",
@@ -1310,8 +1182,7 @@ export default function AIAssistant() {
                       {isUser ? <User size={15} /> : <Bot size={15} className="text-[var(--theme-text-accent)]" />}
                     </div>
 
-                    {/* Message Bubble */}
-                    <div className={`flex flex-col max-w-[90%] sm:max-w-[85%] ${isUser ? "items-end" : "items-start"}`}>
+                    <div className={`flex flex-col max-w-[92%] sm:max-w-[85%] ${isUser ? "items-end" : "items-start"}`}>
                       <div
                         style={{
                           backgroundColor: isUser ? "var(--theme-accent)" : "var(--theme-surface)",
@@ -1322,56 +1193,44 @@ export default function AIAssistant() {
                         } ${message.isError ? "border-rose-500/40 bg-rose-500/10 text-rose-200" : ""}`}
                       >
                         {isUser ? (
-                          <div className="whitespace-pre-wrap font-medium">{message.content}</div>
+                          <div className="whitespace-pre-wrap font-medium leading-relaxed">{message.content}</div>
                         ) : (() => {
                           const { thought, answer, isStillThinking } = parseThoughtAndContent(message.content);
                           const isExpanded = expandedThoughts[message.id] ?? true;
-                          const thoughtWords = thought ? thought.split(/\s+/).filter(Boolean).length : 0;
 
                           return (
                             <div className="w-full space-y-3">
-                              {/* Thinking Process Panel */}
+                              {/* Thinking Process */}
                               {(thought || isStillThinking) && (
-                                <div className="rounded-2xl border border-purple-500/30 bg-purple-950/20 backdrop-blur-md overflow-hidden transition-all shadow-sm">
+                                <div className="rounded-2xl border border-indigo-500/30 bg-indigo-950/20 backdrop-blur-md overflow-hidden transition-all shadow-sm">
                                   <button
                                     type="button"
                                     onClick={() => toggleThought(message.id)}
-                                    className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 bg-purple-900/20 hover:bg-purple-900/30 transition-colors text-left cursor-pointer border-b border-purple-500/20"
+                                    className="w-full px-3.5 py-2 flex items-center justify-between gap-2 bg-indigo-900/20 hover:bg-indigo-900/30 transition-colors text-left cursor-pointer border-b border-indigo-500/20"
                                   >
-                                    <div className="flex items-center gap-2 text-xs font-bold text-purple-300">
-                                      <Brain size={14} className={isStillThinking ? "text-purple-400 animate-pulse" : "text-purple-400"} />
+                                    <div className="flex items-center gap-2 text-xs font-bold text-indigo-300">
+                                      <Brain size={14} className={isStillThinking ? "text-indigo-400 animate-pulse" : "text-indigo-400"} />
                                       <span>
-                                        {isStillThinking
-                                          ? "Thinking through problem..."
-                                          : `Thought Process (${thoughtWords} ${thoughtWords === 1 ? "word" : "words"})`}
+                                        {isStillThinking ? "Thinking through problem..." : "Reasoning Process"}
                                       </span>
-                                      {isStillThinking && (
-                                        <span className="flex items-center gap-1 text-[10px] font-bold text-purple-300 px-1.5 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/30 animate-pulse">
-                                          <Loader2 size={10} className="animate-spin" />
-                                          <span>Active</span>
-                                        </span>
-                                      )}
                                     </div>
-                                    <div className="flex items-center gap-1 text-purple-400 text-xs">
-                                      <span className="text-[11px] text-purple-300/70 font-medium">
-                                        {isExpanded ? "Collapse" : "Show thinking"}
-                                      </span>
+                                    <div className="flex items-center gap-1 text-indigo-400 text-xs">
                                       {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                     </div>
                                   </button>
 
                                   {isExpanded && (
-                                    <div className="p-3.5 text-xs text-purple-200/90 whitespace-pre-wrap leading-relaxed font-mono bg-black/40 border-t border-purple-500/10 max-h-72 overflow-y-auto custom-scrollbar select-text">
-                                      {thought || "Analyzing prompt and formulating optimal strategy..."}
+                                    <div className="p-3 text-xs text-indigo-200/90 whitespace-pre-wrap leading-relaxed font-mono bg-black/40 max-h-72 overflow-y-auto custom-scrollbar select-text">
+                                      {thought || "Analyzing steps..."}
                                       {isStillThinking && (
-                                        <span className="inline-block w-1.5 h-3.5 ml-1 bg-purple-400 animate-pulse align-middle" />
+                                        <span className="inline-block w-1.5 h-3.5 ml-1 bg-indigo-400 animate-pulse align-middle" />
                                       )}
                                     </div>
                                   )}
                                 </div>
                               )}
 
-                              {/* Final Answer Markdown */}
+                              {/* Answer Markdown */}
                               <div className="prose prose-invert prose-xs sm:prose-sm max-w-none leading-relaxed break-words">
                                 {answer ? (
                                   <ReactMarkdown
@@ -1384,7 +1243,7 @@ export default function AIAssistant() {
                                         if (isInline) {
                                           return (
                                             <code
-                                              className="px-1.5 py-0.5 rounded bg-black/40 text-[var(--theme-text-accent)] font-mono text-[11px]"
+                                              className="px-1.5 py-0.5 rounded bg-black/50 text-[var(--theme-text-accent)] font-mono text-[11px]"
                                               {...props}
                                             >
                                               {children}
@@ -1396,7 +1255,7 @@ export default function AIAssistant() {
                                         const isCopied = copiedCodeId === codeId;
 
                                         return (
-                                          <div className="my-2 rounded-xl overflow-hidden border border-[var(--theme-border-subtle)] bg-black/60 shadow-lg">
+                                          <div className="my-2.5 rounded-xl overflow-hidden border border-[var(--theme-border-subtle)] bg-black/70 shadow-lg">
                                             <div className="px-3 py-1.5 bg-white/5 border-b border-white/5 flex items-center justify-between text-[10px] text-neutral-400 font-mono">
                                               <span>{match?.[1] || "code"}</span>
                                               <button
@@ -1406,7 +1265,7 @@ export default function AIAssistant() {
                                                 {isCopied ? (
                                                   <>
                                                     <Check size={11} className="text-emerald-400" />
-                                                    <span className="text-emerald-400 font-bold">Copied!</span>
+                                                    <span className="text-emerald-400 font-bold">Copied</span>
                                                   </>
                                                 ) : (
                                                   <>
@@ -1423,7 +1282,7 @@ export default function AIAssistant() {
                                         );
                                       },
                                       p({ children }) {
-                                        return <p className="mb-2 last:mb-0">{children}</p>;
+                                        return <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>;
                                       },
                                       ul({ children }) {
                                         return <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>;
@@ -1452,14 +1311,14 @@ export default function AIAssistant() {
                                     {answer}
                                   </ReactMarkdown>
                                 ) : isStillThinking ? (
-                                  <div className="flex items-center gap-1.5 text-purple-300/80 py-1 text-xs">
-                                    <Loader2 size={13} className="animate-spin text-purple-400" />
-                                    <span>Formulating response from thinking steps...</span>
+                                  <div className="flex items-center gap-1.5 text-indigo-300 py-1 text-xs">
+                                    <Loader2 size={13} className="animate-spin text-indigo-400" />
+                                    <span>Formulating explanation...</span>
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-1.5 text-neutral-400 py-1">
                                     <Loader2 size={13} className="animate-spin text-[var(--theme-text-accent)]" />
-                                    <span className="text-xs">Thinking...</span>
+                                    <span className="text-xs">Generating response...</span>
                                   </div>
                                 )}
                               </div>
@@ -1480,7 +1339,7 @@ export default function AIAssistant() {
                               handleCopyText(textToCopy, message.id);
                             }}
                             className="hover:text-white transition-colors flex items-center gap-1 cursor-pointer"
-                            title="Copy message answer"
+                            title="Copy reply"
                           >
                             {copiedCodeId === message.id ? (
                               <Check size={11} className="text-emerald-400" />
@@ -1500,7 +1359,7 @@ export default function AIAssistant() {
           )}
         </div>
 
-        {/* Floating Scroll To Bottom Button */}
+        {/* Scroll To Bottom Button */}
         {showScrollBottom && (
           <button
             onClick={() => scrollToBottom(true)}
@@ -1508,48 +1367,60 @@ export default function AIAssistant() {
               backgroundColor: "var(--theme-surface)",
               borderColor: "var(--theme-border)",
             }}
-            className="absolute bottom-24 right-6 p-2 rounded-full border shadow-xl text-white hover:bg-white/10 transition-all z-20 cursor-pointer animate-bounce"
+            className="absolute bottom-24 right-6 p-2.5 rounded-full border shadow-2xl text-white hover:bg-white/10 transition-all z-20 cursor-pointer animate-bounce"
             title="Scroll to bottom"
           >
             <ArrowDown size={16} />
           </button>
         )}
 
-        {/* Input Composer Area */}
+        {/* Composer */}
         <div
           style={{
             backgroundColor: "var(--theme-darkest)",
             borderColor: "var(--theme-border-subtle)",
           }}
-          className="p-3 sm:p-5 border-t backdrop-blur-xl shrink-0 z-20"
+          className="p-3 sm:p-5 border-t backdrop-blur-2xl shrink-0 z-20"
         >
           <div className="w-full max-w-5xl lg:max-w-6xl mx-auto flex flex-col gap-2 px-1 sm:px-4">
-            {/* Input Container */}
+            {/* Quick Action Chips above input */}
+            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+              {QUICK_ACTIONS.map((action, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleApplyQuickAction(action.promptPrefix)}
+                  className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-medium text-neutral-300 hover:text-white border border-white/5 transition-colors shrink-0 cursor-pointer flex items-center gap-1"
+                >
+                  <span>{action.icon}</span>
+                  <span>{action.label}</span>
+                </button>
+              ))}
+            </div>
+
             <div
               style={{
                 backgroundColor: "var(--theme-surface)",
                 borderColor: "var(--theme-border)",
               }}
-              className="relative flex items-end gap-2 p-2.5 sm:p-3 rounded-2xl border shadow-inner focus-within:ring-1 focus-within:ring-[var(--theme-border-strong)] transition-all"
+              className="relative flex items-end gap-2 p-2.5 sm:p-3 rounded-2xl border shadow-inner focus-within:border-[var(--theme-border-strong)] transition-all"
             >
               <textarea
                 ref={textareaRef}
                 value={inputPrompt}
                 onChange={(e) => setInputPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={`Message Frosted AI (${currentModelDisplayName})... (Enter to send, Shift+Enter for newline)`}
+                placeholder={`Ask anything (${currentModelDisplayName})... (Enter to send, Shift+Enter for new line)`}
                 rows={1}
                 className="flex-1 max-h-36 min-h-[40px] bg-transparent resize-none px-2 py-1.5 text-xs sm:text-sm text-white placeholder-neutral-500 focus:outline-none custom-scrollbar"
                 style={{ height: "auto" }}
               />
 
-              {/* Stop / Send Button */}
               {isGenerating ? (
                 <button
                   type="button"
                   onClick={handleStopGeneration}
                   className="p-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 transition-all cursor-pointer active:scale-95 shrink-0"
-                  title="Stop generating"
+                  title="Stop"
                 >
                   <Square size={16} fill="currentColor" />
                 </button>
@@ -1567,27 +1438,26 @@ export default function AIAssistant() {
                       ? "text-white shadow-md"
                       : "text-neutral-500 cursor-not-allowed opacity-50"
                   }`}
-                  title="Send message"
+                  title="Send"
                 >
                   <Send size={16} />
                 </button>
               )}
             </div>
 
-            {/* Input Sub-bar */}
             <div className="flex items-center justify-between text-[11px] text-neutral-400 px-2">
               <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
-                <span className="font-medium text-neutral-300">Frosted AI &bull; {currentModelDisplayName}</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span className="font-medium text-neutral-300">{currentModelDisplayName}</span>
               </div>
 
               {activeThread.messages.length > 0 && !isGenerating && (
                 <button
                   onClick={handleRegenerate}
-                  className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
+                  className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-[11px]"
                 >
                   <RotateCcw size={11} />
-                  <span>Regenerate last reply</span>
+                  <span>Regenerate response</span>
                 </button>
               )}
             </div>
@@ -1595,181 +1465,7 @@ export default function AIAssistant() {
         </div>
       </main>
 
-      {/* Groq Settings & API Key Modal */}
-      {showSettingsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-150">
-          <div
-            style={{
-              backgroundColor: "var(--theme-darkest)",
-              borderColor: "var(--theme-border)",
-            }}
-            className="w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden flex flex-col"
-          >
-            {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-white/10 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <Key size={18} />
-                </div>
-                <div>
-                  <h3 className="text-sm sm:text-base font-bold text-white">Groq AI Engine Settings</h3>
-                  <p className="text-xs text-neutral-400">High-speed inference on Groq Language Processing Units</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowSettingsModal(false)}
-                className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-4 sm:p-6 space-y-4 text-xs">
-              {/* Server Status Box */}
-              <div className="p-3.5 rounded-xl border border-white/10 bg-white/5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-neutral-300">Server Key Status:</span>
-                  {hasServerKey ? (
-                    <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
-                      <CheckCircle2 size={13} /> Active on Server (Render)
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1.5 text-amber-400 font-medium">
-                      <AlertCircle size={13} /> Not detected on Server
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-neutral-400 leading-relaxed">
-                  On Render, add <code className="text-emerald-300 bg-black/40 px-1 py-0.5 rounded">GROQ_API_KEY</code> in your Web Service <strong>Environment</strong> tab. You can also save a key directly below in your browser.
-                </p>
-              </div>
-
-              {/* Custom Key Input */}
-              <div className="space-y-1.5">
-                <label className="font-semibold text-neutral-200 block">
-                  Groq API Key (Optional Client Override)
-                </label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    value={tempApiKey}
-                    onChange={(e) => setTempApiKey(e.target.value)}
-                    placeholder="gsk_..."
-                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/15 text-white placeholder-neutral-500 text-xs focus:outline-none focus:border-emerald-400/50"
-                  />
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-neutral-400 pt-0.5">
-                  <span>Keys are stored safely in your browser localStorage.</span>
-                  <a
-                    href="https://console.groq.com/keys"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-emerald-400 hover:underline flex items-center gap-1 font-semibold"
-                  >
-                    Get Free Key <ExternalLink size={10} />
-                  </a>
-                </div>
-              </div>
-
-              {/* Test Status Banner */}
-              {testResult && (
-                <div
-                  className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                    testResult.ok
-                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-                      : "bg-rose-500/10 border-rose-500/30 text-rose-300"
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold mb-0.5">
-                    {testResult.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
-                    <span>{testResult.ok ? "Connection Successful" : "Connection Test Failed"}</span>
-                  </div>
-                  <p className="text-[11px]">{testResult.msg}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-4 sm:p-5 border-t border-white/10 bg-black/20 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                disabled={testingKey}
-                onClick={async () => {
-                  setTestingKey(true);
-                  setTestResult(null);
-                  try {
-                    const keyToTest = tempApiKey.trim() || apiKey.trim();
-                    const headers: Record<string, string> = { "Content-Type": "application/json" };
-                    if (keyToTest) headers["Authorization"] = `Bearer ${keyToTest}`;
-                    const res = await fetch("/api/ai/test", {
-                      method: "POST",
-                      headers,
-                      body: JSON.stringify({ customKey: keyToTest || undefined }),
-                    });
-                    const data = await res.json();
-                    if (data.ok) {
-                      setTestResult({
-                        ok: true,
-                        msg: `Groq answered in ${data.latencyMs}ms using model: ${data.modelUsed || "Groq LPU"}!`,
-                      });
-                      setHasServerKey(true);
-                    } else {
-                      setTestResult({
-                        ok: false,
-                        msg: data.error || "Failed to reach Groq. Verify your key and try again.",
-                      });
-                    }
-                  } catch (e: any) {
-                    setTestResult({
-                      ok: false,
-                      msg: e.message || "Network test failed.",
-                    });
-                  } finally {
-                    setTestingKey(false);
-                  }
-                }}
-                className="px-3 py-2 rounded-xl border border-white/15 text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/5 transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                {testingKey ? <Loader2 size={12} className="animate-spin" /> : <Shield size={12} />}
-                <span>{testingKey ? "Testing..." : "Test Connection"}</span>
-              </button>
-
-              <div className="flex items-center gap-2">
-                {apiKey && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      localStorage.removeItem("groq_api_key");
-                      setApiKey("");
-                      setTempApiKey("");
-                      setTestResult(null);
-                    }}
-                    className="px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                  >
-                    Clear Key
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const trimmed = tempApiKey.trim();
-                    if (trimmed) {
-                      localStorage.setItem("groq_api_key", trimmed);
-                      setApiKey(trimmed);
-                    }
-                    setShowSettingsModal(false);
-                  }}
-                  className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition-all cursor-pointer"
-                >
-                  Save Settings
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Friends & Direct Messaging Modal */}
+      {/* Friends Modal */}
       {showFriendsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
           <div className="w-full max-w-2xl h-[85vh] rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-darkest)] shadow-2xl overflow-hidden flex flex-col relative">

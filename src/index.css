@@ -1,21 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --theme-r: 10;
-  --theme-g: 14;
-  --theme-b: 41;
+  --theme-r: 14;
+  --theme-g: 22;
+  --theme-b: 54;
 
-  --theme-darkest: #040616;
-  --theme-surface: #070b22;
-  --theme-hover: #0a0f30;
-  --theme-accent: #0c1642;
-  --theme-accent-hover: #122060;
-  --theme-border: rgba(99, 102, 241, 0.4);
-  --theme-border-subtle: rgba(99, 102, 241, 0.2);
-  --theme-border-strong: rgba(129, 140, 248, 0.7);
+  --theme-darkest: #030614;
+  --theme-surface: #070e24;
+  --theme-hover: #0c183e;
+  --theme-accent: #11245a;
+  --theme-accent-hover: #18337e;
+  --theme-border: rgba(99, 102, 241, 0.35);
+  --theme-border-subtle: rgba(99, 102, 241, 0.18);
+  --theme-border-strong: rgba(129, 140, 248, 0.75);
   --theme-text-accent: #c7d2fe;
   --theme-text-muted: #818cf8;
-  --theme-glow: #0a0e29;
+  --theme-glow: #070e24;
 }
 
 /* Universal dynamic overrides: transforms all navy blue and indigo elements across the entire app to the active theme color */

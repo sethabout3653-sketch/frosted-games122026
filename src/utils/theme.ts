@@ -1,7 +1,7 @@
 /**
  * Global Theme Engine for Frosted Studying
- * Transforms all app-wide navy blue accents, surfaces, headers, footers,
- * and borders into any custom color chosen from the Color Wheel or RGB editor.
+ * Transforms all app-wide navy accents, surfaces, headers, footers,
+ * and borders into custom curated palettes or dynamic RGB tones.
  */
 
 export interface ThemeRgb {
@@ -11,9 +11,9 @@ export interface ThemeRgb {
 }
 
 export const DEFAULT_NAVY_THEME: ThemeRgb = {
-  r: 10,
-  g: 14,
-  b: 41,
+  r: 14,
+  g: 22,
+  b: 54,
 };
 
 export function rgbToHex(r: number, g: number, b: number): string {
@@ -85,57 +85,49 @@ export function rgbToHsv(r: number, g: number, b: number): { h: number; s: numbe
 }
 
 /**
- * Calculates responsive, accessible surface shades from any RGB base.
- * Calibrated so the default Midnight Navy (10, 14, 41) reproduces
- * the exact original hex values:
- * - darkest: #040616
- * - surface: #070b22
- * - hover:   #0a0f30
- * - accent:  #0c1642
- * - accentHover: #122060
+ * Calculates responsive, accessible, high-contrast surface shades from any RGB base.
  */
 export function calculateThemeShades(r: number, g: number, b: number) {
-  // Clamp inputs
   const cr = Math.max(0, Math.min(255, r));
   const cg = Math.max(0, Math.min(255, g));
   const cb = Math.max(0, Math.min(255, b));
 
-  // Determine dominant hue for tinting text
   const { h, s } = rgbToHsv(cr, cg, cb);
-  const effectiveSat = Math.max(25, Math.min(85, s * 100));
+  const effectiveSat = Math.max(30, Math.min(90, s * 100));
 
-  const darkest = `rgb(${Math.round(cr * 0.15 + 2)}, ${Math.round(cg * 0.15 + 3)}, ${Math.round(cb * 0.15 + 10)})`;
-  const surface = `rgb(${Math.round(cr * 0.25 + 3)}, ${Math.round(cg * 0.25 + 5)}, ${Math.round(cb * 0.25 + 18)})`;
-  const hover = `rgb(${Math.round(cr * 0.35 + 4)}, ${Math.round(cg * 0.35 + 7)}, ${Math.round(cb * 0.35 + 25)})`;
-  const accent = `rgb(${Math.round(cr * 0.55 + 5)}, ${Math.round(cg * 0.55 + 9)}, ${Math.round(cb * 0.55 + 35)})`;
-  const accentHover = `rgb(${Math.round(cr * 0.75 + 8)}, ${Math.round(cg * 0.75 + 14)}, ${Math.round(cb * 0.75 + 48)})`;
+  // Deep obsidian and atmospheric surfaces
+  const darkest = `rgb(${Math.round(cr * 0.08 + 3)}, ${Math.round(cg * 0.08 + 4)}, ${Math.round(cb * 0.08 + 8)})`;
+  const surface = `rgb(${Math.round(cr * 0.16 + 6)}, ${Math.round(cg * 0.16 + 8)}, ${Math.round(cb * 0.16 + 18)})`;
+  const hover = `rgb(${Math.round(cr * 0.28 + 10)}, ${Math.round(cg * 0.28 + 12)}, ${Math.round(cb * 0.28 + 26)})`;
+  const accent = `rgb(${Math.round(cr * 0.48 + 14)}, ${Math.round(cg * 0.48 + 18)}, ${Math.round(cb * 0.48 + 42)})`;
+  const accentHover = `rgb(${Math.round(cr * 0.72 + 20)}, ${Math.round(cg * 0.72 + 26)}, ${Math.round(cb * 0.72 + 60)})`;
 
-  // Explicit Discord-style chat shades derived from chosen color
-  const chatBg = `rgb(${Math.round(cr * 0.05 + 2)}, ${Math.round(cg * 0.05 + 2)}, ${Math.round(cb * 0.05 + 6)})`;
-  const chatRail = `rgb(${Math.round(cr * 0.03 + 1)}, ${Math.round(cg * 0.03 + 1)}, ${Math.round(cb * 0.03 + 4)})`;
-  const chatSidebar = `rgb(${Math.round(cr * 0.08 + 2)}, ${Math.round(cg * 0.08 + 3)}, ${Math.round(cb * 0.08 + 9)})`;
-  const chatInput = `rgb(${Math.round(cr * 0.15 + 3)}, ${Math.round(cg * 0.15 + 5)}, ${Math.round(cb * 0.15 + 16)})`;
-  const chatHover = `rgb(${Math.round(cr * 0.25 + 4)}, ${Math.round(cg * 0.25 + 6)}, ${Math.round(cb * 0.25 + 22)})`;
-  const chatActive = `rgb(${Math.round(cr * 0.50 + 5)}, ${Math.round(cg * 0.50 + 8)}, ${Math.round(cb * 0.50 + 32)})`;
+  // Refined chat-specific custom surfaces
+  const chatBg = `rgb(${Math.round(cr * 0.04 + 2)}, ${Math.round(cg * 0.04 + 3)}, ${Math.round(cb * 0.04 + 6)})`;
+  const chatRail = `rgb(${Math.round(cr * 0.02 + 1)}, ${Math.round(cg * 0.02 + 1)}, ${Math.round(cb * 0.02 + 3)})`;
+  const chatSidebar = `rgb(${Math.round(cr * 0.07 + 4)}, ${Math.round(cg * 0.07 + 5)}, ${Math.round(cb * 0.07 + 10)})`;
+  const chatInput = `rgb(${Math.round(cr * 0.12 + 6)}, ${Math.round(cg * 0.12 + 7)}, ${Math.round(cb * 0.12 + 14)})`;
+  const chatHover = `rgb(${Math.round(cr * 0.22 + 8)}, ${Math.round(cg * 0.22 + 10)}, ${Math.round(cb * 0.22 + 22)})`;
+  const chatActive = `rgb(${Math.round(cr * 0.45 + 12)}, ${Math.round(cg * 0.45 + 16)}, ${Math.round(cb * 0.45 + 36)})`;
 
-  // Calculate scaled vibrancy for indigo replacement shades
-  const ind500 = `hsl(${h}, ${effectiveSat}%, 55%)`;
-  const ind600 = `hsl(${h}, ${effectiveSat}%, 45%)`;
-  const ind400 = `hsl(${h}, ${effectiveSat}%, 66%)`;
-  const ind300 = `hsl(${h}, ${effectiveSat}%, 78%)`;
-  const ind200 = `hsl(${h}, ${effectiveSat}%, 88%)`;
-  const ind100 = `hsl(${h}, ${effectiveSat}%, 94%)`;
-  const ind700 = `hsl(${h}, ${effectiveSat}%, 35%)`;
-  const ind800 = `hsl(${h}, ${effectiveSat}%, 25%)`;
-  const ind900 = `hsl(${h}, ${effectiveSat}%, 16%)`;
+  // Dynamic vibrant scale
+  const ind500 = `hsl(${h}, ${effectiveSat}%, 56%)`;
+  const ind600 = `hsl(${h}, ${effectiveSat}%, 46%)`;
+  const ind400 = `hsl(${h}, ${effectiveSat}%, 68%)`;
+  const ind300 = `hsl(${h}, ${effectiveSat}%, 80%)`;
+  const ind200 = `hsl(${h}, ${effectiveSat}%, 90%)`;
+  const ind100 = `hsl(${h}, ${effectiveSat}%, 95%)`;
+  const ind700 = `hsl(${h}, ${effectiveSat}%, 36%)`;
+  const ind800 = `hsl(${h}, ${effectiveSat}%, 24%)`;
+  const ind900 = `hsl(${h}, ${effectiveSat}%, 15%)`;
   const ind950 = `hsl(${h}, ${effectiveSat}%, 8%)`;
 
-  const border = `rgba(${cr}, ${cg}, ${cb}, 0.38)`;
-  const borderSubtle = `rgba(${cr}, ${cg}, ${cb}, 0.20)`;
-  const borderStrong = `rgba(${Math.min(255, cr + 40)}, ${Math.min(255, cg + 40)}, ${Math.min(255, cb + 60)}, 0.75)`;
+  const border = `rgba(${cr}, ${cg}, ${cb}, 0.35)`;
+  const borderSubtle = `rgba(${cr}, ${cg}, ${cb}, 0.18)`;
+  const borderStrong = `rgba(${Math.min(255, cr + 60)}, ${Math.min(255, cg + 60)}, ${Math.min(255, cb + 80)}, 0.70)`;
 
-  const textAccent = `hsl(${h}, ${effectiveSat}%, 82%)`;
-  const textMuted = `hsl(${h}, ${effectiveSat}%, 65%)`;
+  const textAccent = `hsl(${h}, ${effectiveSat}%, 84%)`;
+  const textMuted = `hsl(${h}, ${Math.max(20, effectiveSat - 15)}%, 68%)`;
   const glow = `rgb(${cr}, ${cg}, ${cb})`;
 
   return {
@@ -192,7 +184,7 @@ export function applyTheme(r: number, g: number, b: number) {
   root.style.setProperty("--theme-accent", shades.accent);
   root.style.setProperty("--theme-accent-hover", shades.accentHover);
 
-  // Chat-specific custom properties
+  // Chat custom properties
   root.style.setProperty("--theme-chat-bg", shades.chatBg);
   root.style.setProperty("--theme-chat-rail", shades.chatRail);
   root.style.setProperty("--theme-chat-sidebar", shades.chatSidebar);
@@ -248,3 +240,4 @@ export function getSavedTheme(): ThemeRgb {
   } catch {}
   return DEFAULT_NAVY_THEME;
 }
+

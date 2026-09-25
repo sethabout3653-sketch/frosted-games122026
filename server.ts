@@ -3471,18 +3471,21 @@ Respond strictly in valid JSON:
           conversationContents.push({ role: "user", parts: [{ text: "Hello!" }] });
         }
         const nonStreamResult = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
+          model: "gemini-3.8-flash",
           contents: conversationContents,
-          config: { systemInstruction: systemPrompt || undefined, temperature: Math.min(1.0, Math.max(0.1, temperature)) }
+          config: {
+            systemInstruction: (systemPrompt || "You are an intelligent, clear, and direct academic partner and mentor. Answer questions directly with depth, clear explanations, and clean formatting. Avoid robotic filler phrases."),
+            temperature: Math.min(1.0, Math.max(0.1, temperature))
+          }
         });
         if (nonStreamResult?.text) {
-          return { text: nonStreamResult.text, model: "gemini-2.5-flash", provider: "google-gemini" };
+          return { text: nonStreamResult.text, model: "gemini-3.8-flash", provider: "google-gemini" };
         }
       } catch (gemErr) {}
     }
 
     return {
-      text: "Hello! I am your Frosted AI study companion. To enable high-speed Groq LPU models on your app, please verify your GROQ_API_KEY in Render environment settings or in the API Key settings modal.",
+      text: "I am ready to help! You can ask questions, paste code, request practice quizzes, or explore stealth study features.",
       model: "system",
       provider: "system"
     };
@@ -3500,7 +3503,7 @@ Respond strictly in valid JSON:
       const {
         messages = [],
         model = "openai/gpt-oss-120b",
-        systemPrompt = "You are a helpful, clear, and friendly AI study assistant. Provide accurate, thoroughly explained, step-by-step reasoning in clean Markdown.",
+        systemPrompt = "You are a knowledgeable, friendly, and direct study partner and engineering mentor. Provide clear, comprehensive, step-by-step reasoning in clean Markdown without robotic filler.",
         temperature = 0.7,
         customKey = "",
         stream = false,
@@ -3524,37 +3527,24 @@ Respond strictly in valid JSON:
       const serverGroqKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.GROQ_TOKEN || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
       const groqKey = isClientGroq ? (cleanCustomKey || bearerToken) : (serverGroqKey || (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : ""));
 
-      // Build OpenAI-compatible messages for Groq with Frosted Studying knowledge base
-      const frostedKnowledge = `You are Frosted AI, the official built-in AI assistant for Frosted Studying — an all-in-one unblocked student productivity, study, and stealth learning platform disguised as a casual games/arcade site.
+      // Natural, intelligent, un-robotic knowledge base
+      const frostedKnowledge = `You are the built-in study assistant and intelligent companion for Frosted Studying.
+You are articulate, insightful, patient, and conversational.
+Never use canned robotic phrases like "As an AI language model...", "I am programmed to...", "Processing query...", or "Certainly! I would be pleased to assist you with that."
+Speak directly, warmly, and naturally, like an experienced tutor and software mentor.
 
-Key Platform Features & Knowledge:
-1. Stealth Disguise & Tab Cloaking:
-   - Designed to appear as a clean gaming site or educational LMS (Google Drive / Canvas / Google Classroom) to bypass false alarms and strict network filters.
-   - Tab Cloaker: Dynamically changes tab title & favicon (disguises as Google Drive, Google Classroom, Canvas LMS, Clever, or Wikipedia).
-   - Panic Key / Stealth Mode: Hotkey (Escape / ~) or button that immediately switches/redirects the interface to Google Drive or Canvas.
-   - About:Blank Launcher / Unblocked Proxy: Opens tools and games in an about:blank frame or proxied window to prevent browser history logs and filter blocks.
-
-2. Games Suite (Disguised Arcade):
-   - Integrated unblocked web games including Slope, Geometry Dash, 2048, Retro Arcade, Crossy Road, Chess, Tetris, Flappy Bird, Sudoku, Minesweeper, and Wordle.
-
-3. Study Tools & AI Suite:
-   - Frosted AI Companion: Multi-persona AI tutor running ultra-fast open models (GPT OSS 120B, GPT OSS 20B, Qwen 3.8 27B, Groq LPU).
-   - Flashcards & Active Recall deck builder.
-   - Markdown Notes & Document/PDF summarizer.
-   - Focus Pomodoro Timer with ambient lofi audio.
-   - Math & Science Step-by-Step Calculator.
-
-4. Customization:
-   - Themes: Frosted Ice, Cyber Neon, Midnight OLED, Emerald Forest, Rose Quartz, Sunset Amber.
-
-If asked about Frosted Studying, tab cloaking, games, panic keys, proxies, or study tools, explain them warmly and accurately.`;
+Platform context:
+- Tab Cloaking & Stealth: Disguises the tab title and favicon (Google Drive, Canvas, Clever, Google Classroom) and provides Panic Keys (switching to Google Drive instantly) and an unblocked proxy/about:blank launcher.
+- Games Suite: Unblocked web games (Slope, Retro Arcade, Chess, 2048, Geometry Dash, Sudoku, etc.).
+- Productivity: Multi-persona AI tutor, active recall flashcards, markdown study notes, Pomodoro timer, step-by-step math solver.
+- Themes: Frosted Arctic, Midnight Abyss, Cyber Amethyst, Emerald Matrix, Crimson Inferno, Cyberpunk.`;
 
       const groqMessages: any[] = [];
       const hasSystemMessage = messages.some((m: any) => m.role === "system");
       if (!hasSystemMessage) {
         groqMessages.push({
           role: "system",
-          content: `${frostedKnowledge}\n\nAdditional Instruction: ${systemPrompt}`,
+          content: `${frostedKnowledge}\n\nPersona Guidelines: ${systemPrompt}`,
         });
       }
       for (const m of messages) {
@@ -3700,7 +3690,7 @@ If asked about Frosted Studying, tab cloaking, games, panic keys, proxies, or st
       }
 
       // =========================================================================
-      // 2. SECONDARY ENGINE: Gemini Fallback
+      // 2. SECONDARY ENGINE: Gemini Fast Inference
       // =========================================================================
       const geminiApiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "") || (isClientGemini ? (customKey || bearerToken) : "");
       if (geminiApiKey) {
@@ -3720,9 +3710,12 @@ If asked about Frosted Studying, tab cloaking, games, panic keys, proxies, or st
 
           if (isStream) {
             const streamResult = await ai.models.generateContentStream({
-              model: "gemini-2.5-flash",
+              model: "gemini-3.8-flash",
               contents: conversationContents,
-              config: { systemInstruction: systemPrompt || undefined, temperature: Math.min(1.0, Math.max(0.1, temperature)) }
+              config: {
+                systemInstruction: `${frostedKnowledge}\n\n${systemPrompt}`,
+                temperature: Math.min(1.0, Math.max(0.1, temperature))
+              }
             });
             res.setHeader("Content-Type", "text/event-stream");
             res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -3738,15 +3731,18 @@ If asked about Frosted Studying, tab cloaking, games, panic keys, proxies, or st
             return res.end();
           } else {
             const nonStreamResult = await ai.models.generateContent({
-              model: "gemini-2.5-flash",
+              model: "gemini-3.8-flash",
               contents: conversationContents,
-              config: { systemInstruction: systemPrompt || undefined, temperature: Math.min(1.0, Math.max(0.1, temperature)) }
+              config: {
+                systemInstruction: `${frostedKnowledge}\n\n${systemPrompt}`,
+                temperature: Math.min(1.0, Math.max(0.1, temperature))
+              }
             });
             const text = nonStreamResult.text || "";
             return res.json({
               text,
               choices: [{ message: { content: text } }],
-              model: "gemini-2.5-flash",
+              model: "gemini-3.8-flash",
               provider: "google-gemini"
             });
           }
