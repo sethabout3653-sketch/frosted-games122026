@@ -1,33 +1,41 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
 @import "tailwindcss";
 
 :root {
-  --theme-r: 91;
-  --theme-g: 58;
-  --theme-b: 78;
+  color-scheme: dark;
 
-  --theme-darkest: #120f1b;
-  --theme-surface: #1b1626;
-  --theme-hover: #2a2035;
-  --theme-accent: #3b2946;
-  --theme-accent-hover: #543453;
-  --theme-primary: #f28c78;
-  --theme-border: rgba(242, 140, 120, 0.28);
-  --theme-border-subtle: rgba(255, 232, 224, 0.12);
-  --theme-border-strong: rgba(242, 140, 120, 0.62);
-  --theme-text-accent: #ffe8e0;
-  --theme-text-muted: #d9b8c1;
-  --theme-glow: #b95b6d;
-  --theme-chat-bg: #15121e;
-  --theme-indigo-950: #120f1b;
-  --theme-indigo-900: #1b1626;
-  --theme-indigo-800: #2a2035;
-  --theme-indigo-700: #3b2946;
-  --theme-indigo-600: #543453;
-  --theme-indigo-500: #f28c78;
-  --theme-indigo-400: #ffad98;
-  --theme-indigo-300: #d9b8c1;
-  --theme-indigo-200: #ffe8e0;
-  --theme-indigo-100: #fff5f1;
+  --theme-r: 80;
+  --theme-g: 140;
+  --theme-b: 255;
+  --theme-h: 219;
+  --theme-sat: 69%;
+  --theme-surface-sat: 41%;
+
+  --theme-darkest: hsl(219, 41%, 5%);
+  --theme-surface: hsl(219, 41%, 9.5%);
+  --theme-hover: hsl(219, 45%, 14%);
+  --theme-accent: hsl(219, 53%, 20%);
+  --theme-accent-hover: hsl(219, 57%, 28%);
+  --theme-primary: hsl(219, 69%, 60%);
+  --theme-border: hsla(219, 69%, 65%, 0.22);
+  --theme-border-subtle: hsla(219, 69%, 80%, 0.09);
+  --theme-border-strong: hsla(219, 69%, 68%, 0.6);
+  --theme-text-accent: hsl(219, 60%, 92%);
+  --theme-text-muted: hsl(219, 28%, 70%);
+  --theme-glow: hsl(219, 69%, 60%);
+  --theme-chat-bg: hsl(219, 41%, 6%);
+  --theme-indigo-950: hsl(219, 41%, 7%);
+  --theme-indigo-900: hsl(219, 49%, 13%);
+  --theme-indigo-800: hsl(219, 55%, 22%);
+  --theme-indigo-700: hsl(219, 59%, 36%);
+  --theme-indigo-600: hsl(219, 69%, 50%);
+  --theme-indigo-500: hsl(219, 69%, 60%);
+  --theme-indigo-400: hsl(219, 69%, 70%);
+  --theme-indigo-300: hsl(219, 69%, 80%);
+  --theme-indigo-200: hsl(219, 69%, 90%);
+  --theme-indigo-100: hsl(219, 69%, 96%);
+
+  --font-display: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
 html {
@@ -37,27 +45,57 @@ html {
 body {
   margin: 0;
   min-width: 320px;
+  min-height: 100vh;
   background:
-    radial-gradient(circle at 92% 4%, rgba(242, 140, 120, 0.08), transparent 28rem),
-    radial-gradient(circle at 8% 100%, rgba(185, 91, 109, 0.08), transparent 30rem),
+    radial-gradient(ellipse 60rem 32rem at 85% -8%, hsla(var(--theme-h), var(--theme-sat), 60%, 0.14), transparent 70%),
+    radial-gradient(ellipse 50rem 30rem at -5% 105%, hsla(calc(var(--theme-h) + 30), var(--theme-sat), 55%, 0.08), transparent 70%),
     var(--theme-darkest);
-  color: #fff5f1;
+  color: var(--theme-text-accent);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "cv11", "ss01";
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  text-wrap: balance;
 }
 
 button, input, textarea, select {
   font: inherit;
 }
 
+button, a, [role="button"] {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+:where(button, a, input, textarea, select, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid var(--theme-primary);
+  outline-offset: 2px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: hsla(var(--theme-h), 25%, 72%, 0.55);
+}
+
+select option {
+  background: var(--theme-surface);
+  color: var(--theme-text-accent);
+}
+
 ::selection {
-  background: rgba(242, 140, 120, 0.32);
-  color: #fff5f1;
+  background: hsla(var(--theme-h), var(--theme-sat), 60%, 0.35);
+  color: #fff;
 }
 
 * {
-  scrollbar-color: rgba(242, 140, 120, 0.35) transparent;
+  scrollbar-color: hsla(var(--theme-h), var(--theme-sat), 65%, 0.3) transparent;
+  scrollbar-width: thin;
 }
 
 *::-webkit-scrollbar {
@@ -66,12 +104,32 @@ button, input, textarea, select {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgba(242, 140, 120, 0.3);
+  background: hsla(var(--theme-h), var(--theme-sat), 65%, 0.28);
   border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: hsla(var(--theme-h), var(--theme-sat), 65%, 0.5);
+  background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* Low-end GPU safety: backdrop blur re-renders everything behind an element every frame and is the main cause of lag on Chromebooks. */
+*, *::before, *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 /* Universal dynamic overrides: transforms all navy blue and indigo elements across the entire app to the active theme color */
@@ -251,7 +309,7 @@ button, input, textarea, select {
 [class*="shadow-indigo-950"],
 [class*="shadow-indigo-900"],
 [class*="shadow-indigo-500"] {
-  --tw-shadow-color: var(--theme-darkest) !important;
+  --tw-shadow-color: hsla(var(--theme-h), var(--theme-sat), 50%, 0.25) !important;
 }
 
 /* Gradients */
@@ -365,7 +423,7 @@ iframe[title*="Soundboard"] {
 
 /* Modals & Dialog overlays: remove expensive full-screen Gaussian backdrop-filter churn on low-end GPUs */
 .modal-overlay-backdrop {
-  background-color: rgba(2, 6, 14, 0.92) !important;
+  background-color: hsla(var(--theme-h), var(--theme-surface-sat), 3%, 0.9) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }

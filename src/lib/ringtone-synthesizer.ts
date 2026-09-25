@@ -22,29 +22,178 @@ export const BUILTIN_RINGTONES: RingtoneDefinition[] = [
     description: "Default incoming call ringtone",
     url: SOUND_ASSETS.incomingCall,
   },
+  {
+    id: "chimpanzini_bananini",
+    name: "Chimpanzini Bananini",
+    description: "Brainrot classic voice ringtone",
+    url: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Voicy_Chimpanzini%20bananini-EGVXDrBhtKg92XFuYSbKzNot5vPZPp.mp3",
+  },
+  {
+    id: "marimba_mp3",
+    name: "Marimba",
+    description: "Iconic mallet phone ringtone",
+    url: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/marimba-mHesi68iYRjsWw0mxwO46QC2yWgMGt.mp3",
+  },
+  {
+    id: "brr_brr_patapim",
+    name: "Brr Brr Patapim",
+    description: "Alarm clock style wake-up call",
+    url: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/brr-brr-patapim-alarm-clock-OMmzyXlVm1W6XFCxLfrqQTLqcYdJ9q.mp3",
+  },
+  {
+    id: "yo_phone_ringing",
+    name: "Yo Phone Ringing",
+    description: "Chino's phone is ringing",
+    url: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/yo-phone-ringing-chino-hEhf6SH1wCKSWdVgF6CJ3FGLyJIsDT.mp3",
+  },
+  {
+    id: "samsung_homecoming",
+    name: "Samsung Homecoming",
+    description: "Smooth Samsung-style melody",
+    url: "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/samsung-homecoming-T3lueTIsOorr13EWvFlJa3QSCXxgbP.mp3",
+  },
 ];
 
 export const AVAILABLE_RINGTONES = BUILTIN_RINGTONES;
 export const DEFAULT_RINGTONES = BUILTIN_RINGTONES;
-export const DEFAULT_RINGTONE = "piano_default";
+export const DEFAULT_RINGTONE = "incoming_default";
 const STORAGE_KEY = "frosted_call_ringtone_id";
 
+// ----------------------------------------------------------------------------
+// Custom uploaded ringtones (stored on-device in IndexedDB)
+// ----------------------------------------------------------------------------
+
+const CUSTOM_PREFIX = "custom_";
+const DB_NAME = "frosted_ringtones";
+const DB_STORE = "files";
+export const MAX_CUSTOM_RINGTONE_BYTES = 8 * 1024 * 1024;
+
+interface StoredRingtone {
+  id: string;
+  name: string;
+  blob: Blob;
+  createdAt: number;
+}
+
+let uploadedRingtones: RingtoneDefinition[] = [];
+let customLoadPromise: Promise<RingtoneDefinition[]> | null = null;
+
+function openRingtoneDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("IndexedDB is not available"));
+      return;
+    }
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(DB_STORE)) {
+        db.createObjectStore(DB_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function runStore<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return openRingtoneDB().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, mode);
+        const request = action(tx.objectStore(DB_STORE));
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+        tx.oncomplete = () => db.close();
+      })
+  );
+}
+
+function toDefinition(record: StoredRingtone): RingtoneDefinition {
+  const sizeMb = (record.blob.size / (1024 * 1024)).toFixed(1);
+  return {
+    id: record.id,
+    name: record.name,
+    description: `Your upload · ${sizeMb} MB`,
+    url: URL.createObjectURL(record.blob),
+    isCustom: true,
+  };
+}
+
+function notifyListUpdated() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("ringtone_list_updated"));
+  }
+}
+
 export function getAllRingtones(): RingtoneDefinition[] {
-  return BUILTIN_RINGTONES;
+  return [...BUILTIN_RINGTONES, ...uploadedRingtones];
 }
 
 export function getUploadedRingtones(): RingtoneDefinition[] {
-  return [];
+  return uploadedRingtones;
 }
 
-export async function loadCustomRingtonesFromDB(): Promise<RingtoneDefinition[]> {
-  return [];
+export function loadCustomRingtonesFromDB(): Promise<RingtoneDefinition[]> {
+  if (customLoadPromise) return customLoadPromise;
+  customLoadPromise = runStore<StoredRingtone[]>("readonly", (store) => store.getAll())
+    .then((records) => {
+      uploadedRingtones.forEach((r) => r.url && URL.revokeObjectURL(r.url));
+      uploadedRingtones = records.sort((a, b) => a.createdAt - b.createdAt).map(toDefinition);
+      notifyListUpdated();
+      return uploadedRingtones;
+    })
+    .catch(() => uploadedRingtones);
+  return customLoadPromise;
+}
+
+export async function addCustomRingtone(file: File): Promise<RingtoneDefinition> {
+  const isAudio = file.type.startsWith("audio/") || /\.(mp3|wav|ogg|m4a|aac)$/i.test(file.name);
+  if (!isAudio) throw new Error("Please choose an audio file (MP3, WAV, OGG, or M4A).");
+  if (file.size > MAX_CUSTOM_RINGTONE_BYTES) throw new Error("File is too large. Max size is 8 MB.");
+
+  await loadCustomRingtonesFromDB();
+
+  const record: StoredRingtone = {
+    id: `${CUSTOM_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    name: file.name.replace(/\.[^.]+$/, "").slice(0, 60) || "Custom ringtone",
+    blob: file,
+    createdAt: Date.now(),
+  };
+  await runStore("readwrite", (store) => store.put(record));
+
+  const definition = toDefinition(record);
+  uploadedRingtones = [...uploadedRingtones, definition];
+  notifyListUpdated();
+  return definition;
+}
+
+export async function removeCustomRingtone(id: string): Promise<void> {
+  await runStore("readwrite", (store) => store.delete(id));
+  const removed = uploadedRingtones.find((r) => r.id === id);
+  if (removed?.url) URL.revokeObjectURL(removed.url);
+  uploadedRingtones = uploadedRingtones.filter((r) => r.id !== id);
+  try {
+    if (localStorage.getItem(STORAGE_KEY) === id) {
+      localStorage.setItem(STORAGE_KEY, DEFAULT_RINGTONE);
+      window.dispatchEvent(new Event("ringtone_changed"));
+    }
+  } catch {}
+  notifyListUpdated();
+}
+
+function findRingtone(id: string): RingtoneDefinition | undefined {
+  return getAllRingtones().find((r) => r.id === id);
+}
+
+if (typeof window !== "undefined") {
+  loadCustomRingtonesFromDB();
 }
 
 export function getSavedRingtone(): string {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved && BUILTIN_RINGTONES.some((r) => r.id === saved)) {
+    if (saved && (saved.startsWith(CUSTOM_PREFIX) || BUILTIN_RINGTONES.some((r) => r.id === saved))) {
       return saved;
     }
   } catch {}
@@ -232,7 +381,7 @@ export function previewRingtone(ringtoneId: string, onEnded?: () => void): () =>
   }
 
   const id = ringtoneId || getSavedRingtone();
-  const target = BUILTIN_RINGTONES.find((r) => r.id === id) || BUILTIN_RINGTONES[0];
+  const target = findRingtone(id) || BUILTIN_RINGTONES[0];
 
   if (target.url) {
     try {
@@ -275,13 +424,15 @@ export function previewRingtone(ringtoneId: string, onEnded?: () => void): () =>
   return cleanup;
 }
 
-export function startRingtoneLoop(_ringtoneId?: string): () => void {
+export function startRingtoneLoop(ringtoneId?: string): () => void {
   if (activeRingtoneStopFn) {
     activeRingtoneStopFn();
     activeRingtoneStopFn = null;
   }
 
-  const target = { url: SOUND_ASSETS.incomingCall };
+  const id = ringtoneId || getSavedRingtone();
+  const selected = findRingtone(id);
+  const target = { url: selected?.url || SOUND_ASSETS.incomingCall };
 
   if (target.url) {
     try {

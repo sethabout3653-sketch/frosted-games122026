@@ -11,10 +11,13 @@ export interface ThemeRgb {
 }
 
 export const DEFAULT_NAVY_THEME: ThemeRgb = {
-  r: 242,
+  r: 80,
   g: 140,
-  b: 120,
+  b: 255,
 };
+
+// Earlier builds auto-saved this coral default for every visitor, so treat it as "no choice made".
+const LEGACY_DEFAULT_THEME: ThemeRgb = { r: 242, g: 140, b: 120 };
 
 export function rgbToHex(r: number, g: number, b: number): string {
   const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
@@ -93,47 +96,53 @@ export function calculateThemeShades(r: number, g: number, b: number) {
   const cb = Math.max(0, Math.min(255, b));
 
   const { h, s } = rgbToHsv(cr, cg, cb);
-  const effectiveSat = Math.max(30, Math.min(90, s * 100));
+  const isNeutral = s < 0.08;
+  const effectiveSat = isNeutral ? 8 : Math.max(35, Math.min(88, s * 100));
+  // Surfaces stay calmer than the accent so large areas never look garish.
+  const surfaceSat = isNeutral ? 6 : Math.max(18, Math.min(48, effectiveSat * 0.6));
+  const tone = (lightness: number, satBoost = 0) =>
+    `hsl(${h}, ${Math.min(100, surfaceSat + satBoost).toFixed(1)}%, ${lightness}%)`;
 
-  // Deep obsidian and atmospheric surfaces
-  const darkest = `rgb(${Math.round(cr * 0.08 + 3)}, ${Math.round(cg * 0.08 + 4)}, ${Math.round(cb * 0.08 + 8)})`;
-  const surface = `rgb(${Math.round(cr * 0.16 + 6)}, ${Math.round(cg * 0.16 + 8)}, ${Math.round(cb * 0.16 + 18)})`;
-  const hover = `rgb(${Math.round(cr * 0.28 + 10)}, ${Math.round(cg * 0.28 + 12)}, ${Math.round(cb * 0.28 + 26)})`;
-  const accent = `rgb(${Math.round(cr * 0.48 + 14)}, ${Math.round(cg * 0.48 + 18)}, ${Math.round(cb * 0.48 + 42)})`;
-  const accentHover = `rgb(${Math.round(cr * 0.72 + 20)}, ${Math.round(cg * 0.72 + 26)}, ${Math.round(cb * 0.72 + 60)})`;
+  // Layered elevation ladder: each step reads as a distinct plane.
+  const chatRail = tone(3.5);
+  const darkest = tone(5);
+  const chatBg = tone(6);
+  const chatSidebar = tone(7.5);
+  const surface = tone(9.5);
+  const chatInput = tone(11);
+  const hover = tone(14, 4);
+  const chatHover = tone(14, 4);
+  const accent = tone(20, 12);
+  const chatActive = tone(23, 14);
+  const accentHover = tone(28, 16);
 
-  // Refined chat-specific custom surfaces
-  const chatBg = `rgb(${Math.round(cr * 0.04 + 2)}, ${Math.round(cg * 0.04 + 3)}, ${Math.round(cb * 0.04 + 6)})`;
-  const chatRail = `rgb(${Math.round(cr * 0.02 + 1)}, ${Math.round(cg * 0.02 + 1)}, ${Math.round(cb * 0.02 + 3)})`;
-  const chatSidebar = `rgb(${Math.round(cr * 0.07 + 4)}, ${Math.round(cg * 0.07 + 5)}, ${Math.round(cb * 0.07 + 10)})`;
-  const chatInput = `rgb(${Math.round(cr * 0.12 + 6)}, ${Math.round(cg * 0.12 + 7)}, ${Math.round(cb * 0.12 + 14)})`;
-  const chatHover = `rgb(${Math.round(cr * 0.22 + 8)}, ${Math.round(cg * 0.22 + 10)}, ${Math.round(cb * 0.22 + 22)})`;
-  const chatActive = `rgb(${Math.round(cr * 0.45 + 12)}, ${Math.round(cg * 0.45 + 16)}, ${Math.round(cb * 0.45 + 36)})`;
-
-  // Dynamic vibrant scale
-  const ind500 = `hsl(${h}, ${effectiveSat}%, 56%)`;
-  const ind600 = `hsl(${h}, ${effectiveSat}%, 46%)`;
-  const ind400 = `hsl(${h}, ${effectiveSat}%, 68%)`;
-  const ind300 = `hsl(${h}, ${effectiveSat}%, 80%)`;
+  // Vibrant accent scale, always legible regardless of how dark the picked color is
+  const ind100 = `hsl(${h}, ${effectiveSat}%, 96%)`;
   const ind200 = `hsl(${h}, ${effectiveSat}%, 90%)`;
-  const ind100 = `hsl(${h}, ${effectiveSat}%, 95%)`;
-  const ind700 = `hsl(${h}, ${effectiveSat}%, 36%)`;
-  const ind800 = `hsl(${h}, ${effectiveSat}%, 24%)`;
-  const ind900 = `hsl(${h}, ${effectiveSat}%, 15%)`;
-  const ind950 = `hsl(${h}, ${effectiveSat}%, 8%)`;
+  const ind300 = `hsl(${h}, ${effectiveSat}%, 80%)`;
+  const ind400 = `hsl(${h}, ${effectiveSat}%, 70%)`;
+  const ind500 = `hsl(${h}, ${effectiveSat}%, 60%)`;
+  const ind600 = `hsl(${h}, ${effectiveSat}%, 50%)`;
+  const ind700 = `hsl(${h}, ${Math.max(30, effectiveSat - 10)}%, 36%)`;
+  const ind800 = `hsl(${h}, ${surfaceSat + 14}%, 22%)`;
+  const ind900 = `hsl(${h}, ${surfaceSat + 8}%, 13%)`;
+  const ind950 = `hsl(${h}, ${surfaceSat}%, 7%)`;
 
-  const border = `rgba(${cr}, ${cg}, ${cb}, 0.35)`;
-  const borderSubtle = `rgba(${cr}, ${cg}, ${cb}, 0.18)`;
-  const borderStrong = `rgba(${Math.min(255, cr + 60)}, ${Math.min(255, cg + 60)}, ${Math.min(255, cb + 80)}, 0.70)`;
+  const border = `hsla(${h}, ${effectiveSat}%, 65%, 0.22)`;
+  const borderSubtle = `hsla(${h}, ${effectiveSat}%, 80%, 0.09)`;
+  const borderStrong = `hsla(${h}, ${effectiveSat}%, 68%, 0.6)`;
 
-  const textAccent = `hsl(${h}, ${effectiveSat}%, 84%)`;
-  const textMuted = `hsl(${h}, ${Math.max(20, effectiveSat - 15)}%, 68%)`;
-  const glow = `rgb(${cr}, ${cg}, ${cb})`;
+  const textAccent = `hsl(${h}, ${Math.min(60, effectiveSat)}%, 92%)`;
+  const textMuted = `hsl(${h}, ${Math.max(12, Math.min(30, effectiveSat * 0.4))}%, 70%)`;
+  const glow = ind500;
 
   return {
     r: cr,
     g: cg,
     b: cb,
+    h,
+    sat: effectiveSat,
+    surfaceSat,
     hex: rgbToHex(cr, cg, cb),
     darkest,
     surface,
@@ -177,7 +186,10 @@ export function applyTheme(r: number, g: number, b: number) {
   root.style.setProperty("--theme-r", `${shades.r}`);
   root.style.setProperty("--theme-g", `${shades.g}`);
   root.style.setProperty("--theme-b", `${shades.b}`);
-  root.style.setProperty("--theme-primary", `rgb(${shades.r}, ${shades.g}, ${shades.b})`);
+  root.style.setProperty("--theme-h", `${shades.h}`);
+  root.style.setProperty("--theme-sat", `${shades.sat}%`);
+  root.style.setProperty("--theme-surface-sat", `${shades.surfaceSat}%`);
+  root.style.setProperty("--theme-primary", shades.ind500);
   root.style.setProperty("--theme-darkest", shades.darkest);
   root.style.setProperty("--theme-surface", shades.surface);
   root.style.setProperty("--theme-hover", shades.hover);
@@ -229,6 +241,11 @@ export function getSavedTheme(): ThemeRgb {
     const raw = localStorage.getItem("frosted_theme_color");
     if (raw) {
       const parsed = JSON.parse(raw);
+      const isLegacyDefault =
+        parsed?.r === LEGACY_DEFAULT_THEME.r &&
+        parsed?.g === LEGACY_DEFAULT_THEME.g &&
+        parsed?.b === LEGACY_DEFAULT_THEME.b;
+      if (isLegacyDefault) return DEFAULT_NAVY_THEME;
       if (typeof parsed?.r === "number" && typeof parsed?.g === "number" && typeof parsed?.b === "number") {
         return {
           r: Math.max(0, Math.min(255, parsed.r)),

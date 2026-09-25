@@ -26,6 +26,9 @@ import {
   setSavedRingtone,
   previewRingtone,
   RingtoneDefinition,
+  addCustomRingtone,
+  removeCustomRingtone,
+  loadCustomRingtonesFromDB,
 } from "../lib/ringtone-synthesizer";
 import {
   TAB_CLOAKS,
@@ -104,8 +107,45 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
       setCurrentRingtone(getSavedRingtone());
     };
     window.addEventListener("ringtone_list_updated", handleListUpdate);
+    loadCustomRingtonesFromDB();
     return () => window.removeEventListener("ringtone_list_updated", handleListUpdate);
   }, []);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const handleUploadFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    setUploadError(null);
+    setIsUploading(true);
+    let lastAdded: RingtoneDefinition | null = null;
+    for (const file of files) {
+      try {
+        lastAdded = await addCustomRingtone(file);
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : "Could not add that file.");
+      }
+    }
+    setIsUploading(false);
+    if (lastAdded) handleSelectRingtone(lastAdded.id);
+  };
+
+  const handleRemoveRingtone = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (previewingRingtone === id && previewStopRef.current) {
+      previewStopRef.current();
+      previewStopRef.current = null;
+      setPreviewingRingtone(null);
+    }
+    try {
+      await removeCustomRingtone(id);
+    } catch {
+      setUploadError("Could not remove that ringtone.");
+    }
+  };
 
   const handleSelectRingtone = (id: string) => {
     setCurrentRingtone(id);
@@ -337,11 +377,40 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
                       Incoming Call Ringtone
                     </h3>
                   </div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="audio/*,.mp3,.wav,.ogg,.m4a"
+                    multiple
+                    className="sr-only"
+                    onChange={handleUploadFiles}
+                    aria-label="Upload custom ringtone files"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    style={{
+                      backgroundColor: "var(--theme-accent)",
+                      borderColor: "var(--theme-border)",
+                    }}
+                    className="px-3 py-1.5 rounded-lg border text-white font-medium text-xs transition-all duration-150 shadow-sm cursor-pointer hover:brightness-110 active:scale-95 flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-wait"
+                  >
+                    <Upload size={13} className="text-[var(--theme-text-accent)]" />
+                    <span>{isUploading ? "Adding..." : "Add your own"}</span>
+                  </button>
                 </div>
 
                 <p className="text-xs text-neutral-300 leading-relaxed">
-                  Choose your preferred built-in ringtone for incoming audio/video calls. The default is a custom piano melody synthesized live on a piano!
+                  Choose your preferred ringtone for incoming audio/video calls. Tap play to preview, then click a card to set it. Upload your own MP3s (up to 8 MB each) &mdash; they&apos;re saved on this device.
                 </p>
+
+                {uploadError && (
+                  <p role="alert" className="text-xs text-red-300 bg-red-500/10 border border-red-400/30 rounded-lg px-3 py-2">
+                    {uploadError}
+                  </p>
+                )}
 
                 {/* Ringtone List */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
@@ -391,6 +460,17 @@ export default function SettingsModal({ isOpen, onClose, onOpenTheme }: Settings
                           >
                             {isPlaying ? <Volume2 size={13} /> : <Play size={13} />}
                           </button>
+                          {rt.isCustom && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleRemoveRingtone(rt.id, e)}
+                              className="p-2 rounded-lg border bg-white/5 border-white/10 text-neutral-400 hover:text-red-300 hover:border-red-400/40 transition-all shrink-0 cursor-pointer"
+                              title={`Remove ${rt.name}`}
+                              aria-label={`Remove ${rt.name}`}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
