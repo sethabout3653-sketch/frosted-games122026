@@ -6,10 +6,10 @@ import { applyTheme, getSavedTheme, DEFAULT_NAVY_THEME, ThemeRgb, rgbToHex, hexT
 
 export type AppBackground = { type: "solid" | "gradient" | "image"; value: string };
 
-// Default frosted background (Midnight Navy)
+// Default frosted background (Frosted Aurora)
 export const DEFAULT_BACKGROUND: AppBackground = {
   type: "gradient",
-  value: "radial-gradient(circle at 50% 50%, #0a0e29 0%, #03040c 100%)"
+  value: "radial-gradient(circle at 50% 25%, #0b1f3b 0%, #051020 50%, #02060e 100%)"
 };
 
 export interface ThemePreset {
@@ -22,11 +22,11 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: ThemePreset[] = [
   {
-    name: "Frosted Arctic (Default)",
+    name: "Frosted Studying (Default)",
     type: "gradient",
-    value: "radial-gradient(circle at 50% 30%, #0d1a3a 0%, #060b1e 60%, #02040c 100%)",
-    preview: "radial-gradient(circle at 50% 30%, #0d1a3a 0%, #060b1e 60%, #02040c 100%)",
-    rgb: { r: 14, g: 22, b: 54 },
+    value: "radial-gradient(circle at 50% 25%, #0b1f3b 0%, #051020 50%, #02060e 100%)",
+    preview: "radial-gradient(circle at 50% 25%, #0b1f3b 0%, #051020 50%, #02060e 100%)",
+    rgb: { r: 10, g: 34, b: 74 },
   },
   {
     name: "Midnight Abyss",

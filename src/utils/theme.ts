@@ -11,9 +11,9 @@ export interface ThemeRgb {
 }
 
 export const DEFAULT_NAVY_THEME: ThemeRgb = {
-  r: 14,
-  g: 22,
-  b: 54,
+  r: 10,
+  g: 34,
+  b: 74,
 };
 
 export function rgbToHex(r: number, g: number, b: number): string {

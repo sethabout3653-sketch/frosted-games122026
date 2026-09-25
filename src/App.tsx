@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useDeferredValue } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Game } from "./types";
-import { fetchGamesList, getUniqueTags, isFnfGame, isFnfMod, deduplicateGames } from "./utils";
+import { fetchGamesList, getUniqueTags, isFnfGame, isFnfMod, deduplicateGames, formatTagLabel } from "./utils";
 import { fetchLuminGames, getLocalLuminGames, fetchLuminSessionId, getLocalLuminGamesWithSession } from "./lumin";
 import Header from "./components/Header";
 import GameGrid from "./components/GameGrid";
@@ -21,6 +21,7 @@ import IncomingCallNotification from "./components/IncomingCallNotification";
 import ActiveCallModal from "./components/ActiveCallModal";
 import { useFavorites } from "./lib/favorites";
 import { purgeNonAllowedUsers } from "./lib/user-filter";
+import { Sparkles, Gamepad2, Shuffle, Heart, Flame, Compass, Play } from "lucide-react";
 
 const SOUNDBOARD_GAME: Game = {
   id: "soundboard",
@@ -36,7 +37,6 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
   const isFnf = isFnfGame(g.name, g.special);
   const isMod = isFnf && isFnfMod(g.name, g.special);
 
-  // Clean internal tags and strip any previous FNF tags to ensure mutually exclusive categorization
   let sTags = g.special
     ? [
         ...g.special.filter((t) => {
@@ -46,8 +46,6 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
       ]
     : [];
 
-  // If it's an FNF mod: treat genre as "fnf-mod" ("FNF Mod")
-  // If it's the 1 original vanilla game: treat genre as "fnf" ("FNF")
   if (isMod) {
     sTags.unshift("fnf-mod");
   } else if (isFnf) {
@@ -89,8 +87,6 @@ function AppContent() {
   }, [setOnOpenGroupVoice]);
 
   const [showStartup, setShowStartup] = useState(true);
-  // Core games list state seeded synchronously with ALL catalog and Lumin games combined,
-  // guaranteeing that on Vercel, offline, or slower networks, all 1,600+ games are present immediately.
   const [games, setGames] = useState<Game[]>(() => {
     const catalogPrepared = (localZones as Game[])
       .filter((g) => g.id !== -1 && g.name !== "-3" && g.id !== 816)
@@ -110,26 +106,20 @@ function AppContent() {
   const [isThemeOpen, setIsThemeOpen] = useState(false);
 
   useEffect(() => {
-    // Automatically restore saved tab cloak on initial mount
     const saved = getSavedTabCloak();
     if (saved) {
       applyTabCloak(saved);
     }
-    // Automatically apply saved theme color across the app
     const savedTheme = getSavedTheme();
     applyTheme(savedTheme.r, savedTheme.g, savedTheme.b);
   }, []);
 
   useEffect(() => {
-    // Purge any users outside allowed set ("giggity", "SethPlayz12", "logicgatesobviously")
     purgeNonAllowedUsers().catch(() => {});
-
-    // Safety fallback timeout to ensure app is always accessible
-    const safetyTimeout = window.setTimeout(() => setShowStartup(false), 6000);
+    const safetyTimeout = window.setTimeout(() => setShowStartup(false), 5000);
     return () => window.clearTimeout(safetyTimeout);
   }, []);
 
-  // Background keepalive ping to prevent server and hosting inactivity limits (every 10 minutes)
   useEffect(() => {
     const keepAlivePing = () => {
       fetch("/api/ping", { cache: "no-store" }).catch(() => {});
@@ -138,7 +128,6 @@ function AppContent() {
     return () => window.clearInterval(interval);
   }, []);
 
-  // Manage scrolling state on document body
   useEffect(() => {
     if (currentView === "chat" || currentView === "game" || currentView === "assistant") {
       document.body.style.overflow = "hidden";
@@ -158,7 +147,6 @@ function AppContent() {
   const deferredSearch = useDeferredValue(searchQuery);
   const [selectedTag, setSelectedTag] = useState("all");
 
-  // Real-Time Activity & Status Synchronization over WebSockets
   useActivityTracker({
     currentView,
     selectedGame,
@@ -175,7 +163,6 @@ function AppContent() {
     setSelectedTag(tag);
   }, []);
 
-  // Fetch live games from GitHub assets and Lumin games on mount
   useEffect(() => {
     let isMounted = true;
 
@@ -200,7 +187,6 @@ function AppContent() {
         if (luminGamesResult.status === "fulfilled" && luminGamesResult.value.length > 0) {
           luminList = luminGamesResult.value;
         } else {
-          // If live fetch failed, attempt to fetch just a fresh session ID to rescue the local game covers
           const freshSessionId = await fetchLuminSessionId();
           if (freshSessionId) {
             luminList = getLocalLuminGamesWithSession(freshSessionId);
@@ -210,8 +196,6 @@ function AppContent() {
         }
 
         const luminPrepared = luminList.map((g) => prepareGame(g, "luminsdk"));
-
-        // Deduplicate between gn-math catalog and Lumin, strictly preserving gn-math for Friday Night Funkin
         const combined = deduplicateGames(baseList, luminPrepared).sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
         setGames([SOUNDBOARD_GAME, ...combined.filter((g) => g.id !== SOUNDBOARD_GAME.id)]);
         setLoadingLive(false);
@@ -229,15 +213,10 @@ function AppContent() {
     };
   }, []);
 
-  // Total playable games count
-  const totalPlayableCount = games.length;
-
-  // Extract unique categories for tags list
   const tags = useMemo(() => {
     return getUniqueTags(games);
   }, [games]);
 
-  // Ensure URL is clean and without query params like ?game=...
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.has("game")) {
@@ -275,7 +254,15 @@ function AppContent() {
     setCurrentView("assistant");
   }, []);
 
-  // Ultra-fast pre-indexed filtering
+  const handleRandomGame = useCallback(() => {
+    if (games.length === 0) return;
+    const playable = games.filter((g) => g.id !== -1);
+    const random = playable[Math.floor(Math.random() * playable.length)];
+    if (random) {
+      handleSelectGame(random);
+    }
+  }, [games, handleSelectGame]);
+
   const processedGames = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase();
     const hasQuery = query.length > 0;
@@ -302,6 +289,26 @@ function AppContent() {
 
   const isSoundboardActive = currentView === "game" && (selectedGame?.id === "soundboard" || selectedGame?.name?.toLowerCase().includes("soundboard"));
 
+  // Popular quick tags for pill filter row
+  const quickPillTags = [
+    { id: "all", label: "All Games" },
+    { id: "favorites", label: "Favorites", isHeart: true },
+    { id: "action", label: "Action" },
+    { id: "retro", label: "Retro" },
+    { id: "arcade", label: "Arcade" },
+    { id: "puzzle", label: "Puzzle" },
+    { id: "fnf", label: "FNF" },
+    { id: "2-player", label: "2-Player" },
+    { id: "driving", label: "Driving" },
+    { id: "shooting", label: "Shooting" },
+    { id: "soundboard", label: "Soundboard" },
+  ];
+
+  // Featured spotlight games for hero section
+  const spotlightGame = useMemo(() => {
+    return games.find((g) => g.name.toLowerCase().includes("slope") || g.name.toLowerCase().includes("geometry dash") || g.name.toLowerCase().includes("retro arcade") || g.name.toLowerCase().includes("soundboard")) || games[0];
+  }, [games]);
+
   return (
     <>
       <AnimatePresence mode="wait">
@@ -325,6 +332,7 @@ function AppContent() {
         onAssistantClick={handleOpenAssistant}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenTheme={() => setIsThemeOpen(true)}
+        onRandomGame={handleRandomGame}
       />
 
       {/* Main Content Area */}
@@ -366,18 +374,122 @@ function AppContent() {
             pointerEvents: currentView === "home" ? "auto" : "none",
             transform: "translateZ(0)"
           }}
-          className={`w-full max-w-7xl mx-auto px-4 py-6 md:px-8 flex-1 flex flex-col gap-6 ${currentView === "home" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
+          className={`w-full max-w-7xl mx-auto px-4 py-5 md:px-8 flex-1 flex flex-col gap-6 ${currentView === "home" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
         >
+          {/* Spotlight Hero Banner (Visible when not actively searching) */}
+          {!searchQuery && selectedTag === "all" && spotlightGame && (
+            <div
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border)",
+              }}
+              className="relative overflow-hidden rounded-3xl border p-5 sm:p-7 shadow-2xl backdrop-blur-2xl flex flex-col sm:flex-row items-center justify-between gap-6 group"
+            >
+              {/* Glow Accent Backdrop */}
+              <div
+                className="absolute -right-16 -top-16 w-80 h-80 rounded-full blur-3xl opacity-30 pointer-events-none"
+                style={{ backgroundColor: "var(--theme-accent-hover)" }}
+              />
+
+              <div className="flex-1 space-y-2.5 z-10 text-center sm:text-left">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase text-amber-300 bg-amber-500/15 border border-amber-500/30">
+                  <Flame size={13} className="text-amber-400" />
+                  <span>Featured Quick Launch</span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                  {spotlightGame.name}
+                </h1>
+                <p className="text-xs sm:text-sm text-neutral-300 max-w-xl font-normal leading-relaxed">
+                  Jump right into popular titles or explore the library of {games.length.toLocaleString()} unblocked games, social chat rooms, and study tools.
+                </p>
+
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 pt-2">
+                  <button
+                    onClick={() => handleSelectGame(spotlightGame)}
+                    style={{
+                      backgroundColor: "var(--theme-accent)",
+                      borderColor: "var(--theme-border-strong)",
+                    }}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-2xl border text-xs font-bold text-white shadow-lg hover:border-white/40 hover:scale-102 active:scale-98 transition-all cursor-pointer"
+                  >
+                    <Play size={14} className="fill-white" />
+                    <span>Play Now</span>
+                  </button>
+
+                  <button
+                    onClick={handleRandomGame}
+                    style={{
+                      backgroundColor: "var(--theme-darkest)",
+                      borderColor: "var(--theme-border-subtle)",
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border text-xs font-bold text-neutral-200 hover:text-white hover:border-[var(--theme-border)] hover:bg-white/5 active:scale-98 transition-all cursor-pointer"
+                  >
+                    <Shuffle size={14} className="text-amber-400" />
+                    <span>Surprise Me</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Spotlight Thumbnail Card */}
+              {spotlightGame.cover && (
+                <div
+                  onClick={() => handleSelectGame(spotlightGame)}
+                  style={{ borderColor: "var(--theme-border-strong)" }}
+                  className="w-32 h-32 sm:w-40 sm:h-40 rounded-2xl border overflow-hidden shadow-2xl shrink-0 cursor-pointer group-hover:scale-105 transition-transform duration-300 relative bg-black/60"
+                >
+                  <img
+                    src={spotlightGame.cover}
+                    alt={spotlightGame.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Play size={24} className="fill-white text-white drop-shadow-md" />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quick Genre Filter Pills */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar no-scrollbar select-none">
+            {quickPillTags.map((pill) => {
+              const isPillActive = selectedTag === pill.id;
+              return (
+                <button
+                  key={pill.id}
+                  onClick={() => handleTagChange(pill.id)}
+                  style={{
+                    backgroundColor: isPillActive
+                      ? (pill.isHeart ? "rgba(244, 63, 94, 0.25)" : "var(--theme-accent)")
+                      : "var(--theme-surface)",
+                    borderColor: isPillActive
+                      ? (pill.isHeart ? "rgba(244, 63, 94, 0.7)" : "var(--theme-border-strong)")
+                      : "var(--theme-border-subtle)",
+                  }}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold whitespace-nowrap transition-all duration-200 cursor-pointer shrink-0 shadow-sm active:scale-95 ${
+                    isPillActive
+                      ? (pill.isHeart ? "text-rose-300 ring-1 ring-rose-500/40" : "text-white ring-1 ring-white/20")
+                      : "text-neutral-400 hover:text-white hover:bg-white/5"
+                  }`}
+                >
+                  {pill.isHeart && <Heart size={12} className={isPillActive ? "fill-rose-400 text-rose-400" : "text-rose-400"} />}
+                  <span>{pill.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Catalog Grid View */}
           <section id="games-catalog-section" className="flex-1 flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <h2 className="text-base font-bold tracking-wider uppercase text-white flex items-center gap-2.5">
+                <h2 className="text-sm sm:text-base font-bold tracking-wider uppercase text-white flex items-center gap-2">
                   <span>Library ({processedGames.length.toLocaleString()})</span>
                 </h2>
-                {loadingLive && (
-                  <span className="text-[10px] text-[var(--theme-text-muted)]/60 font-semibold uppercase tracking-wider animate-pulse hidden sm:inline">
-                    Checking latest additions...
+                {searchQuery && (
+                  <span className="text-xs text-neutral-400 font-normal">
+                    for &ldquo;{searchQuery}&rdquo;
                   </span>
                 )}
               </div>
@@ -441,7 +553,7 @@ function AppContent() {
           />
         </motion.div>
 
-        {/* AI Assistant View (GitHub Models) */}
+        {/* AI Assistant View */}
         <motion.div
           animate={{
             opacity: currentView === "assistant" ? 1 : 0,

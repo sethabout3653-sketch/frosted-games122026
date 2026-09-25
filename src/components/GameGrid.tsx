@@ -17,9 +17,9 @@ const cardVariants = {
     opacity: 1,
     y: 0,
     transition: {
-      duration: 0.4,
-      ease: [0.16, 1, 0.3, 1] as const, // snappier cubic-bezier
-      delay: Math.min(index * 0.015, 0.35), // gentle cascading staggered loading
+      duration: 0.35,
+      ease: [0.16, 1, 0.3, 1] as const,
+      delay: Math.min(index * 0.012, 0.25),
     },
   }),
 };
@@ -31,12 +31,10 @@ const GameGrid = memo(function GameGrid({
   const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Reset pagination count whenever the games list changes (search or category filter)
   useEffect(() => {
     setVisibleCount(ITEMS_PER_PAGE);
   }, [games]);
 
-  // Infinite scroll intersection observer: automatically loads the next chunk smoothly
   useEffect(() => {
     const target = sentinelRef.current;
     if (!target) return;
@@ -69,7 +67,6 @@ const GameGrid = memo(function GameGrid({
     setVisibleCount((prev) => Math.min(prev + ITEMS_PER_PAGE, games.length));
   };
 
-  // If search/filters yield zero results, render a sleek empty state with motion
   if (games.length === 0) {
     return (
       <motion.div
@@ -77,23 +74,33 @@ const GameGrid = memo(function GameGrid({
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.3 }}
-        className="flex flex-col items-center justify-center py-20 px-4 text-center"
+        style={{
+          backgroundColor: "var(--theme-surface)",
+          borderColor: "var(--theme-border-subtle)",
+        }}
+        className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-3xl border shadow-xl backdrop-blur-xl max-w-md mx-auto my-8"
       >
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/[0.02] border border-white/5 text-neutral-400 mb-4 shadow-inner">
-          <Gamepad2 size={28} className="text-indigo-400" />
+        <div
+          style={{
+            backgroundColor: "var(--theme-accent)",
+            borderColor: "var(--theme-border)",
+          }}
+          className="flex h-16 w-16 items-center justify-center rounded-2xl border text-neutral-300 mb-4 shadow-lg"
+        >
+          <Gamepad2 size={30} className="text-[var(--theme-text-accent)]" />
         </div>
-        <h3 className="text-base font-bold text-neutral-200">No Unblocked Games Found</h3>
-        <p className="mt-1 text-xs text-neutral-500 max-w-xs leading-relaxed font-medium">
-          We couldn't find any games matching your current search filters. Try clearing your filters or search keywords!
+        <h3 className="text-base font-bold text-white tracking-tight">No Games Found</h3>
+        <p className="mt-1.5 text-xs text-neutral-400 max-w-xs leading-relaxed font-normal">
+          Try clearing your search query or choosing a different genre filter.
         </p>
       </motion.div>
     );
   }
 
   return (
-    <div id="game-grid-container" className="flex flex-col gap-8">
+    <div id="game-grid-container" className="flex flex-col gap-6">
       {/* Dynamic Grid Layout */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
         <AnimatePresence mode="popLayout">
           {visibleGames.map((game, index) => (
             <motion.div
@@ -118,14 +125,18 @@ const GameGrid = memo(function GameGrid({
 
       {/* Load More Button */}
       {hasMore && (
-        <div className="flex justify-center pt-2 pb-8">
+        <div className="flex justify-center pt-2 pb-6">
           <button
             id="load-more-btn"
             onClick={handleLoadMore}
-            className="flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 px-6 py-3 border border-white/10 text-white font-semibold text-xs transition-all tracking-wider uppercase cursor-pointer shadow-md hover:scale-102 active:scale-98"
+            style={{
+              backgroundColor: "var(--theme-surface)",
+              borderColor: "var(--theme-border)",
+            }}
+            className="flex items-center gap-2 rounded-2xl px-6 py-3 border text-white font-bold text-xs transition-all duration-200 cursor-pointer shadow-lg hover:border-[var(--theme-border-strong)] hover:bg-white/5 active:scale-95"
           >
-            <span>Load More Games ({games.length - visibleCount} remaining)</span>
-            <ArrowRight size={14} />
+            <span>Load More ({games.length - visibleCount} remaining)</span>
+            <ArrowRight size={14} className="text-[var(--theme-text-accent)]" />
           </button>
         </div>
       )}
