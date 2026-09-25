@@ -21,6 +21,7 @@ import FriendsPanel from "./FriendsPanel";
 import { ChatProfile, ChatMessage } from "../types";
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
 import { saveUserProfile } from "../lib/activity-tracker";
+import { SOUND_ASSETS } from "../lib/ringtone-synthesizer";
 import {
   collection,
   query,
@@ -333,7 +334,7 @@ export default function Chat({
 
           if (!isMe) {
             try {
-              messageSoundRef.current ||= new Audio("/audio/discord_sound.mp3");
+              messageSoundRef.current ||= new Audio(SOUND_ASSETS.message);
               messageSoundRef.current.currentTime = 0;
               messageSoundRef.current.volume = 0.8;
               messageSoundRef.current.play().catch(() => {});
