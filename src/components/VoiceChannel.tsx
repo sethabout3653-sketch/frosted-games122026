@@ -50,6 +50,7 @@ import { extractDominantColor, getFallbackColor, parseHexToRgb } from "../utils/
 import { getCurrentActivity, onActivityChanged, setVoiceState } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
 import { ICE_SERVERS } from "../lib/webrtc-config";
+import { wsClient } from "../lib/websocket-client";
 
 interface VoiceChannelProps {
   profile: ChatProfile;
@@ -447,7 +448,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         source.connect(analyser);
         analyserRef.current = analyser;
 
-        // Mixed destination node that combines microphone and screen share audio for WebRTC
+        // Keep the native microphone track in the peer connection. Routing it through
+        // MediaStreamDestination can add latency and breaks browser AEC on some devices.
+        // The analyser remains side-band only for VAD and the UI.
         const mixedDest = ctx.createMediaStreamDestination();
         mixedDestinationRef.current = mixedDest;
 
@@ -845,10 +848,16 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         candidate: type === "candidate" ? data : undefined,
         timestamp: Date.now(),
       };
-      // 1. Instant delivery via Supabase Realtime Broadcast & WebSocket
+      // WebSocket is the primary signaling path: it avoids database round-trips and
+      // stays responsive while ICE candidates are flowing.
+      wsClient.sendSignal(payload);
+      // Keep the existing broadcast as a second low-latency path. Persist only the
+      // offer/answer/control messages; ICE candidates are transient and should never
+      // queue database work or make voice feel delayed.
       sendBroadcastSignal(payload);
-      // 2. Guaranteed database collection signal write for cross-client P2P connection
-      addDoc("signals", payload).catch(() => {});
+      if (type !== "candidate") {
+        addDoc("signals", payload).catch(() => {});
+      }
     },
     [profile.uid]
   );
@@ -1455,8 +1464,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   // Main lifecycle: acquire microphone and register in voice_users
   useEffect(() => {
     isMountedRef.current = true;
-    let unsubscribeSignals: () => void;
-    let unsubscribeBroadcast: () => void;
+        let unsubscribeSignals: () => void;
+        let unsubscribeBroadcast: () => void;
+        let unsubscribeWebSocket: () => void;
     let unsubscribeUsers: () => void;
     sessionStartTimeRef.current = Date.now();
 
@@ -1750,6 +1760,23 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           unsubPresenceUsers();
         };
 
+        // Register before announcing the join so the first offer cannot race the
+        // socket handshake. The client filters targeted signals and self-tabs.
+        wsClient.setUserUid(profile.uid);
+        wsClient.connect();
+        unsubscribeWebSocket = wsClient.onSignal(async (signalData: any) => {
+          if (!isMountedRef.current || !localStreamRef.current) return;
+          const signal: VoiceSignal = {
+            id: signalData.id || `sig_${signalData.uid}_${signalData.type}_${Date.now()}`,
+            uid: signalData.uid,
+            targetUid: signalData.targetUid,
+            type: signalData.type,
+            sdp: signalData.sdp || signalData.candidate || "",
+            timestamp: signalData.timestamp || Date.now(),
+          };
+          if (signal.uid !== profile.uid) await handleSignal(signal, localStreamRef.current);
+        });
+
         // 1. Instant Real-time listener via Supabase Realtime Broadcast
         unsubscribeBroadcast = subscribeBroadcastSignals(profile.uid, async (signalData: any) => {
           if (!isMountedRef.current || !localStreamRef.current) return;
@@ -1859,6 +1886,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
       if (unsubscribeBroadcast) unsubscribeBroadcast();
       if (unsubscribeSignals) unsubscribeSignals();
+      if (unsubscribeWebSocket) unsubscribeWebSocket();
+      wsClient.disconnect();
       if (unsubscribeUsers) unsubscribeUsers();
     };
   }, [handleSignal, initiateCall, profile, stopAllMediaTracks]);
