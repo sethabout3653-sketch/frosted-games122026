@@ -20,7 +20,7 @@ import VoiceChannel from "./VoiceChannel";
 import FriendsPanel from "./FriendsPanel";
 import { ChatProfile, ChatMessage } from "../types";
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
-import { saveUserProfile } from "../lib/activity-tracker";
+import { saveUserProfile, setVoiceState } from "../lib/activity-tracker";
 import { getOrCreateUserTag } from "../lib/friends";
 import { SOUND_ASSETS } from "../lib/ringtone-synthesizer";
 import {
@@ -858,6 +858,15 @@ export default function Chat({
       }}
       onLeave={() => {
         if (profile?.uid) {
+          // 1. Immediately clear local global voice state
+          setVoiceState({
+            inVoice: false,
+            isMuted: false,
+            isVideoOn: false,
+            isScreenSharing: false,
+          });
+
+          // 2. Cleanup database records
           deleteDoc(doc(db, "voice_users", profile.uid)).catch(() => {});
           updateDoc(doc(db, "presence", profile.uid), {
             inVoice: false,

@@ -95,7 +95,7 @@ function optimizeAudioSdp(sdp: string): string {
         (line.startsWith("a=fmtp:") && line.toLowerCase().includes("opus"))
       ) {
         const base = line.split(";")[0];
-        return `${base};maxaveragebitrate=64000;stereo=0;sprop-stereo=0;maxplaybackrate=48000;minptime=20;useinbandfec=1;usedtx=1;cbr=0`;
+        return `${base};maxaveragebitrate=96000;stereo=1;sprop-stereo=1;maxplaybackrate=48000;minptime=20;useinbandfec=1;usedtx=1;cbr=0`;
       }
       return line;
     })
@@ -209,31 +209,22 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   const lastCallAttemptRef = useRef<{ [uid: string]: number }>({});
   const callFailCountRef = useRef<{ [uid: string]: number }>({});
 
-  // Keep refs and global voice presence state in sync for heartbeat and websocket broadcasts
+  // Sync physical track state with manual mute
   const isMutedRef = useRef(isMuted);
   useEffect(() => {
     isMutedRef.current = isMuted;
-    setVoiceState({ inVoice: true, isMuted });
-
-    // Sync physical track state with manual mute
+    if (rawStreamRef.current) {
+      rawStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = !isMuted;
+      });
+    }
     if (localStreamRef.current) {
       localStreamRef.current.getAudioTracks().forEach((track) => {
         track.enabled = !isMuted;
       });
     }
+    setVoiceState({ inVoice: true, isMuted });
   }, [isMuted]);
-
-  // Aggressive Automatic Noise Gate:
-  // When devices are near each other, we MUST disable the mic when the user isn't talking.
-  // This breaks the acoustic feedback loop (echo) instantly.
-  useEffect(() => {
-    if (localStreamRef.current && !isMuted) {
-      localStreamRef.current.getAudioTracks().forEach((track) => {
-        // Only enable the track if the VAD detects active speech
-        track.enabled = isLocalSpeaking;
-      });
-    }
-  }, [isLocalSpeaking, isMuted]);
 
   useEffect(() => {
     isVideoOnRef.current = isVideoOn;
@@ -889,28 +880,21 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         }
         
         let audioEl = remoteAudioRefs.current[partnerUid];
-        if (!audioEl) {
-          audioEl = new Audio();
-          audioEl.autoplay = true;
-          (audioEl as any).playsInline = true;
-          remoteAudioRefs.current[partnerUid] = audioEl;
+        if (audioEl) {
+          if (audioEl.srcObject !== aStream) {
+            audioEl.srcObject = aStream;
+          }
+          audioEl.play().catch(() => {});
         }
-        if (audioEl.srcObject !== aStream) {
-          audioEl.srcObject = aStream;
-        }
-        audioEl.play().catch(() => {});
+        
         aTrack.onunmute = () => {
-          let el = remoteAudioRefs.current[partnerUid];
-          if (!el) {
-            el = new Audio();
-            el.autoplay = true;
-            (el as any).playsInline = true;
-            remoteAudioRefs.current[partnerUid] = el;
+          const el = remoteAudioRefs.current[partnerUid];
+          if (el && aStream) {
+            if (el.srcObject !== aStream) {
+              el.srcObject = aStream;
+            }
+            el.play().catch(() => {});
           }
-          if (el.srcObject !== aStream) {
-            el.srcObject = aStream;
-          }
-          el.play().catch(() => {});
         };
       }
     }
@@ -1015,12 +999,14 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       iceCandidateQueuesRef.current[partnerUid] = [];
 
       // 1. Add microphone / mixed audio track
-      micStream.getAudioTracks().forEach((track) => {
-        const audioSender = pc.addTrack(track, micStream);
+      // Preference: use raw stream for cleaner WebRTC transmission (less jitter/latency)
+      const micSource = rawStreamRef.current || micStream;
+      micSource.getAudioTracks().forEach((track) => {
+        const audioSender = pc.addTrack(track, micSource);
         audioSendersRef.current[partnerUid] = audioSender;
       });
 
-      // Maximize audio sender encoding bitrate to 510kbps uncapped
+      // Maximize audio sender encoding bitrate to match Direct Call quality
       const audioSender = audioSendersRef.current[partnerUid] || pc.getSenders().find((s) => s.track?.kind === "audio");
       if (audioSender && audioSender.setParameters) {
         try {
@@ -1113,6 +1099,19 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
               }
               el.play().catch(() => {});
             }
+          };
+
+          event.track.onended = () => {
+            if (remoteAudioStreamsRef.current[partnerUid]) {
+              const s = remoteAudioStreamsRef.current[partnerUid];
+              const remaining = s.getAudioTracks().filter(t => t.id !== event.track.id);
+              if (remaining.length === 0) {
+                delete remoteAudioStreamsRef.current[partnerUid];
+              } else {
+                remoteAudioStreamsRef.current[partnerUid] = new MediaStream(remaining);
+              }
+            }
+            setTrackTrigger(v => v + 1);
           };
 
           // Attach remote audio track to analyser for accurate speaking detection
@@ -2551,14 +2550,28 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   };
 
   const handleLeave = () => {
-    // 1. Immediately delete voice_users document and mark presence as left voice
+    // 1. Update local global voice state immediately
+    setVoiceState({
+      inVoice: false,
+      isMuted: false,
+      isVideoOn: false,
+      isVideoLoading: false,
+      isScreenSharing: false,
+      isScreenAudioOn: false,
+    });
+
+    // 2. Immediately delete voice_users document and mark presence as left voice
     deleteDoc(doc(db, "voice_users", profile.uid)).catch(() => {});
     updateDoc(doc(db, "presence", profile.uid), {
       inVoice: false,
       isMuted: false,
+      isScreenSharing: false,
+      isVideoOn: false,
+      lastSeen: Date.now(),
+      timestamp: Date.now(),
     }).catch(() => {});
 
-    // 2. Play leave sound ONLY if we had joined voice and are now leaving (never duplicate)
+    // 3. Play leave sound ONLY if we had joined voice and are now leaving (never duplicate)
     if (hasJoinedVoiceRef.current) {
       hasJoinedVoiceRef.current = false;
       try {
@@ -2638,8 +2651,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             ])
           ).filter((uid) => {
             if (uid === profile.uid) return false;
-            const uBase = uid.split("_tab_")[0];
-            if (myBaseUid && uBase === myBaseUid) return false;
+            // Align with Direct Calls: allow multi-tab audio playback if requested by user, 
+            // but keep the profile-level filter to prevent infinite loop.
             return true;
           });
 

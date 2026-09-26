@@ -820,19 +820,19 @@ export default function ChatPanel({
         setActiveVoiceUsers(rawDict);
         setVoiceUsersMap(vMap);
 
-        // Immediately merge active voice users into memberUsers so they appear in general chat
-        if (voiceMembers.length > 0) {
-          setMemberUsers((prev) => {
-            const map = new Map<string, MemberUser>();
-            prev.forEach((u) => map.set(u.uid, u));
-            voiceMembers.forEach((vu) => {
-              const key = vu.uid;
-              const existing = map.get(key);
-              map.set(key, { ...existing, ...vu });
-            });
-            return Array.from(map.values());
+        // Immediately update memberUsers to reflect current voice status (merging new, and clearing stale)
+        setMemberUsers((prev) => {
+          const map = new Map<string, MemberUser>();
+          // 1. First, assume NO ONE is in voice in the member list (fallback to presence listener eventually)
+          prev.forEach((u) => map.set(u.uid, { ...u, inVoice: false }));
+          // 2. Then, override with active voice members from voice_users collection
+          voiceMembers.forEach((vu) => {
+            const key = vu.uid;
+            const existing = map.get(key);
+            map.set(key, { ...existing, ...vu });
           });
-        }
+          return Array.from(map.values());
+        });
       },
       (error) => {
         console.warn("ChatPanel voice_users listener error:", error);
