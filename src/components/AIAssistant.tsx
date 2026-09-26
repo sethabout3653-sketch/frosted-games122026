@@ -120,37 +120,37 @@ const AVAILABLE_MODELS: AIModelOption[] = [
     badge: "Recommended",
   },
   {
-    id: "openai/gpt-oss-120b",
-    name: "GPT 120B",
-    provider: "OpenAI on Groq",
-    description: "Flagship high-capacity reasoning model with lightning token generation.",
+    id: "deepseek/deepseek-r1:free",
+    name: "DeepSeek R1",
+    provider: "DeepSeek via OpenRouter",
+    description: "Flagship deep chain-of-thought reasoning and math solving.",
+    badge: "Reasoning",
+  },
+  {
+    id: "deepseek/deepseek-chat:free",
+    name: "DeepSeek V3",
+    provider: "DeepSeek via OpenRouter",
+    description: "High-capability general intelligence, coding, and structured writing.",
     badge: "Flagship",
   },
   {
-    id: "llama-3.3-70b-versatile",
+    id: "meta-llama/llama-3.3-70b-instruct:free",
     name: "Llama 3.3 (70B)",
-    provider: "Meta on Groq",
+    provider: "Meta via OpenRouter",
     description: "Deep reasoning, analysis, and versatile STEM problem solving.",
     badge: "Versatile",
   },
   {
-    id: "deepseek-r1-distill-llama-70b",
-    name: "DeepSeek R1 (70B)",
-    provider: "DeepSeek on Groq",
-    description: "Specialized step-by-step reasoning and logical breakdown.",
-    badge: "Reasoning",
-  },
-  {
-    id: "qwen-2.5-coder-32b",
-    name: "Qwen Coder (32B)",
-    provider: "Alibaba on Groq",
+    id: "qwen/qwen-2.5-coder-32b-instruct:free",
+    name: "Qwen 2.5 Coder (32B)",
+    provider: "Alibaba via OpenRouter",
     description: "Optimized for software development, debugging, and algorithms.",
     badge: "Coder",
   },
   {
-    id: "openai/gpt-oss-20b",
-    name: "GPT 20B",
-    provider: "OpenAI on Groq",
+    id: "meta-llama/llama-3.1-8b-instruct:free",
+    name: "Llama 3.1 (8B)",
+    provider: "Meta via OpenRouter",
     description: "Sub-second low latency for rapid answers and study notes.",
     badge: "Ultra Fast",
   },
@@ -245,7 +245,7 @@ export default function AIAssistant() {
     return () => window.removeEventListener("frosted_profile_updated", handleProfileUpdate);
   }, []);
 
-  const [apiKey] = useState<string>(() => localStorage.getItem("groq_api_key") || "");
+  const [apiKey] = useState<string>(() => localStorage.getItem("openrouter_api_key") || localStorage.getItem("groq_api_key") || "");
   const [availableModels, setAvailableModels] = useState<AIModelOption[]>(AVAILABLE_MODELS);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const saved = localStorage.getItem("frosted_ai_model");

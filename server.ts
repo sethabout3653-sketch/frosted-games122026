@@ -2226,42 +2226,42 @@ const PORT = Number(process.env.PORT) || 3000;
   }
 
   // =========================================================================
-  // 🛡️ Groq Multi-Modal Content Moderation Engine (Dedicated Separate Models)
+  // 🛡️ OpenRouter Multi-Modal Content Moderation Engine
   // =========================================================================
-  const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") || "";
+  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") || "";
   
-  // Separate Dedicated Groq Models per Medium
+  // Separate Dedicated Models per Medium
   export const MODERATION_GROQ_MODELS = {
-    // 1. Image Moderation: Specialized Vision LPU Model
+    // 1. Image Moderation: Vision Model
     image: {
-      primary: "llama-3.2-11b-vision-preview",
-      fallback: "llama-3.2-90b-vision-preview",
-      name: "Groq Llama 3.2 11B Vision",
+      primary: "google/gemini-2.0-flash-exp:free",
+      fallback: "meta-llama/llama-3.2-11b-vision-instruct:free",
+      name: "OpenRouter Gemini 2.0 Flash Vision",
       modality: "image",
     },
-    // 2. Audio Moderation: Specialized Whisper Large v3 Turbo + Llama Guard 3 Audio Pipeline
+    // 2. Audio Moderation: Audio & Acoustic Spectrogram Pipeline
     audio: {
       transcription: "whisper-large-v3-turbo",
       transcriptionFallback: "whisper-large-v3",
-      guard: "llama-guard-3-8b",
-      spectrogramVision: "llama-3.2-11b-vision-preview",
-      name: "Groq Whisper Large v3 Turbo + Llama Guard 3",
+      guard: "meta-llama/llama-guard-3-8b",
+      spectrogramVision: "google/gemini-2.0-flash-exp:free",
+      name: "OpenRouter Whisper + Llama Guard 3",
       modality: "audio",
     },
-    // 3. Video Moderation: Specialized 90B Vision Frame Evaluator + Whisper Audio + 70B Synthesis
+    // 3. Video Moderation: Multimodal Frame Evaluator + Synthesis
     video: {
-      frameVision: "llama-3.2-90b-vision-preview",
-      frameVisionFallback: "llama-3.2-11b-vision-preview",
+      frameVision: "google/gemini-2.0-flash-exp:free",
+      frameVisionFallback: "meta-llama/llama-3.2-11b-vision-instruct:free",
       audioTranscription: "whisper-large-v3-turbo",
-      synthesis: "llama-3.3-70b-versatile",
-      name: "Groq Llama 3.2 90B Vision + Whisper Turbo Compound",
+      synthesis: "deepseek/deepseek-chat:free",
+      name: "OpenRouter Multimodal Video Compound",
       modality: "video",
     },
-    // 4. Text & Chat Moderation: Dedicated Llama Guard 3 LPU Model
+    // 4. Text & Chat Moderation: Llama Guard 3 Model
     text: {
-      primary: "llama-guard-3-8b",
-      fallback: "llama-3.1-8b-instant",
-      name: "Groq Llama Guard 3 8B",
+      primary: "meta-llama/llama-guard-3-8b",
+      fallback: "meta-llama/llama-3.1-8b-instruct:free",
+      name: "OpenRouter Llama Guard 3 8B",
       modality: "text",
     },
   };
@@ -2331,19 +2331,19 @@ const PORT = Number(process.env.PORT) || 3000;
     safetyDecisionCache.set(key, { ...result, timestamp: Date.now() });
   }
 
-  // 1. 🖼️ Groq Image Moderation with Dedicated Vision Model (llama-3.2-11b-vision-preview / llama-3.2-90b-vision-preview)
+  // 1. 🖼️ Image Moderation via OpenRouter Vision Model
   async function callGroqImageModeration(
     base64Data: string,
     mimeType: string = "image/jpeg",
     promptOverride?: string
   ): Promise<{ safe: boolean; reason?: string; category?: string; model?: string; moderator?: string; extractedText?: string }> {
-    const key = GROQ_API_KEY;
+    const key = OPENROUTER_API_KEY;
     const modelsToTry = [
       MODERATION_GROQ_MODELS.image.primary,
       MODERATION_GROQ_MODELS.image.fallback,
     ];
 
-    const systemPrompt = `You are a high-speed Content Safety & Visual Moderation Model on Groq.
+    const systemPrompt = `You are a high-speed Content Safety & Visual Moderation Model.
 Thoroughly inspect this image/frame for:
 1. Nudity, sexually explicit content, pornography, NSFW acts, suggestive poses, genitalia, exposed breasts, or sexualized content (STRICTLY FORBIDDEN).
 2. Graphic violence, blood, gore, real-world weapons pointed at screen, self-harm, terrorism, or threats.
@@ -2364,17 +2364,20 @@ Respond strictly in valid JSON format:
     const imageUrl = `data:${mimeType};base64,${base64Data}`;
 
     if (key) {
+      const endpoint = key.startsWith("gsk_") ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
       for (const model of modelsToTry) {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 7000);
 
-          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          const response = await fetch(endpoint, {
             method: "POST",
             signal: controller.signal,
             headers: {
               "Authorization": `Bearer ${key}`,
-              "Content-Type": "application/json"
+              "Content-Type": "application/json",
+              "HTTP-Referer": "https://frosted-studying.app",
+              "X-Title": "Frosted Studying"
             },
             body: JSON.stringify({
               model,
@@ -2406,17 +2409,17 @@ Respond strictly in valid JSON format:
           if (parsed.safe === false) {
             return {
               safe: false,
-              reason: parsed.reason || "Image flagged by Groq Vision moderation model.",
+              reason: parsed.reason || "Image flagged by OpenRouter Vision moderation model.",
               category: parsed.category || "nsfw",
               model,
-              moderator: `Groq Vision Engine (${model})`,
+              moderator: `OpenRouter Vision Engine (${model})`,
               extractedText: parsed.extractedText || "",
             };
           } else {
             return {
               safe: true,
               model,
-              moderator: `Groq Vision Engine (${model})`,
+              moderator: `OpenRouter Vision Engine (${model})`,
               extractedText: parsed.extractedText || "",
             };
           }
@@ -2426,7 +2429,7 @@ Respond strictly in valid JSON format:
       }
     }
 
-    // Fallback to Google Gemini Vision if Groq Vision is unavailable
+    // Fallback to Google Gemini Vision if OpenRouter Vision is unavailable
     const geminiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
     if (geminiKey) {
       try {
@@ -2476,66 +2479,68 @@ Respond strictly in valid JSON format:
       } catch (e) {}
     }
 
-    return { safe: true, model: MODERATION_GROQ_MODELS.image.primary, moderator: "Groq Vision Engine" };
+    return { safe: true, model: MODERATION_GROQ_MODELS.image.primary, moderator: "OpenRouter Vision Engine" };
   }
 
-  // 2. 🎵 Groq Audio Moderation with Dedicated Whisper Large v3 Turbo + Llama Guard 3 Model
+  // 2. 🎵 Audio Transcription & Moderation
   async function callGroqAudioTranscription(audioFilePath: string): Promise<{ transcript: string; model: string } | null> {
-    const key = GROQ_API_KEY;
+    const key = OPENROUTER_API_KEY;
     if (!key || !fs.existsSync(audioFilePath) || fs.statSync(audioFilePath).size < 100) return null;
 
-    const modelsToTry = [
-      MODERATION_GROQ_MODELS.audio.transcription,
-      MODERATION_GROQ_MODELS.audio.transcriptionFallback,
-    ];
+    if (key.startsWith("gsk_")) {
+      const modelsToTry = [
+        MODERATION_GROQ_MODELS.audio.transcription,
+        MODERATION_GROQ_MODELS.audio.transcriptionFallback,
+      ];
 
-    for (const model of modelsToTry) {
-      try {
-        const fileBuffer = fs.readFileSync(audioFilePath);
-        const fileName = path.basename(audioFilePath);
-        const blob = new Blob([fileBuffer], { type: "audio/mpeg" });
+      for (const model of modelsToTry) {
+        try {
+          const fileBuffer = fs.readFileSync(audioFilePath);
+          const fileName = path.basename(audioFilePath);
+          const blob = new Blob([fileBuffer], { type: "audio/mpeg" });
 
-        const formData = new FormData();
-        formData.append("file", blob, fileName);
-        formData.append("model", model);
-        formData.append("response_format", "verbose_json");
-        formData.append("temperature", "0.0");
+          const formData = new FormData();
+          formData.append("file", blob, fileName);
+          formData.append("model", model);
+          formData.append("response_format", "verbose_json");
+          formData.append("temperature", "0.0");
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 8000);
 
-        const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            Authorization: `Bearer ${key}`,
-          },
-          body: formData,
-        });
-        clearTimeout(timeout);
+          const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              Authorization: `Bearer ${key}`,
+            },
+            body: formData,
+          });
+          clearTimeout(timeout);
 
-        if (!response.ok) continue;
+          if (!response.ok) continue;
 
-        const data: any = await response.json();
-        const transcript = data?.text || "";
-        return { transcript: transcript.trim(), model };
-      } catch (err) {
-        continue;
+          const data: any = await response.json();
+          const transcript = data?.text || "";
+          return { transcript: transcript.trim(), model };
+        } catch (err) {
+          continue;
+        }
       }
     }
 
     return null;
   }
 
-  // 3. 🛡️ Groq Dedicated Text & Spoken Guard Model (llama-guard-3-8b)
+  // 3. 🛡️ Dedicated Text & Spoken Guard Model (llama-guard-3-8b via OpenRouter)
   async function callGroqTextModeration(
     inputText: string,
     contextInfo?: string
   ): Promise<{ safe: boolean; reason?: string; category?: string; model?: string; moderator?: string }> {
-    const key = GROQ_API_KEY;
+    const key = OPENROUTER_API_KEY;
     if (!inputText || !inputText.trim()) return { safe: true };
 
-    const prompt = `You are Groq Llama Guard 3, a content safety model.
+    const prompt = `You are Llama Guard, a content safety model.
 Evaluate the following text for safety violations:
 Text to evaluate: "${inputText}"
 ${contextInfo ? `Context: ${contextInfo}` : ""}
@@ -2560,22 +2565,25 @@ Respond strictly in valid JSON format:
     ];
 
     if (key) {
+      const endpoint = key.startsWith("gsk_") ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
       for (const model of modelsToTry) {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 5000);
 
-          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          const response = await fetch(endpoint, {
             method: "POST",
             signal: controller.signal,
             headers: {
               "Authorization": `Bearer ${key}`,
-              "Content-Type": "application/json"
+              "Content-Type": "application/json",
+              "HTTP-Referer": "https://frosted-studying.app",
+              "X-Title": "Frosted Studying"
             },
             body: JSON.stringify({
               model,
               messages: [
-                { role: "system", content: "You are Groq Llama Guard 3. Respond in strict JSON only." },
+                { role: "system", content: "You are Llama Guard. Respond in strict JSON only." },
                 { role: "user", content: prompt }
               ],
               temperature: 0.1,
@@ -2596,16 +2604,16 @@ Respond strictly in valid JSON format:
           if (parsed.safe === false) {
             return {
               safe: false,
-              reason: parsed.reason || "Content flagged by Groq Llama Guard.",
+              reason: parsed.reason || "Content flagged by Llama Guard.",
               category: parsed.category || "profanity",
               model,
-              moderator: `Groq Guard Engine (${model})`,
+              moderator: `OpenRouter Guard Engine (${model})`,
             };
           } else {
             return {
               safe: true,
               model,
-              moderator: `Groq Guard Engine (${model})`,
+              moderator: `OpenRouter Guard Engine (${model})`,
             };
           }
         } catch (e) {
@@ -2614,20 +2622,20 @@ Respond strictly in valid JSON format:
       }
     }
 
-    return { safe: true, model: MODERATION_GROQ_MODELS.text.primary, moderator: "Groq Guard Engine" };
+    return { safe: true, model: MODERATION_GROQ_MODELS.text.primary, moderator: "OpenRouter Guard Engine" };
   }
 
-  // 4. 🎬 Groq Video Compound Moderation with Dedicated 90B Vision + Whisper Large v3 Turbo + 70B Synthesis Model
+  // 4. 🎬 Video Compound Moderation via OpenRouter Vision & Synthesis
   async function callGroqVideoKeyframeModeration(
     frameBase64List: string[],
     durationSeconds: number = 0
   ): Promise<{ safe: boolean; reason?: string; category?: string; model?: string; moderator?: string }> {
     if (!frameBase64List || frameBase64List.length === 0) return { safe: true };
 
-    const key = GROQ_API_KEY;
+    const key = OPENROUTER_API_KEY;
     const model = MODERATION_GROQ_MODELS.video.frameVision;
 
-    const systemPrompt = `You are a specialized High-Capacity Video Scene & Frame Moderation Model on Groq (Llama 3.2 90B Vision).
+    const systemPrompt = `You are a specialized High-Capacity Video Scene & Frame Moderation Model.
 You will inspect sampled keyframes across the timeline of a video (duration ~${Math.round(durationSeconds)}s).
 Check ALL frames thoroughly for:
 1. Nudity, pornography, sexually suggestive scenes, NSFW body parts, sexual acts.
@@ -2658,13 +2666,16 @@ Respond strictly in valid JSON format:
 
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 9000);
+        const endpoint = key.startsWith("gsk_") ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
 
-        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        const response = await fetch(endpoint, {
           method: "POST",
           signal: controller.signal,
           headers: {
             "Authorization": `Bearer ${key}`,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://frosted-studying.app",
+            "X-Title": "Frosted Studying"
           },
           body: JSON.stringify({
             model,
@@ -2690,13 +2701,13 @@ Respond strictly in valid JSON format:
                 reason: parsed.reason || "Inappropriate visual scene or nudity detected in video frames.",
                 category: parsed.category || "nsfw",
                 model,
-                moderator: `Groq Video Vision Engine (${model})`,
+                moderator: `OpenRouter Video Vision Engine (${model})`,
               };
             }
             return {
               safe: true,
               model,
-              moderator: `Groq Video Vision Engine (${model})`,
+              moderator: `OpenRouter Video Vision Engine (${model})`,
             };
           }
         }
@@ -2712,12 +2723,12 @@ Respond strictly in valid JSON format:
           reason: imgRes.reason || "Inappropriate scene detected in video keyframe.",
           category: imgRes.category || "nsfw",
           model: imgRes.model,
-          moderator: `Groq Video Vision Engine (${imgRes.model})`,
+          moderator: `OpenRouter Video Vision Engine (${imgRes.model})`,
         };
       }
     }
 
-    return { safe: true, model, moderator: `Groq Video Vision Engine (${model})` };
+    return { safe: true, model, moderator: `OpenRouter Video Vision Engine (${model})` };
   }
 
   // 🛡️ Video Timeline Compound Synthesis (Synthesizes Frames, Audio Transcript, Subtitles)
@@ -2726,7 +2737,7 @@ Respond strictly in valid JSON format:
     audioTranscript: string,
     metadataText: string
   ): Promise<{ safe: boolean; reason?: string; model: string }> {
-    const key = GROQ_API_KEY;
+    const key = OPENROUTER_API_KEY;
     const model = MODERATION_GROQ_MODELS.video.synthesis;
 
     if (!frameResult.safe) {
@@ -2999,7 +3010,7 @@ Respond strictly in valid JSON format:
               };
             }
           }
-          return { safe: true, model: MODERATION_GROQ_MODELS.image.primary, moderator: `Groq Frame Sequencer (${MODERATION_GROQ_MODELS.image.primary})` };
+          return { safe: true, model: MODERATION_GROQ_MODELS.image.primary, moderator: `OpenRouter Frame Sequencer (${MODERATION_GROQ_MODELS.image.primary})` };
         })()
       ]);
 
@@ -3013,7 +3024,7 @@ Respond strictly in valid JSON format:
           safe: false,
           reason: (groqVisionResult as any).reason || "Inappropriate visual scene or threat detected in animated GIF sequence.",
           model: groqVisionResult.model || MODERATION_GROQ_MODELS.image.primary,
-          moderator: groqVisionResult.moderator || "Groq Vision Engine",
+          moderator: groqVisionResult.moderator || "OpenRouter Vision Engine",
         };
         setCachedDecision(fileHash, res);
         return res;
@@ -3031,7 +3042,7 @@ Respond strictly in valid JSON format:
     const finalRes = { 
       safe: true, 
       model: MODERATION_GROQ_MODELS.image.primary, 
-      moderator: `Groq Vision Engine (${MODERATION_GROQ_MODELS.image.primary} - Animated GIF Batch)`,
+      moderator: `OpenRouter Vision Engine (${MODERATION_GROQ_MODELS.image.primary} - Animated GIF Batch)`,
       modality: "image",
     };
     setCachedDecision(fileHash, finalRes);
@@ -3110,7 +3121,7 @@ Respond strictly in valid JSON format:
           safe: false,
           reason: spectrogramResult.reason || "Inappropriate sexual sounds or moaning detected in audio acoustics.",
           model: MODERATION_GROQ_MODELS.audio.spectrogramVision,
-          moderator: `Groq Spectrogram Acoustic Guard (${MODERATION_GROQ_MODELS.audio.spectrogramVision})`,
+          moderator: `OpenRouter Spectrogram Acoustic Guard (${MODERATION_GROQ_MODELS.audio.spectrogramVision})`,
         };
         setCachedDecision(fileHash, res);
         return res;
@@ -3118,7 +3129,7 @@ Respond strictly in valid JSON format:
 
       const transcript = transcriptionResult?.transcript || "";
 
-      // 4. If speech was transcribed, run Groq Llama Guard 3 & Deterministic Regex check
+      // 4. If speech was transcribed, run Llama Guard & Deterministic Regex check
       if (transcript && transcript.trim().length > 0) {
         // Fast deterministic regex check
         const textCheck = checkTextModeration(transcript);
@@ -3128,13 +3139,13 @@ Respond strictly in valid JSON format:
             reason: `Prohibited language detected in audio speech ("${transcript.slice(0, 60)}..."): ${textCheck.reason}`,
             transcript,
             model: transcriptionResult?.model || MODERATION_GROQ_MODELS.audio.transcription,
-            moderator: `Groq Whisper Speech Guard (${MODERATION_GROQ_MODELS.audio.transcription})`,
+            moderator: `OpenRouter Speech Guard (${MODERATION_GROQ_MODELS.audio.transcription})`,
           };
           setCachedDecision(fileHash, res);
           return res;
         }
 
-        // Groq Llama Guard 3 text model check on audio transcript
+        // Llama Guard text model check on audio transcript
         const guardRes = await callGroqTextModeration(transcript, "Transcribed audio speech track");
         if (!guardRes.safe) {
           const res = {
@@ -3142,7 +3153,7 @@ Respond strictly in valid JSON format:
             reason: guardRes.reason || `Prohibited language detected in audio speech: "${transcript.slice(0, 60)}..."`,
             transcript,
             model: `${transcriptionResult?.model || MODERATION_GROQ_MODELS.audio.transcription} + ${guardRes.model || MODERATION_GROQ_MODELS.audio.guard}`,
-            moderator: `Groq Audio Safety Engine (${guardRes.model || MODERATION_GROQ_MODELS.audio.guard})`,
+            moderator: `OpenRouter Audio Safety Engine (${guardRes.model || MODERATION_GROQ_MODELS.audio.guard})`,
           };
           setCachedDecision(fileHash, res);
           return res;
@@ -3153,14 +3164,14 @@ Respond strictly in valid JSON format:
         safe: true, 
         transcript,
         model: `${MODERATION_GROQ_MODELS.audio.transcription} + ${MODERATION_GROQ_MODELS.audio.guard}`,
-        moderator: `Groq Audio Engine (${MODERATION_GROQ_MODELS.audio.transcription})`,
+        moderator: `OpenRouter Audio Engine (${MODERATION_GROQ_MODELS.audio.transcription})`,
         modality: "audio",
       };
       setCachedDecision(fileHash, finalRes);
       return finalRes;
     } catch (err) {
       console.warn("Audio inspection error:", err);
-      return { safe: true, model: MODERATION_GROQ_MODELS.audio.transcription, moderator: "Groq Audio Engine" };
+      return { safe: true, model: MODERATION_GROQ_MODELS.audio.transcription, moderator: "OpenRouter Audio Engine" };
     } finally {
       try { if (fs.existsSync(monoMp3Path)) fs.unlinkSync(monoMp3Path); } catch (e) {}
       try { if (fs.existsSync(specTmpPath)) fs.unlinkSync(specTmpPath); } catch (e) {}
@@ -3306,7 +3317,7 @@ Respond strictly in valid JSON format:
           reason: audioRes.reason || "Inappropriate audio sound frames or speech detected in video track.",
           transcript: audioRes.transcript,
           model: `${MODERATION_GROQ_MODELS.video.audioTranscription} + ${MODERATION_GROQ_MODELS.video.frameVision}`,
-          moderator: audioRes.moderator || "Groq Video Audio Engine",
+          moderator: audioRes.moderator || "OpenRouter Video Audio Engine",
         };
         setCachedDecision(fileHash, res);
         return res;
@@ -3324,13 +3335,13 @@ Respond strictly in valid JSON format:
           reason: videoVisionRes.reason || "Inappropriate visual scene or nudity detected in video frames.",
           transcript,
           model: videoVisionRes.model || MODERATION_GROQ_MODELS.video.frameVision,
-          moderator: videoVisionRes.moderator || "Groq Video Vision Engine",
+          moderator: videoVisionRes.moderator || "OpenRouter Video Vision Engine",
         };
         setCachedDecision(fileHash, res);
         return res;
       }
 
-      // 5. Final Synthesis via Groq 70B Model
+      // 5. Final Synthesis via OpenRouter Model
       const synthesisRes = await callGroqVideoTimelineSynthesis(videoVisionRes, transcript, `${metaString} ${subContent}`.trim());
       if (!synthesisRes.safe) {
         const res = {
@@ -3338,7 +3349,7 @@ Respond strictly in valid JSON format:
           reason: synthesisRes.reason,
           transcript,
           model: synthesisRes.model,
-          moderator: `Groq Video Compound Engine (${synthesisRes.model})`,
+          moderator: `OpenRouter Video Compound Engine (${synthesisRes.model})`,
         };
         setCachedDecision(fileHash, res);
         return res;
@@ -3348,7 +3359,7 @@ Respond strictly in valid JSON format:
         safe: true, 
         transcript,
         model: `${MODERATION_GROQ_MODELS.video.frameVision} + ${MODERATION_GROQ_MODELS.video.audioTranscription}`,
-        moderator: `Groq Video Compound Pipeline (${MODERATION_GROQ_MODELS.video.frameVision})`,
+        moderator: `OpenRouter Video Compound Pipeline (${MODERATION_GROQ_MODELS.video.frameVision})`,
         modality: "video",
       };
       setCachedDecision(fileHash, finalRes);
@@ -3358,7 +3369,7 @@ Respond strictly in valid JSON format:
       return { 
         safe: true, 
         model: MODERATION_GROQ_MODELS.video.frameVision, 
-        moderator: "Groq Video Vision Engine" 
+        moderator: "OpenRouter Video Vision Engine" 
       };
     } finally {
       try { if (fs.existsSync(audioTmp)) fs.unlinkSync(audioTmp); } catch (e) {}
@@ -3373,18 +3384,18 @@ Respond strictly in valid JSON format:
   // Moderation API Endpoints
   // ==========================================
 
-  // Returns active Groq models mapped specifically to each modality
+  // Returns active OpenRouter models mapped specifically to each modality
   app.get("/api/moderation/models", (req, res) => {
     res.json({
       status: "active",
-      provider: "Groq LPU Inference Engine",
-      hasKey: Boolean(GROQ_API_KEY),
+      provider: "OpenRouter Multi-Modal Engine",
+      hasKey: Boolean(OPENROUTER_API_KEY),
       models: {
         image: {
           primary: MODERATION_GROQ_MODELS.image.primary,
           fallback: MODERATION_GROQ_MODELS.image.fallback,
           name: MODERATION_GROQ_MODELS.image.name,
-          purpose: "High-speed multi-modal vision inspection (nudity, violence, NSFW, visual slurs)",
+          purpose: "Multi-modal vision inspection (nudity, violence, NSFW, visual slurs)",
           modality: "image",
         },
         audio: {
@@ -3392,7 +3403,7 @@ Respond strictly in valid JSON format:
           guard: MODERATION_GROQ_MODELS.audio.guard,
           spectrogramVision: MODERATION_GROQ_MODELS.audio.spectrogramVision,
           name: MODERATION_GROQ_MODELS.audio.name,
-          purpose: "Whisper speech transcription + Llama Guard 3 text filtering + acoustic spectrogram moaning check",
+          purpose: "Whisper speech transcription + Llama Guard 3 text filtering + acoustic spectrogram check",
           modality: "audio",
         },
         video: {
@@ -3400,7 +3411,7 @@ Respond strictly in valid JSON format:
           audioTranscription: MODERATION_GROQ_MODELS.video.audioTranscription,
           synthesis: MODERATION_GROQ_MODELS.video.synthesis,
           name: MODERATION_GROQ_MODELS.video.name,
-          purpose: "90B Keyframe vision analysis + Whisper audio stream analysis + 70B timeline synthesis",
+          purpose: "Keyframe vision analysis + Whisper audio stream analysis + timeline synthesis",
           modality: "video",
         },
         text: {
@@ -3414,7 +3425,7 @@ Respond strictly in valid JSON format:
     });
   });
 
-  // Dedicated Test Endpoint to evaluate any text, image, audio, or video URL using the separate Groq models
+  // Dedicated Test Endpoint to evaluate any text, image, audio, or video URL using OpenRouter models
   app.post("/api/moderation/test", async (req, res) => {
     try {
       const { type, content, filename } = req.body || {};
@@ -3475,9 +3486,156 @@ Respond strictly in valid JSON format:
     }
   });
 
-  // General Moderation Endpoint for live Chat & Messages - Filters Deleted per User Request
-  app.post("/api/moderate", async (_req, res) => {
-    return res.json({ safe: true });
+  // General Moderation Endpoint for live Chat & Messages
+  app.post("/api/moderate", async (req, res) => {
+    try {
+      const { text, mediaUrl, mediaTitle, mediaType } = req.body || {};
+
+      // 1. Check message text against regex and OpenRouter Llama Guard
+      if (text && typeof text === "string" && text.trim().length > 0) {
+        const textCheck = checkTextModeration(text);
+        if (!textCheck.safe) {
+          return res.json({
+            safe: false,
+            reason: textCheck.reason || "Your message contains words that aren't allowed in chat.",
+            category: textCheck.category,
+            model: "regex-guard",
+            moderator: "Deterministic Pattern Guard",
+            modality: "text",
+            moderationNote: textCheck.reason || "Your message contains words that aren't allowed in chat. Please edit it and try again."
+          });
+        }
+
+        try {
+          const aiCheck = await callGroqTextModeration(text, "Chat message text");
+          if (aiCheck && aiCheck.safe === false) {
+            return res.json({
+              safe: false,
+              reason: aiCheck.reason || "Your message contains words or content that aren't allowed in chat.",
+              category: aiCheck.category || "prohibited content",
+              model: aiCheck.model || MODERATION_GROQ_MODELS.text.primary,
+              moderator: aiCheck.moderator || "OpenRouter Llama Guard",
+              modality: "text",
+              moderationNote: aiCheck.reason || "Your message contains words or content that aren't allowed in chat."
+            });
+          }
+        } catch (e) {}
+      }
+
+      // 2. Check media title
+      if (mediaTitle && typeof mediaTitle === "string" && mediaTitle.trim().length > 0) {
+        const titleCheck = checkTextModeration(mediaTitle);
+        if (!titleCheck.safe) {
+          return res.json({
+            safe: false,
+            reason: titleCheck.reason || "The file name contains words that aren't allowed in chat.",
+            category: titleCheck.category,
+            model: "regex-guard",
+            moderator: "Deterministic Filename Guard",
+            modality: "text",
+            moderationNote: titleCheck.reason || "The file name contains words that aren't allowed in chat."
+          });
+        }
+      }
+
+      // 3. Check media file content with specialized separate Groq models
+      if (mediaUrl && typeof mediaUrl === "string") {
+        const urlCheck = checkTextModeration(decodeURIComponent(mediaUrl));
+        if (!urlCheck.safe) {
+          return res.json({
+            safe: false,
+            reason: urlCheck.reason || "The media link contains words that aren't allowed.",
+            category: urlCheck.category,
+            model: "regex-guard",
+            moderator: "URL Safety Guard",
+            modality: "text",
+            moderationNote: urlCheck.reason || "The media link contains words that aren't allowed."
+          });
+        }
+
+        const local = await getLocalMediaFile(mediaUrl);
+        if (local) {
+          try {
+            const mType = (mediaType || "").toLowerCase();
+            const lowerUrl = mediaUrl.toLowerCase();
+            const ext = path.extname(lowerUrl.split("?")[0]);
+
+            const isGif = mType.includes("gif") || ext === ".gif";
+            const isVideo = mType.startsWith("video/") || [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".flv", ".wmv", ".3gp", ".ts"].includes(ext);
+            const isAudio = mType.startsWith("audio/") || [".mp3", ".wav", ".m4a", ".ogg", ".aac", ".flac", ".opus", ".weba", ".wma"].includes(ext);
+            const isImage = mType.startsWith("image/") || [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".svg", ".tiff", ".heic"].includes(ext);
+
+            if (isGif) {
+              const gifRes = await inspectGifAnimation(local.filePath);
+              if (!gifRes.safe) {
+                return res.json({ 
+                  safe: false, 
+                  reason: gifRes.reason || "This GIF contains content that isn't allowed in chat.",
+                  model: gifRes.model || MODERATION_GROQ_MODELS.image.primary,
+                  moderator: gifRes.moderator || "OpenRouter Vision Engine",
+                  modality: "image",
+                  moderationNote: gifRes.reason || "This GIF contains content that isn't allowed in chat."
+                });
+              }
+            } else if (isVideo) {
+              const vidRes = await inspectVideoCompound(local.filePath);
+              if (!vidRes.safe) {
+                return res.json({ 
+                  safe: false, 
+                  reason: vidRes.reason || "This video contains content that isn't allowed in chat.",
+                  transcript: vidRes.transcript,
+                  model: vidRes.model || MODERATION_GROQ_MODELS.video.frameVision,
+                  moderator: vidRes.moderator || "OpenRouter Video Compound Pipeline",
+                  modality: "video",
+                  moderationNote: vidRes.reason || "This video contains content that isn't allowed in chat."
+                });
+              }
+            } else if (isAudio) {
+              const audRes = await transcribeAndInspectAudio(local.filePath);
+              if (!audRes.safe) {
+                return res.json({ 
+                  safe: false, 
+                  reason: audRes.reason || "This audio contains language that isn't allowed in chat.",
+                  transcript: audRes.transcript,
+                  model: audRes.model || MODERATION_GROQ_MODELS.audio.transcription,
+                  moderator: audRes.moderator || "OpenRouter Audio Engine",
+                  modality: "audio",
+                  moderationNote: audRes.reason || "This audio contains language that isn't allowed in chat."
+                });
+              }
+            } else if (isImage) {
+              const imgRes = await inspectImageWithVision(local.filePath);
+              if (!imgRes.safe) {
+                return res.json({ 
+                  safe: false, 
+                  reason: imgRes.reason || "This image contains content that isn't allowed in chat.",
+                  model: imgRes.model || MODERATION_GROQ_MODELS.image.primary,
+                  moderator: imgRes.moderator || "OpenRouter Vision Engine",
+                  modality: "image",
+                  moderationNote: imgRes.reason || "This image contains content that isn't allowed in chat."
+                });
+              }
+            }
+          } finally {
+            local.cleanup();
+          }
+        }
+      }
+
+      return res.json({ 
+        safe: true, 
+        moderator: "OpenRouter Content Moderation Suite",
+        models: {
+          image: MODERATION_GROQ_MODELS.image.primary,
+          audio: MODERATION_GROQ_MODELS.audio.transcription,
+          video: MODERATION_GROQ_MODELS.video.frameVision,
+          text: MODERATION_GROQ_MODELS.text.primary,
+        }
+      });
+    } catch (err: any) {
+      console.warn("Moderation route error:", err);
+      return res.json({ safe: true });
+    }
   });
 
 
@@ -3612,82 +3770,84 @@ Respond strictly in valid JSON format:
     }
   ];
 
-  let cachedGroqModelsList: Array<{ id: string; name: string; provider: string; badge: string; description: string }> = [];
-  let cachedGroqIds: string[] = [];
-  let lastGroqFetchTime = 0;
+  let cachedOpenRouterModelsList: Array<{ id: string; name: string; provider: string; badge: string; description: string }> = [];
+  let cachedOpenRouterIds: string[] = [];
+  let lastOpenRouterFetchTime = 0;
 
-  const GROQ_MODEL_ALIASES: Record<string, string> = {
-    "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
-    "llama-3.1-8b-instant": "openai/gpt-oss-20b",
-    "mixtral-8x7b-32768": "openai/gpt-oss-120b",
-    "gemma2-9b-it": "openai/gpt-oss-20b",
-    "deepseek-r1-distill-llama-70b": "openai/gpt-oss-120b",
-    "qwen-2.5-32b": "qwen/qwen3.8-27b",
-    "groq/compound": "openai/gpt-oss-120b",
-    "groq/compound-mini": "openai/gpt-oss-20b"
+  const OPENROUTER_MODEL_ALIASES: Record<string, string> = {
+    "llama-3.3-70b-versatile": "meta-llama/llama-3.3-70b-instruct:free",
+    "llama-3.1-8b-instant": "meta-llama/llama-3.1-8b-instruct:free",
+    "mixtral-8x7b-32768": "mistralai/mistral-small-24b-instruct-2501:free",
+    "gemma2-9b-it": "google/gemma-2-9b-it:free",
+    "deepseek-r1-distill-llama-70b": "deepseek/deepseek-r1:free",
+    "qwen-2.5-32b": "qwen/qwen-2.5-coder-32b-instruct:free",
+    "qwen-2.5-coder-32b": "qwen/qwen-2.5-coder-32b-instruct:free",
+    "openai/gpt-oss-120b": "deepseek/deepseek-chat:free",
+    "openai/gpt-oss-20b": "meta-llama/llama-3.1-8b-instruct:free",
+    "groq/compound": "meta-llama/llama-3.3-70b-instruct:free",
+    "groq/compound-mini": "meta-llama/llama-3.1-8b-instruct:free",
+    "gpt-4o-mini": "openai/gpt-4o-mini",
   };
 
-  const FALLBACK_GROQ_MODELS = [
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "deepseek-r1-distill-llama-70b",
-    "qwen-2.5-coder-32b",
-    "qwen/qwen3.8-27b",
-    "llama3-70b-8192",
-    "llama3-8b-8192",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it",
-    "llama-3.2-11b-vision-preview",
-    "llama-3.2-90b-vision-preview",
-    "llama-3.2-3b-preview",
-    "llama-3.2-1b-preview",
-    "groq/compound",
-    "groq/compound-mini"
+  const FALLBACK_OPENROUTER_MODELS = [
+    "deepseek/deepseek-r1:free",
+    "deepseek/deepseek-chat:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "qwen/qwen-2.5-coder-32b-instruct:free",
+    "google/gemini-2.0-flash-exp:free",
+    "mistralai/mistral-small-24b-instruct-2501:free",
+    "microsoft/phi-4:free",
+    "deepseek/deepseek-r1",
+    "deepseek/deepseek-chat",
+    "meta-llama/llama-3.3-70b-instruct",
+    "openai/gpt-4o-mini",
+    "openrouter/auto",
   ];
 
   function getFriendlyModelName(id: string): string {
-    if (id === "openai/gpt-oss-120b") return "GPT 120B";
-    if (id === "openai/gpt-oss-20b") return "GPT 20B";
-    if (id === "llama-3.3-70b-versatile") return "Llama 3.3 (70B)";
-    if (id === "llama-3.1-8b-instant") return "Llama 3.1 (8B)";
-    if (id === "deepseek-r1-distill-llama-70b") return "DeepSeek R1 (70B)";
-    if (id === "qwen-2.5-coder-32b") return "Qwen Coder (32B)";
-    if (id === "qwen/qwen3.8-27b") return "Qwen Vision (27B)";
-    if (id === "llama3-70b-8192") return "Llama 3 (70B)";
-    if (id === "llama3-8b-8192") return "Llama 3 (8B)";
-    if (id === "mixtral-8x7b-32768") return "Mixtral (8x7B)";
-    if (id === "gemma2-9b-it") return "Gemma 2 (9B)";
-    if (id === "llama-3.2-11b-vision-preview") return "Llama 3.2 Vision (11B)";
-    if (id === "llama-3.2-90b-vision-preview") return "Llama 3.2 Vision (90B)";
-    if (id === "llama-3.2-3b-preview") return "Llama 3.2 (3B)";
-    if (id === "llama-3.2-1b-preview") return "Llama 3.2 (1B)";
-    if (id === "groq/compound") return "Groq Smart Router";
-    if (id === "groq/compound-mini") return "Groq Fast Router";
-    if (id === "allam-2-7b") return "ALLaM 2 (7B)";
+    if (id === "deepseek/deepseek-r1:free" || id === "deepseek/deepseek-r1") return "DeepSeek R1";
+    if (id === "deepseek/deepseek-chat:free" || id === "deepseek/deepseek-chat") return "DeepSeek V3";
+    if (id === "meta-llama/llama-3.3-70b-instruct:free" || id === "meta-llama/llama-3.3-70b-instruct") return "Llama 3.3 (70B)";
+    if (id === "meta-llama/llama-3.1-8b-instruct:free" || id === "meta-llama/llama-3.1-8b-instruct") return "Llama 3.1 (8B)";
+    if (id === "qwen/qwen-2.5-coder-32b-instruct:free" || id === "qwen/qwen-2.5-coder-32b") return "Qwen Coder (32B)";
+    if (id === "google/gemini-2.0-flash-exp:free" || id === "google/gemini-2.0-flash") return "Gemini 2.0 Flash";
+    if (id === "mistralai/mistral-small-24b-instruct-2501:free") return "Mistral Small (24B)";
+    if (id === "microsoft/phi-4:free") return "Phi-4 (14B)";
+    if (id === "openai/gpt-4o-mini") return "GPT-4o Mini";
+    if (id === "openrouter/auto") return "OpenRouter Auto";
 
     return id
+      .replace(/:free$/i, "")
       .replace(/^openai\//i, "GPT ")
-      .replace(/^qwen\//i, "Qwen ")
       .replace(/^meta-llama\//i, "Llama ")
+      .replace(/^deepseek\//i, "DeepSeek ")
+      .replace(/^qwen\//i, "Qwen ")
+      .replace(/^google\//i, "Gemini ")
+      .replace(/^mistralai\//i, "Mistral ")
+      .replace(/^microsoft\//i, "Microsoft ")
+      .replace(/-instruct/gi, "")
       .replace(/-(preview|instant|versatile|specdec|8192|32768)/gi, "")
       .replace(/-/g, " ")
       .trim();
   }
 
-  async function resolveActiveGroqModels(rawKey: string): Promise<string[]> {
+  async function resolveActiveOpenRouterModels(rawKey: string): Promise<string[]> {
     const key = typeof rawKey === "string" ? rawKey.trim().replace(/^["']|["']$/g, "").trim() : "";
-    if (!key) return FALLBACK_GROQ_MODELS;
+    if (!key) return FALLBACK_OPENROUTER_MODELS;
     const now = Date.now();
-    if (cachedGroqIds.length > 0 && now - lastGroqFetchTime < 10 * 60 * 1000) {
-      return cachedGroqIds;
+    if (cachedOpenRouterIds.length > 0 && now - lastOpenRouterFetchTime < 10 * 60 * 1000) {
+      return cachedOpenRouterIds;
     }
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4500);
-      const res = await fetch("https://api.groq.com/openai/v1/models", {
-        headers: { "Authorization": `Bearer ${key}` },
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch("https://openrouter.ai/api/v1/models", {
+        headers: { 
+          "Authorization": `Bearer ${key}`,
+          "HTTP-Referer": "https://frosted-studying.app",
+          "X-Title": "Frosted Studying"
+        },
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -3699,108 +3859,106 @@ Respond strictly in valid JSON format:
             .filter((id: string) => 
               typeof id === "string" &&
               !id.includes("whisper") &&
-              !id.includes("orpheus") &&
               !id.includes("tts") &&
-              !id.includes("guard") &&
-              !id.includes("embed") &&
-              !id.includes("safeguard")
+              !id.includes("embed")
             );
           if (valid.length > 0) {
-            // Merge with fallback list to ensure full catalog is always available
-            const combinedIds = Array.from(new Set([...valid, ...FALLBACK_GROQ_MODELS]));
+            // Merge with fallback list to ensure full flagship catalog is available
+            const combinedIds = Array.from(new Set([...FALLBACK_OPENROUTER_MODELS, ...valid]));
             
-            // Sort to prioritize flagship models
+            // Sort to prioritize flagship/free models
             combinedIds.sort((a: string, b: string) => {
               const score = (id: string) => {
-                if (id.includes("gpt-oss-120b")) return 12;
-                if (id.includes("gpt-oss-20b")) return 11;
-                if (id.includes("llama-3.3-70b")) return 10;
-                if (id.includes("deepseek-r1")) return 9;
-                if (id.includes("coder")) return 8;
-                if (id.includes("qwen3.8")) return 7;
-                if (id.includes("llama3-70b")) return 6;
-                if (id.includes("llama3-8b")) return 5;
+                if (id.includes("deepseek-r1")) return 14;
+                if (id.includes("deepseek-chat") || id.includes("deepseek-v3")) return 13;
+                if (id.includes("llama-3.3-70b")) return 12;
+                if (id.includes("coder")) return 11;
+                if (id.includes("gemini-2.0")) return 10;
+                if (id.includes("gpt-4o-mini")) return 9;
+                if (id.includes("llama-3.1-8b")) return 8;
+                if (id.includes(":free")) return 7;
                 return 1;
               };
               return score(b) - score(a);
             });
 
-            cachedGroqIds = combinedIds;
-            lastGroqFetchTime = now;
-            cachedGroqModelsList = combinedIds.map((id: string) => {
-              let provider = "Groq Engine";
-              if (id.includes("openai")) provider = "OpenAI on Groq";
-              else if (id.includes("llama") || id.includes("meta")) provider = "Meta on Groq";
-              else if (id.includes("qwen")) provider = "Alibaba on Groq";
-              else if (id.includes("deepseek")) provider = "DeepSeek on Groq";
-              else if (id.includes("mixtral")) provider = "Mistral AI on Groq";
-              else if (id.includes("gemma")) provider = "Google on Groq";
-              else if (id.includes("compound")) provider = "Groq Compound";
+            cachedOpenRouterIds = combinedIds.slice(0, 35);
+            lastOpenRouterFetchTime = now;
+            cachedOpenRouterModelsList = cachedOpenRouterIds.map((id: string) => {
+              let provider = "OpenRouter";
+              if (id.includes("openai")) provider = "OpenAI via OpenRouter";
+              else if (id.includes("llama") || id.includes("meta")) provider = "Meta via OpenRouter";
+              else if (id.includes("qwen") || id.includes("alibaba")) provider = "Alibaba via OpenRouter";
+              else if (id.includes("deepseek")) provider = "DeepSeek via OpenRouter";
+              else if (id.includes("mistral")) provider = "Mistral via OpenRouter";
+              else if (id.includes("google") || id.includes("gemini")) provider = "Google via OpenRouter";
+              else if (id.includes("microsoft") || id.includes("phi")) provider = "Microsoft via OpenRouter";
 
-              let badge = "Groq LPU";
-              if (id.includes("120b")) badge = "Flagship";
-              else if (id.includes("20b")) badge = "Ultra Fast";
+              let badge = "OpenRouter";
+              if (id.includes("r1")) badge = "Reasoning";
+              else if (id.includes("chat") || id.includes("120b")) badge = "Flagship";
+              else if (id.includes("8b") || id.includes("flash") || id.includes("20b")) badge = "Ultra Fast";
               else if (id.includes("coder")) badge = "Coder";
-              else if (id.includes("deepseek") || id.includes("r1")) badge = "Reasoning";
-              else if (id.includes("vision")) badge = "Vision";
-              else if (id.includes("versatile")) badge = "Versatile";
+              else if (id.includes("70b")) badge = "Powerhouse";
+              else if (id.includes(":free")) badge = "Free";
 
               return {
                 id,
                 name: getFriendlyModelName(id),
                 provider,
                 badge,
-                description: `High-speed LLM inference on Groq hardware (${id}).`,
+                description: `Fast multimodal LLM inference via OpenRouter (${id}).`,
               };
             });
-            return combinedIds;
+            return cachedOpenRouterIds;
           }
         }
       }
     } catch (e) {}
-    return cachedGroqIds.length > 0 ? cachedGroqIds : FALLBACK_GROQ_MODELS;
+    return cachedOpenRouterIds.length > 0 ? cachedOpenRouterIds : FALLBACK_OPENROUTER_MODELS;
   }
 
   app.get("/api/ai/models", async (req, res) => {
     const authHeader = req.headers.authorization || "";
     const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
-    const serverKey = process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || "";
-    const activeKey = (bearerToken.startsWith("gsk_") ? bearerToken : "") || serverKey;
+    const serverKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || process.env.AI_API_KEY || "";
+    const activeKey = (bearerToken.startsWith("sk-or-") ? bearerToken : "") || serverKey;
 
     if (activeKey) {
-      await resolveActiveGroqModels(activeKey);
+      await resolveActiveOpenRouterModels(activeKey);
     }
 
-    const modelsToSend = cachedGroqModelsList.length > 0 ? cachedGroqModelsList : FALLBACK_GROQ_MODELS.map((id) => {
-      let provider = "Groq Engine";
-      if (id.includes("openai")) provider = "OpenAI on Groq";
-      else if (id.includes("llama") || id.includes("meta")) provider = "Meta on Groq";
-      else if (id.includes("qwen")) provider = "Alibaba on Groq";
-      else if (id.includes("deepseek")) provider = "DeepSeek on Groq";
-      else if (id.includes("mixtral")) provider = "Mistral AI on Groq";
-      else if (id.includes("gemma")) provider = "Google on Groq";
-      else if (id.includes("compound")) provider = "Groq Compound";
+    const modelsToSend = cachedOpenRouterModelsList.length > 0 ? cachedOpenRouterModelsList : FALLBACK_OPENROUTER_MODELS.map((id) => {
+      let provider = "OpenRouter";
+      if (id.includes("openai")) provider = "OpenAI via OpenRouter";
+      else if (id.includes("llama") || id.includes("meta")) provider = "Meta via OpenRouter";
+      else if (id.includes("qwen")) provider = "Alibaba via OpenRouter";
+      else if (id.includes("deepseek")) provider = "DeepSeek via OpenRouter";
+      else if (id.includes("mistral")) provider = "Mistral via OpenRouter";
+      else if (id.includes("google") || id.includes("gemini")) provider = "Google via OpenRouter";
+      else if (id.includes("microsoft") || id.includes("phi")) provider = "Microsoft via OpenRouter";
 
-      let badge = "Groq LPU";
-      if (id.includes("120b")) badge = "Flagship";
-      else if (id.includes("20b")) badge = "Ultra Fast";
+      let badge = "OpenRouter";
+      if (id.includes("r1")) badge = "Reasoning";
+      else if (id.includes("chat") || id.includes("v3")) badge = "Flagship";
+      else if (id.includes("8b") || id.includes("flash")) badge = "Ultra Fast";
       else if (id.includes("coder")) badge = "Coder";
-      else if (id.includes("deepseek") || id.includes("r1")) badge = "Reasoning";
-      else if (id.includes("vision")) badge = "Vision";
+      else if (id.includes("70b")) badge = "Powerhouse";
+      else if (id.includes(":free")) badge = "Free";
 
       return {
         id,
         name: getFriendlyModelName(id),
         provider,
         badge,
-        description: `High-speed LLM inference on Groq hardware (${id}).`,
+        description: `Fast multimodal LLM inference via OpenRouter (${id}).`,
       };
     });
 
     res.json({
       models: modelsToSend,
-      hasServerKey: Boolean(process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GEMINI_API_KEY),
-      provider: "groq",
+      hasServerKey: Boolean(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || process.env.AI_API_KEY || process.env.GEMINI_API_KEY),
+      provider: "openrouter",
     });
   });
 
@@ -3819,36 +3977,37 @@ Respond strictly in valid JSON format:
   }): Promise<{ text: string; model: string; provider: string }> {
     const {
       messages = [],
-      model = "openai/gpt-oss-120b",
+      model = "deepseek/deepseek-chat:free",
       systemPrompt = "You are a helpful, clear, and friendly AI study assistant. Provide accurate, well-structured, detailed answers using clean Markdown.",
       temperature = 0.7,
       customKey = "",
-      endpoint = "https://api.groq.com/openai/v1"
+      endpoint = "https://openrouter.ai/api/v1"
     } = opts || {};
 
     const cleanCustomKey = sanitizeApiKey(customKey);
-    const isClientGroq = cleanCustomKey.startsWith("gsk_");
-    const serverGroqKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.GROQ_TOKEN || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
-    const groqKey = isClientGroq ? cleanCustomKey : (serverGroqKey || (!cleanCustomKey.startsWith("ghp_") && !cleanCustomKey.startsWith("github_pat_") && !cleanCustomKey.startsWith("AIza") ? cleanCustomKey : ""));
+    const serverKey = sanitizeApiKey(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
+    const openrouterKey = cleanCustomKey || serverKey;
 
-    const mappedModel = GROQ_MODEL_ALIASES[model] || model || "openai/gpt-oss-120b";
+    const mappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "deepseek/deepseek-chat:free";
 
-    // 1. Primary: Groq Free Forever Models Engine
-    if (groqKey) {
-      const liveModels = await resolveActiveGroqModels(groqKey);
+    // 1. Primary: OpenRouter Engine
+    if (openrouterKey) {
+      const isGroqKey = openrouterKey.startsWith("gsk_");
+      const targetEndpoint = isGroqKey ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+      const liveModels = await resolveActiveOpenRouterModels(openrouterKey);
       const candidateModels = Array.from(new Set([
         mappedModel,
         model,
         ...liveModels,
-        ...FALLBACK_GROQ_MODELS
+        ...FALLBACK_OPENROUTER_MODELS
       ])).filter(Boolean);
 
-      const groqMessages: any[] = [];
+      const openrouterMessages: any[] = [];
       if (systemPrompt && !messages.some((m: any) => m.role === "system")) {
-        groqMessages.push({ role: "system", content: systemPrompt });
+        openrouterMessages.push({ role: "system", content: systemPrompt });
       }
       for (const m of messages) {
-        groqMessages.push({
+        openrouterMessages.push({
           role: m.role === "model" ? "assistant" : (m.role || "user"),
           content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
         });
@@ -3857,18 +4016,19 @@ Respond strictly in valid JSON format:
       for (const cand of candidateModels) {
         try {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 8000);
+          const timeout = setTimeout(() => controller.abort(), 9000);
 
-          const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          const res = await fetch(targetEndpoint, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${groqKey}`,
-              "User-Agent": "FrostedAI-Groq/1.0"
+              "Authorization": `Bearer ${openrouterKey}`,
+              "HTTP-Referer": "https://frosted-studying.app",
+              "X-Title": "Frosted Studying",
             },
             body: JSON.stringify({
               model: cand,
-              messages: groqMessages,
+              messages: openrouterMessages,
               temperature: Math.min(1.0, Math.max(0.1, temperature)),
               stream: false,
             }),
@@ -3886,13 +4046,13 @@ Respond strictly in valid JSON format:
               text = `<think>\n${reasoning.trim()}\n</think>\n\n${content.trim()}`;
             }
             if (text) {
-              return { text, model: cand, provider: "groq" };
+              return { text, model: cand, provider: "openrouter" };
             }
           } else {
             const errText = await res.text().catch(() => "");
-            console.warn(`[Groq Completion] ${cand} failed (${res.status}): ${errText.slice(0, 120)}`);
+            console.warn(`[OpenRouter Completion] ${cand} failed (${res.status}): ${errText.slice(0, 120)}`);
           }
-        } catch (groqErr) {
+        } catch (routerErr) {
           // try next candidate
         }
       }
@@ -3904,7 +4064,7 @@ Respond strictly in valid JSON format:
 
     if (isGithubToken || (effectiveKey && endpoint && (endpoint.includes("github.ai") || endpoint.includes("azure.com")))) {
       try {
-        const ghEndpoint = endpoint && endpoint.startsWith("http") && !endpoint.includes("groq") ? endpoint : "https://models.inference.ai.azure.com";
+        const ghEndpoint = endpoint && endpoint.startsWith("http") && !endpoint.includes("openrouter") ? endpoint : "https://models.inference.ai.azure.com";
         const client = new OpenAI({
           baseURL: ghEndpoint,
           apiKey: effectiveKey,
@@ -3987,12 +4147,12 @@ Respond strictly in valid JSON format:
 
       const {
         messages = [],
-        model = "openai/gpt-oss-120b",
+        model = "deepseek/deepseek-chat:free",
         systemPrompt = "You are a knowledgeable, friendly, and direct study partner and engineering mentor. Provide clear, comprehensive, step-by-step reasoning in clean Markdown without robotic filler.",
         temperature = 0.7,
         customKey = "",
         stream = false,
-        endpoint = "https://api.groq.com/openai/v1"
+        endpoint = "https://openrouter.ai/api/v1"
       } = body || {};
 
       if (!Array.isArray(messages) || messages.length === 0) {
@@ -4005,12 +4165,11 @@ Respond strictly in valid JSON format:
       const bearerToken = sanitizeApiKey(authHeader.replace(/^Bearer\s+/i, ""));
       const cleanCustomKey = sanitizeApiKey(customKey);
 
-      const isClientGroq = cleanCustomKey.startsWith("gsk_") || bearerToken.startsWith("gsk_");
       const isClientGithub = cleanCustomKey.startsWith("ghp_") || cleanCustomKey.startsWith("github_pat_") || bearerToken.startsWith("ghp_") || bearerToken.startsWith("github_pat_");
       const isClientGemini = cleanCustomKey.startsWith("AIza") || bearerToken.startsWith("AIza");
 
-      const serverGroqKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.GROQ_KEY || process.env.GROQ_TOKEN || process.env.VITE_GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
-      const groqKey = isClientGroq ? (cleanCustomKey || bearerToken) : (serverGroqKey || (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : ""));
+      const serverKey = sanitizeApiKey(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
+      const openrouterKey = (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : "") || serverKey;
 
       // Natural, intelligent, un-robotic knowledge base
       const frostedKnowledge = `You are the built-in study assistant and intelligent companion for Frosted Studying.
@@ -4024,22 +4183,22 @@ Platform context:
 - Productivity: Multi-persona AI tutor, active recall flashcards, markdown study notes, Pomodoro timer, step-by-step math solver.
 - Themes: Frosted Arctic, Midnight Abyss, Cyber Amethyst, Emerald Matrix, Crimson Inferno, Cyberpunk.`;
 
-      const groqMessages: any[] = [];
+      const openrouterMessages: any[] = [];
       const hasSystemMessage = messages.some((m: any) => m.role === "system");
       if (!hasSystemMessage) {
-        groqMessages.push({
+        openrouterMessages.push({
           role: "system",
           content: `${frostedKnowledge}\n\nPersona Guidelines: ${systemPrompt}`,
         });
       }
       for (const m of messages) {
         if (m.role === "system") {
-          groqMessages.push({
+          openrouterMessages.push({
             role: "system",
             content: `${frostedKnowledge}\n\n${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`,
           });
         } else {
-          groqMessages.push({
+          openrouterMessages.push({
             role: m.role === "model" ? "assistant" : (m.role || "user"),
             content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
           });
@@ -4047,33 +4206,36 @@ Platform context:
       }
 
       // =========================================================================
-      // 1. PRIMARY ENGINE: Groq High-Speed LPU Inference
+      // 1. PRIMARY ENGINE: OpenRouter High-Speed Inference
       // =========================================================================
-      if (groqKey) {
-        const liveGroqModels = await resolveActiveGroqModels(groqKey);
-        const mappedModel = GROQ_MODEL_ALIASES[model] || model || "openai/gpt-oss-120b";
-        const groqCandidateModels = Array.from(new Set([
+      if (openrouterKey) {
+        const isGroqKey = openrouterKey.startsWith("gsk_");
+        const targetEndpoint = isGroqKey ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+        const liveModels = await resolveActiveOpenRouterModels(openrouterKey);
+        const mappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "deepseek/deepseek-chat:free";
+        const candidateModels = Array.from(new Set([
           mappedModel,
           model,
-          ...liveGroqModels,
-          ...FALLBACK_GROQ_MODELS
+          ...liveModels,
+          ...FALLBACK_OPENROUTER_MODELS
         ])).filter(Boolean);
 
-        for (const candModel of groqCandidateModels) {
+        for (const candModel of candidateModels) {
           try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const timeoutId = setTimeout(() => controller.abort(), 12000);
 
-            const upstreamRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            const upstreamRes = await fetch(targetEndpoint, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${groqKey}`,
-                "User-Agent": "FrostedAI-Groq/1.0",
+                "Authorization": `Bearer ${openrouterKey}`,
+                "HTTP-Referer": "https://frosted-studying.app",
+                "X-Title": "Frosted Studying",
               },
               body: JSON.stringify({
                 model: candModel,
-                messages: groqMessages,
+                messages: openrouterMessages,
                 temperature: Math.min(1.0, Math.max(0.1, temperature)),
                 stream: Boolean(isStream),
               }),
@@ -4083,7 +4245,7 @@ Platform context:
 
             if (!upstreamRes.ok) {
               const errBody = await upstreamRes.text().catch(() => "");
-              console.warn(`Groq model ${candModel} returned ${upstreamRes.status}:`, errBody.slice(0, 150));
+              console.warn(`OpenRouter model ${candModel} returned ${upstreamRes.status}:`, errBody.slice(0, 150));
               continue;
             }
 
@@ -4165,11 +4327,11 @@ Platform context:
                 text,
                 choices: [{ message: { content: text } }],
                 model: candModel,
-                provider: "groq"
+                provider: "openrouter"
               });
             }
           } catch (modelErr: any) {
-            console.warn(`Groq candidate ${candModel} failed, trying next candidate:`, modelErr?.message);
+            console.warn(`OpenRouter candidate ${candModel} failed, trying next candidate:`, modelErr?.message);
           }
         }
       }
@@ -4240,7 +4402,7 @@ Platform context:
       const effectiveKey = (isClientGithub ? (customKey || bearerToken) : "") || process.env.GITHUB_TOKEN || "";
       if (effectiveKey) {
         try {
-          const ghEndpoint = endpoint && endpoint.startsWith("http") && !endpoint.includes("groq") ? endpoint : "https://models.inference.ai.azure.com";
+          const ghEndpoint = endpoint && endpoint.startsWith("http") && !endpoint.includes("openrouter") ? endpoint : "https://models.inference.ai.azure.com";
           const client = new OpenAI({
             baseURL: ghEndpoint,
             apiKey: effectiveKey,
@@ -4297,7 +4459,7 @@ Platform context:
       }
 
       // 4. Graceful Diagnostic Response (Never crash with 500/502)
-      const noticeText = `⚠️ **Groq AI Connection Setup Required**\n\nFrosted AI was unable to reach a working AI provider. To enable ultra-fast Groq LPU responses on your live app:\n\n1. Go to your **Render Dashboard** → Your Web Service → **Environment** tab.\n2. Add the environment variable: \`GROQ_API_KEY = gsk_...\`\n3. Click **Manual Deploy** → **Deploy latest commit** so Render applies the new key.\n4. You can also paste your Groq API key directly using the **API Key** settings button above.\n\n*(Get a free Groq key in 30 seconds at [console.groq.com/keys](https://console.groq.com/keys)).*`;
+      const noticeText = `⚠️ **OpenRouter AI Connection Setup Required**\n\nFrosted AI was unable to reach a working AI provider. To enable OpenRouter responses on your live app:\n\n1. Go to your **Render Dashboard** → Your Web Service → **Environment** tab.\n2. Add the environment variable: \`OPENROUTER_API_KEY = sk-or-v1-...\`\n3. Click **Manual Deploy** → **Deploy latest commit** so Render applies the new key.\n4. You can also paste your OpenRouter API key directly using the **API Key** settings button above.\n\n*(Get an OpenRouter key in seconds at [openrouter.ai/keys](https://openrouter.ai/keys)).*`;
 
       if (isStream) {
         res.setHeader("Content-Type", "text/event-stream");

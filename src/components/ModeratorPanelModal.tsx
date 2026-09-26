@@ -471,7 +471,7 @@ export default function ModeratorPanelModal({
               <span className="flex items-center gap-1.5">
                 <span>AI Moderation</span>
                 <span className="px-1.5 py-0.2 bg-emerald-500/20 border border-emerald-500/40 text-[9px] font-mono text-emerald-300 rounded font-bold">
-                  GROQ
+                  OPENROUTER
                 </span>
               </span>
             </button>
@@ -845,7 +845,7 @@ export default function ModeratorPanelModal({
               </div>
             )}
 
-            {/* 5. AI MODERATION (GROQ ENGINE) TAB */}
+            {/* 5. AI MODERATION (OPENROUTER ENGINE) TAB */}
             {activeTab === "ai_moderation" && (
               <div className="space-y-4">
                 {/* Header overview */}
@@ -854,11 +854,11 @@ export default function ModeratorPanelModal({
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                       <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
-                        <span>Groq Multi-Modal Moderation Engine</span>
+                        <span>OpenRouter Multi-Modal Moderation Engine</span>
                       </h4>
                     </div>
                     <p className="text-xs text-neutral-300 leading-relaxed">
-                      Every medium is inspected with dedicated, specialized Groq models running on ultra-fast LPU inference hardware.
+                      Every medium is inspected with dedicated, specialized models via OpenRouter & multimodal AI pipelines.
                     </p>
                   </div>
 
@@ -878,13 +878,13 @@ export default function ModeratorPanelModal({
                         <span>VIDEO MODERATION MODEL</span>
                       </div>
                       <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        90B VISION + WHISPER
+                        VISION + OCR + AUDIO
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">llama-3.2-90b-vision-preview</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ whisper-large-v3-turbo (audio)</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ llama-3.3-70b-versatile (timeline synthesis)</div>
+                      <div className="text-xs font-mono font-bold text-white">google/gemini-2.0-flash-exp:free</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ meta-llama/llama-3.2-11b-vision-instruct:free</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ deepseek/deepseek-chat:free (timeline synthesis)</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
                       Samples multi-frame visual keyframes across the timeline, extracts & transcribes audio speech, and checks for nudity, gore, or prohibited acts.
@@ -899,13 +899,13 @@ export default function ModeratorPanelModal({
                         <span>AUDIO MODERATION MODEL</span>
                       </div>
                       <span className="text-[10px] bg-amber-950 text-amber-300 border border-amber-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        WHISPER TURBO + LLAMA GUARD 3
+                        ACOUSTICS + TEXT GUARD
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">whisper-large-v3-turbo</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ llama-guard-3-8b (speech guard)</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ llama-3.2-11b-vision-preview (spectrogram acoustics)</div>
+                      <div className="text-xs font-mono font-bold text-white">meta-llama/llama-guard-3-8b</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ spectrogram vision acoustics</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ deterministic regex keyword guard</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
                       Transcribes spoken voice tracks, evaluates spoken slurs and vulgarity, and analyzes spectrogram frequencies for moaning and erotic sounds.
@@ -920,12 +920,12 @@ export default function ModeratorPanelModal({
                         <span>IMAGE MODERATION MODEL</span>
                       </div>
                       <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        11B VISION
+                        MULTIMODAL VISION
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">llama-3.2-11b-vision-preview</div>
-                      <div className="text-[11px] font-mono text-neutral-400">Fallback: llama-3.2-90b-vision-preview</div>
+                      <div className="text-xs font-mono font-bold text-white">google/gemini-2.0-flash-exp:free</div>
+                      <div className="text-[11px] font-mono text-neutral-400">Fallback: meta-llama/llama-3.2-11b-vision-instruct:free</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
                       Evaluates static images, photos, artwork, and animated GIFs for nudity, sexual content, violence, hate symbols, and OCR overlays.
@@ -940,15 +940,15 @@ export default function ModeratorPanelModal({
                         <span>TEXT & CHAT MODERATION MODEL</span>
                       </div>
                       <span className="text-[10px] bg-red-950 text-red-300 border border-red-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        LLAMA GUARD 3
+                        OPENROUTER LLAMA GUARD
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">llama-guard-3-8b</div>
-                      <div className="text-[11px] font-mono text-neutral-400">Fallback: llama-3.1-8b-instant</div>
+                      <div className="text-xs font-mono font-bold text-white">meta-llama/llama-guard-3-8b</div>
+                      <div className="text-[11px] font-mono text-neutral-400">Fallback: meta-llama/llama-3.1-8b-instruct:free</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
-                      Zero-latency LPU check on all live chat messages, usernames, and file titles against slurs, harassment, and disallowed profanity.
+                      Ultra-fast check on all live chat messages, usernames, and file titles against slurs, harassment, and disallowed profanity.
                     </p>
                   </div>
                 </div>
@@ -960,7 +960,7 @@ export default function ModeratorPanelModal({
                       <Sparkles size={14} className="text-amber-400" />
                       <span>Live Moderation Test Bench</span>
                     </h5>
-                    <span className="text-[10px] text-neutral-400">Test any text or media link with the respective Groq model</span>
+                    <span className="text-[10px] text-neutral-400">Test any text or media link with the respective OpenRouter model</span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -1009,7 +1009,7 @@ export default function ModeratorPanelModal({
                       ) : (
                         <>
                           <Zap size={14} />
-                          <span>Inspect with Groq</span>
+                          <span>Inspect with OpenRouter</span>
                         </>
                       )}
                     </button>
