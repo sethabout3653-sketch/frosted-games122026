@@ -2372,13 +2372,13 @@ const PORT = Number(process.env.PORT) || 3000;
 
     const systemPrompt = `You are a high-speed Content Safety & Visual Moderation Model.
 Thoroughly inspect this image/frame for:
-1. Nudity, sexually explicit content, pornography, NSFW acts, suggestive poses, genitalia, exposed breasts, or sexualized content (STRICTLY FORBIDDEN).
-2. Graphic violence, blood, gore, real-world weapons pointed at screen, self-harm, terrorism, or threats.
+1. Nudity, sexually explicit content, pornography, NSFW acts, suggestive or erotic poses, twerking, butt shaking, pelvic/crotch thrusting, suggestive sexualized dancing, or revealing erotic displays (STRICTLY FORBIDDEN - set safe: false).
+2. Graphic violence, blood, gore, real-world weapons pointed at screen, self-harm, terrorism, or threats (STRICTLY FORBIDDEN).
 3. Racial/homophobic/ethnic slurs or hate speech symbols (STRICTLY FORBIDDEN).
 4. Threats of violence, death threats, doxxing text overlays, or SWAT/bomb threats (STRICTLY FORBIDDEN).
 Rules:
 - General profanity, casual cursing, and swearing (e.g. 'shit', 'fuck', 'bitch', 'ass', 'damn', 'hell', 'piss', 'crap') ARE FULLY PERMITTED. NEVER flag casual cursing as unsafe.
-- ONLY reject if there is pornography/nudity/NSFW, hate speech/slurs, or real threats/graphic violence (set safe: false).
+- ONLY reject if there is pornography/nudity/NSFW/twerking/sexualized acts, hate speech/slurs, or real threats/graphic violence (set safe: false).
 Respond strictly in valid JSON format:
 {
   "safe": boolean,
@@ -3922,6 +3922,10 @@ Respond strictly in valid JSON format:
   let lastOpenRouterFetchTime = 0;
 
   const OPENROUTER_MODEL_ALIASES: Record<string, string> = {
+    "openrouter/free": "openrouter/free",
+    "openrouter/auto": "openrouter/free",
+    "auto": "openrouter/free",
+    "free": "openrouter/free",
     "llama-3.3-70b-versatile": "meta-llama/llama-3.3-70b-instruct:free",
     "llama-3.1-8b-instant": "meta-llama/llama-3.1-8b-instruct:free",
     "mixtral-8x7b-32768": "mistralai/mistral-small-24b-instruct-2501:free",
@@ -3941,6 +3945,7 @@ Respond strictly in valid JSON format:
   };
 
   const FALLBACK_OPENROUTER_MODELS = [
+    "openrouter/free",
     "meta-llama/llama-3.3-70b-instruct:free",
     "meta-llama/llama-3.1-8b-instruct:free",
     "qwen/qwen-2.5-coder-32b-instruct:free",
@@ -3955,6 +3960,8 @@ Respond strictly in valid JSON format:
   ];
 
   function getFriendlyModelName(id: string): string {
+    if (id === "openrouter/free") return "OpenRouter Auto (Free)";
+    if (id === "openrouter/auto") return "OpenRouter Auto";
     if (id === "meta-llama/llama-3.3-70b-instruct:free" || id === "meta-llama/llama-3.3-70b-instruct") return "Llama 3.3 (70B) Free";
     if (id === "meta-llama/llama-3.1-8b-instruct:free" || id === "meta-llama/llama-3.1-8b-instruct") return "Llama 3.1 (8B) Free";
     if (id === "qwen/qwen-2.5-coder-32b-instruct:free" || id === "qwen/qwen-2.5-coder-32b") return "Qwen Coder (32B) Free";
@@ -3966,7 +3973,6 @@ Respond strictly in valid JSON format:
     if (id === "deepseek/deepseek-r1:free" || id === "deepseek/deepseek-r1") return "DeepSeek R1";
     if (id === "deepseek/deepseek-chat:free" || id === "deepseek/deepseek-chat") return "DeepSeek V3";
     if (id === "openai/gpt-4o-mini") return "GPT-4o Mini";
-    if (id === "openrouter/auto") return "OpenRouter Auto";
 
     return id
       .replace(/:free$/i, " (Free)")

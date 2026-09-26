@@ -95,7 +95,9 @@ const SEXUAL_PATTERNS: RegExp[] = [
   /\b(?:[e3]+r+[o0]+t+[i1!l|]+c+a?)\b/i,
   /\b(?:i+n+c+[e3]+s+t+)\b/i,
   /\b(?:c+a+m+g+[i1!l|]+r+l+|o+n+l+y+f+a+n+s+)\b/i,
-  // Moaning, Sensual, Erotic and Audio NSFW terms
+  // Moaning, Sensual, Erotic, Twerking and Audio NSFW terms
+  /\b(?:t+w+e+r+k+(?:s|ing|ed|ers?)?|b+u+t+t+\s*s+h+a+k+(?:e|ing)|c+r+[o0]+t+c+h+\s*t+h+r+u+s+t)\b/i,
+  /\b(?:s+u+g+g+e+s+t+[i1!l|]+v+e+\s*d+a+n+c+[i1!l|]+n+g|e+r+[o0]+t+[i1!l|]+c+\s*d+a+n+c+[i1!l|]+n+g)\b/i,
   /\b(?:m+[o0]+a+n+(?:s|ing|ed|ers?)?|g+r+[o0]+a+n+(?:s|ing|ed)?)\b/i,
   /\b(?:e+r+[o0]+t+[i1!l|]+c+\s*s+[o0]+u+n+d+s?|s+[e3]+x+\s*s+[o0]+u+n+d+s?|s+[e3]+x+u+a+l+\s*n+[o0]+[i1!l|]+s+[e3]+s?)\b/i,
   /\b(?:s+[e3]+x+u+a+l+\s*p+a+n+t+[i1!l|]+n+g|e+r+[o0]+t+[i1!l|]+c+\s*m+[o0]+a+n+s?)\b/i,

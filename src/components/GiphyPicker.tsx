@@ -115,26 +115,33 @@ export const GiphyPicker: React.FC<GiphyPickerProps> = ({
     try {
       let result;
       if (!query || query === "Trending") {
-        // Enforce R rating for all trending GIFs
-        result = await gf.trending({ limit: 24, rating: "r" });
+        // Enforce PG rating for all trending GIFs
+        result = await gf.trending({ limit: 30, rating: "pg" });
       } else {
-        // Enforce R rating for all search queries
+        // Enforce PG rating for all search queries
         result = await gf.search(query, {
-          limit: 24,
+          limit: 30,
           sort: "relevant",
           lang: "en",
-          rating: "r",
+          rating: "pg",
         });
       }
 
       if (result && result.data && result.data.length > 0) {
-        const formatted: GifItem[] = result.data.map((item: any) => ({
-          id: item.id,
-          url: item.images?.fixed_height?.url || item.images?.original?.url || "",
-          previewUrl: item.images?.fixed_height_small?.url || item.images?.fixed_height?.url || "",
-          title: item.title || "GIPHY GIF",
-        }));
-        setGifs(formatted);
+        const formatted: GifItem[] = result.data
+          .filter((item: any) => {
+            const title = item.title || "";
+            const tags = Array.isArray(item.tags) ? item.tags.join(" ") : "";
+            const textToCheck = `${title} ${tags}`;
+            return checkTextModeration(textToCheck).safe;
+          })
+          .map((item: any) => ({
+            id: item.id,
+            url: item.images?.fixed_height?.url || item.images?.original?.url || "",
+            previewUrl: item.images?.fixed_height_small?.url || item.images?.fixed_height?.url || "",
+            title: item.title || "GIPHY GIF",
+          }));
+        setGifs(formatted.length > 0 ? formatted : FALLBACK_GIFS);
       } else {
         // Fallback to curated collection if query returned 0 items
         setGifs(FALLBACK_GIFS);

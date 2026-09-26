@@ -96,6 +96,13 @@ export interface AIModelOption {
 
 const AVAILABLE_MODELS: AIModelOption[] = [
   {
+    id: "openrouter/free",
+    name: "OpenRouter Auto (Free)",
+    provider: "OpenRouter Auto-Router",
+    description: "Automatically routes to active, 100% free models without managing model availability.",
+    badge: "Auto Free",
+  },
+  {
     id: "meta-llama/llama-3.3-70b-instruct:free",
     name: "Llama 3.3 70B (Free)",
     provider: "Meta via OpenRouter",
