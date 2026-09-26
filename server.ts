@@ -4213,7 +4213,10 @@ Respond strictly in valid JSON format:
     const serverKey = sanitizeApiKey(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
     const openrouterKey = cleanCustomKey || serverKey;
 
-    const mappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "meta-llama/llama-3.3-70b-instruct:free";
+    let baseMappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "meta-llama/llama-3.3-70b-instruct:free";
+    if (baseMappedModel !== "openrouter/free" && baseMappedModel !== "openrouter/auto" && !baseMappedModel.endsWith(":free")) {
+      baseMappedModel = `${baseMappedModel}:free`;
+    }
 
     // 1. Primary: OpenRouter Engine
     if (openrouterKey) {
@@ -4221,9 +4224,9 @@ Respond strictly in valid JSON format:
       const targetEndpoint = isGroqKey ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
       const liveModels = await resolveActiveOpenRouterModels(openrouterKey);
       const candidateModels = Array.from(new Set([
-        mappedModel,
-        model,
-        ...liveModels,
+        baseMappedModel,
+        "openrouter/free",
+        ...liveModels.map(m => m.endsWith(":free") || m === "openrouter/free" || m === "openrouter/auto" ? m : `${m}:free`),
         ...FALLBACK_OPENROUTER_MODELS
       ])).filter(Boolean);
 
@@ -4489,18 +4492,18 @@ Platform context:
         const isGroqKey = openrouterKey.startsWith("gsk_");
         const targetEndpoint = isGroqKey ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
         const liveModels = await resolveActiveOpenRouterModels(openrouterKey);
-        const mappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "openrouter/free";
+        let baseMappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "openrouter/free";
+        if (baseMappedModel !== "openrouter/free" && baseMappedModel !== "openrouter/auto" && !baseMappedModel.endsWith(":free")) {
+          baseMappedModel = `${baseMappedModel}:free`;
+        }
         
-        // Strip :free from models if they fail, and try auto router
+        // Strictly use free models (strictly append :free suffix unless it is openrouter/free or openrouter/auto)
         const candidateModels = Array.from(new Set([
           "openrouter/free",
-          mappedModel,
-          mappedModel.replace(/:free$/i, ""),
-          model,
-          model.replace(/:free$/i, ""),
+          baseMappedModel,
+          ...liveModels.map(m => m.endsWith(":free") || m === "openrouter/free" || m === "openrouter/auto" ? m : `${m}:free`),
+          ...FALLBACK_OPENROUTER_MODELS,
           "openrouter/auto",
-          ...liveModels,
-          ...FALLBACK_OPENROUTER_MODELS.map(m => m.replace(/:free$/i, "")),
         ])).filter(Boolean);
 
         for (const candModel of candidateModels) {
