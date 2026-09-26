@@ -3110,7 +3110,7 @@ Respond strictly in valid JSON format:
     return finalRes;
   }
 
-  // 🎵 Audio Moderation: Groq Whisper Large v3 Turbo + Groq Llama Guard 3 + Spectrogram Acoustics
+  // 🎵 Audio Moderation: Direct Multimodal Audio Listening + Whisper Transcription + Spectrogram Acoustics
   async function transcribeAndInspectAudio(audioPath: string): Promise<{ 
     safe: boolean; 
     reason?: string; 
@@ -3158,6 +3158,75 @@ Respond strictly in valid JSON format:
 
       const targetPath = fs.existsSync(monoMp3Path) && fs.statSync(monoMp3Path).size > 100 ? monoMp3Path : audioPath;
 
+      // 3. DIRECT MULTIMODAL AUDIO LISTENER via Gemini (Listens to raw audio waveforms for moaning/NSFW)
+      const geminiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
+      if (geminiKey) {
+        try {
+          const audioBuffer = fs.readFileSync(targetPath);
+          const audioB64 = audioBuffer.toString("base64");
+          const ai = new GoogleGenAI({ apiKey: geminiKey });
+          
+          const audioSystemPrompt = `You are a strict Audio Content Safety & NSFW Audio Moderation Model.
+Listen to and analyze this audio clip thoroughly for:
+1. Human moaning, erotic groaning, sexual noises, heavy sexual panting, orgasm sounds, or sensual vocalizations (STRICTLY FORBIDDEN - set safe: false).
+2. Spoken racial/homophobic/ethnic slurs or hate speech (STRICTLY FORBIDDEN - set safe: false).
+3. Graphic violence, screams of agony, or threats of violence (STRICTLY FORBIDDEN).
+Rules:
+- Standard casual swear words (e.g. 'shit', 'fuck', 'bitch', 'ass', 'damn', 'hell') ARE PERMITTED. DO NOT flag standard cursing.
+- But non-verbal or verbal moaning, erotic groaning, and sexual audio MUST be rejected with safe: false.
+
+Respond strictly in valid JSON format:
+{
+  "safe": boolean,
+  "category": "clean" | "moaning" | "nsfw" | "slur" | "violence",
+  "reason": "1-sentence explanation if unsafe",
+  "transcript": "transcribed speech if any"
+}`;
+
+          for (const gModel of GEMINI_MODELS_CASCADE) {
+            try {
+              const resp = await ai.models.generateContent({
+                model: gModel,
+                contents: [
+                  {
+                    role: "user",
+                    parts: [
+                      { text: audioSystemPrompt },
+                      {
+                        inlineData: {
+                          mimeType: "audio/mp3",
+                          data: audioB64,
+                        },
+                      },
+                    ],
+                  },
+                ],
+              });
+              const textOut = resp.text || "";
+              const cleaned = textOut.replace(/```json/gi, "").replace(/```/g, "").trim();
+              const parsed = JSON.parse(cleaned);
+
+              if (parsed.safe === false) {
+                const res = {
+                  safe: false,
+                  reason: parsed.reason || "Sexual sounds or moaning detected in audio track.",
+                  transcript: parsed.transcript || "",
+                  model: gModel,
+                  moderator: `Gemini Multimodal Audio Guard (${gModel})`,
+                };
+                setCachedDecision(fileHash, res);
+                return res;
+              }
+              break;
+            } catch (e) {
+              continue;
+            }
+          }
+        } catch (err) {
+          console.warn("Gemini direct audio listening error:", err);
+        }
+      }
+
       // Generate acoustic frequency spectrogram of the audio
       try {
         execSync(`ffmpeg -y -i "${targetPath}" -lavfi "showspectrumpic=s=640x360:mode=combined:color=intensity:scale=log" -threads 2 -preset ultrafast -q:v 3 "${specTmpPath}" 2>/dev/null`, { timeout: 4000 });
@@ -3166,18 +3235,18 @@ Respond strictly in valid JSON format:
       const hasSpec = fs.existsSync(specTmpPath) && fs.statSync(specTmpPath).size > 200;
       const specBase64 = hasSpec ? fs.readFileSync(specTmpPath).toString("base64") : null;
 
-      // 3. Run Groq Whisper Large v3 Turbo Transcription & Groq Spectrogram Vision in parallel!
+      // 4. Run OpenRouter Whisper Transcription & Spectrogram Vision in parallel!
       const [transcriptionResult, spectrogramResult] = await Promise.all([
         callGroqAudioTranscription(targetPath),
         (async () => {
           if (!specBase64) return { safe: true };
-          const specPrompt = `Analyze this audio acoustic frequency spectrogram for NSFW sounds. Check for harmonic sweeps typical of human moaning, sexual groaning, heavy sexual panting, orgasm sounds, or violent screaming. Respond in JSON: {"safe": boolean, "category": "clean" | "moaning" | "violence", "reason": "string"}`;
+          const specPrompt = `Analyze this audio acoustic frequency spectrogram for NSFW sounds. Check for harmonic sweeps typical of human moaning, sexual groaning, heavy sexual panting, orgasm sounds, or violent screaming. If moaning or erotic acoustics are present, reject with safe: false. Respond in JSON: {"safe": boolean, "category": "clean" | "moaning" | "nsfw" | "violence", "reason": "string"}`;
           return await callGroqImageModeration(specBase64, "image/jpeg", specPrompt);
         })()
       ]);
 
       // Check spectrogram for non-verbal erotic moaning / screams
-      if (!spectrogramResult.safe && (spectrogramResult.category === "moaning" || spectrogramResult.reason?.toLowerCase().includes("moan"))) {
+      if (!spectrogramResult.safe) {
         const res = {
           safe: false,
           reason: spectrogramResult.reason || "Inappropriate sexual sounds or moaning detected in audio acoustics.",
@@ -3190,14 +3259,14 @@ Respond strictly in valid JSON format:
 
       const transcript = transcriptionResult?.transcript || "";
 
-      // 4. If speech was transcribed, run Llama Guard & Deterministic Regex check
+      // 5. If speech was transcribed, run Llama Guard & Deterministic Regex check
       if (transcript && transcript.trim().length > 0) {
-        // Fast deterministic regex check
+        // Fast deterministic regex check (now includes moaning / erotic annotations)
         const textCheck = checkTextModeration(transcript);
         if (!textCheck.safe) {
           const res = {
             safe: false,
-            reason: `Prohibited language detected in audio speech ("${transcript.slice(0, 60)}..."): ${textCheck.reason}`,
+            reason: `Prohibited language or sound detected in audio speech ("${transcript.slice(0, 60)}..."): ${textCheck.reason}`,
             transcript,
             model: transcriptionResult?.model || MODERATION_GROQ_MODELS.audio.transcription,
             moderator: `OpenRouter Speech Guard (${MODERATION_GROQ_MODELS.audio.transcription})`,
@@ -3211,7 +3280,7 @@ Respond strictly in valid JSON format:
         if (!guardRes.safe) {
           const res = {
             safe: false,
-            reason: guardRes.reason || `Prohibited language detected in audio speech: "${transcript.slice(0, 60)}..."`,
+            reason: guardRes.reason || `Prohibited content detected in audio speech: "${transcript.slice(0, 60)}..."`,
             transcript,
             model: `${transcriptionResult?.model || MODERATION_GROQ_MODELS.audio.transcription} + ${guardRes.model || MODERATION_GROQ_MODELS.audio.guard}`,
             moderator: `OpenRouter Audio Safety Engine (${guardRes.model || MODERATION_GROQ_MODELS.audio.guard})`,

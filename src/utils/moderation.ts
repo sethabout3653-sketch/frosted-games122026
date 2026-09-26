@@ -95,6 +95,14 @@ const SEXUAL_PATTERNS: RegExp[] = [
   /\b(?:[e3]+r+[o0]+t+[i1!l|]+c+a?)\b/i,
   /\b(?:i+n+c+[e3]+s+t+)\b/i,
   /\b(?:c+a+m+g+[i1!l|]+r+l+|o+n+l+y+f+a+n+s+)\b/i,
+  // Moaning, Sensual, Erotic and Audio NSFW terms
+  /\b(?:m+[o0]+a+n+(?:s|ing|ed|ers?)?|g+r+[o0]+a+n+(?:s|ing|ed)?)\b/i,
+  /\b(?:e+r+[o0]+t+[i1!l|]+c+\s*s+[o0]+u+n+d+s?|s+[e3]+x+\s*s+[o0]+u+n+d+s?|s+[e3]+x+u+a+l+\s*n+[o0]+[i1!l|]+s+[e3]+s?)\b/i,
+  /\b(?:s+[e3]+x+u+a+l+\s*p+a+n+t+[i1!l|]+n+g|e+r+[o0]+t+[i1!l|]+c+\s*m+[o0]+a+n+s?)\b/i,
+  /\b(?:a+h+h+h+h+|u+h+h+h+h+|o+h+h+h+h+|y+a+a+a+m+e+t+e|y+a+m+e+t+e)\b/i,
+  /\*(?:moan|moans|moaning|groan|groans|groaning|pants|panting|sensual|heavy\s+breathing)\*/i,
+  /\[(?:moan|moans|moaning|groan|groans|groaning|pants|panting|sensual|erotic|sex\s+sounds)\]/i,
+  /\((?:moan|moans|moaning|groan|groans|groaning|pants|panting|sensual|erotic|sex\s+sounds)\)/i,
 ];
 
 // 4. Threats of violence, death, physical assault, doxxing, swatting, self-harm
