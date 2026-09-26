@@ -1556,7 +1556,14 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           channelName: "General Voice",
         });
 
-        await setDoc(doc(db, "voice_users", profile.uid), {
+        // Broadcast join signal immediately so all active peers connect instantly
+        // This bypasses database latency for the initial handshake.
+        sendSignal("all", "user_joined", JSON.stringify({
+          username: profile.username,
+          photoURL: profile.photoURL
+        }));
+
+        setDoc(doc(db, "voice_users", profile.uid), {
           uid: profile.uid,
           username: myCleanUsername,
           photoURL: profile.photoURL || "",
@@ -1567,14 +1574,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           isScreenAudioOn: false,
           activity: getCurrentActivity(),
           timestamp: Date.now(),
-        });
+        }).catch(() => {});
 
-        if (!isMountedRef.current) {
-          stopAllMediaTracks();
-          return;
-        }
-
-        await setDoc(doc(db, "presence", profile.uid), {
+        setDoc(doc(db, "presence", profile.uid), {
           uid: profile.uid,
           username: myCleanUsername,
           photoURL: profile.photoURL || "",
@@ -1587,12 +1589,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         }, { merge: true }).catch(() => {});
 
         hasJoinedVoiceRef.current = true;
-
-        // Broadcast join signal immediately so all active peers connect instantly
-        sendSignal("all", "user_joined", JSON.stringify({
-          username: profile.username,
-          photoURL: profile.photoURL
-        }));
 
         let latestVoiceDocs: any[] = [];
         let latestPresenceDocs: any[] = [];
@@ -1700,10 +1696,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
                 const lastAttempt = lastCallAttemptRef.current[u.uid] || 0;
                 const failCount = callFailCountRef.current[u.uid] || 0;
-                const backoffTime = failCount > 3 ? 5000 : 200;
+                const backoffTime = failCount > 3 ? 5000 : 100;
 
-                const isStalled = pc && (pc.connectionState === "new" || pc.connectionState === "connecting") && (now - lastAttempt > 6000);
-                const isDisconnected = pc && (pc.connectionState === "disconnected" || pc.iceConnectionState === "disconnected") && (now - lastAttempt > 4000);
+                const isStalled = pc && (pc.connectionState === "new" || pc.connectionState === "connecting") && (now - lastAttempt > 3500);
+                const isDisconnected = pc && (pc.connectionState === "disconnected" || pc.iceConnectionState === "disconnected") && (now - lastAttempt > 2000);
                 if (isStalled || isDisconnected) {
                   try { pc.close(); } catch (e) {}
                   delete peersRef.current[u.uid];
@@ -1712,7 +1708,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                 const shouldInitiate =
                   lastAttempt === 0 ||
                   (profile.uid < u.uid && now - lastAttempt > backoffTime) ||
-                  (profile.uid > u.uid && now - lastAttempt > (backoffTime + 300));
+                  (profile.uid > u.uid && now - lastAttempt > (backoffTime + 50));
 
                 if (shouldInitiate && (isDead || isStalled || isDisconnected) && localStreamRef.current) {
                   lastCallAttemptRef.current[u.uid] = now;
