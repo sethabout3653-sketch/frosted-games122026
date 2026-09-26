@@ -28,6 +28,7 @@ import { getCurrentActivity, onActivityChanged, getVoiceState, broadcastPresence
 import { isAllowedUsername, isGuestUser, purgeNonAllowedUsers } from "../lib/user-filter";
 import ActivityBadge from "./ActivityBadge";
 import ModeratorPanelModal from "./ModeratorPanelModal";
+import { getOrCreateUserTag } from "../lib/friends";
 import { checkTextModeration } from "../utils/moderation";
 import { useCall } from "../context/CallContext";
 import { playChatSound } from "../lib/ringtone-synthesizer";
@@ -2902,9 +2903,12 @@ export default function ChatPanel({
                       {/* Username & Status Label & Activity */}
                       <div className="flex-1 min-w-0 flex flex-col">
                         <div className="flex items-center justify-between gap-1 w-full">
-                          <div className="flex items-center gap-1 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
                             <span className="text-xs font-bold text-neutral-200 group-hover:text-white truncate">
                               {user.username}
+                            </span>
+                            <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded border border-emerald-500/20 shrink-0">
+                              {(user as any).tag || getOrCreateUserTag(user.username)}
                             </span>
                             {isUserModerator(user.username, user.uid) && (
                               <span className="bg-red-950/80 text-red-400 border border-red-800/60 text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider flex-shrink-0" title="Community Moderator">
@@ -3103,10 +3107,13 @@ export default function ChatPanel({
 
                 {/* Name & Role */}
                 <div className="space-y-1 mb-4">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-lg font-bold text-white">
-                      {selectedUserProfile.username}
+                      @{selectedUserProfile.username}
                     </h2>
+                    <span className="font-mono font-bold text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                      {(selectedUserProfile as any).tag || getOrCreateUserTag(selectedUserProfile.username)}
+                    </span>
                     {isUserModerator(selectedUserProfile.username, selectedUserProfile.uid) && (
                       <span className="bg-red-950/80 text-red-400 border border-red-800/60 text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider" title="Community Moderator">
                         MOD

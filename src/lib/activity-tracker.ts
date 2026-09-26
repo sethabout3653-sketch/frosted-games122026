@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { UserActivity, ChatProfile } from "../types";
 import { wsClient } from "./websocket-client";
 import { db, doc, setDoc, toTimestampMs } from "../supabase-adapter";
+import { getOrCreateUserTag } from "./friends";
 
 const ADJECTIVES = ["Frost", "Neon", "Shadow", "Cosmic", "Pixel", "Solar", "Echo", "Vortex", "Apex", "Cyber", "Nova", "Hyper"];
 const NOUNS = ["Runner", "Knight", "Fox", "Falcon", "Ninja", "Wolf", "Pilot", "Gamer", "Ghost", "Hawk", "Spark", "Viper"];
@@ -12,10 +13,12 @@ export function getSavedProfile(): ChatProfile {
     const params = new URLSearchParams(window.location.search);
     const urlUser = params.get("user");
     if (urlUser && urlUser.trim().toLowerCase() !== "anonymous") {
+      const uname = urlUser.trim();
       return {
-        uid: "user_" + urlUser.toLowerCase().replace(/[^a-z0-9]/g, ""),
-        username: urlUser.trim(),
-        photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(urlUser.trim())}`,
+        uid: "user_" + uname.toLowerCase().replace(/[^a-z0-9]/g, ""),
+        username: uname,
+        tag: getOrCreateUserTag(uname),
+        photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(uname)}`,
       };
     }
 
@@ -23,7 +26,10 @@ export function getSavedProfile(): ChatProfile {
     if (sessionSaved) {
       const parsed = JSON.parse(sessionSaved);
       if (parsed && parsed.username && parsed.username.trim().toLowerCase() !== "anonymous") {
-        return parsed;
+        return {
+          ...parsed,
+          tag: parsed.tag || getOrCreateUserTag(parsed.username),
+        };
       }
     }
 
@@ -39,6 +45,7 @@ export function getSavedProfile(): ChatProfile {
         const profile = {
           ...parsed,
           uid: parsed.uid.includes("_tab_") ? parsed.uid : `${parsed.uid}_tab_${tabId}`,
+          tag: parsed.tag || getOrCreateUserTag(parsed.username),
         };
         sessionStorage.setItem("frosted_chat_profile", JSON.stringify(profile));
         return profile;
@@ -61,6 +68,7 @@ export function getSavedProfile(): ChatProfile {
     const autoProfile: ChatProfile = {
       uid: generatedUid,
       username: generatedUsername,
+      tag: getOrCreateUserTag(generatedUsername),
       photoURL: generatedPhoto,
     };
 
@@ -72,6 +80,7 @@ export function getSavedProfile(): ChatProfile {
     return {
       uid: `user_${fallbackName.toLowerCase()}`,
       username: fallbackName,
+      tag: getOrCreateUserTag(fallbackName),
       photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(fallbackName)}`,
     };
   }
@@ -79,9 +88,13 @@ export function getSavedProfile(): ChatProfile {
 
 export function saveUserProfile(profile: ChatProfile) {
   try {
-    sessionStorage.setItem("frosted_chat_profile", JSON.stringify(profile));
-    localStorage.setItem("frosted_chat_profile", JSON.stringify(profile));
-    window.dispatchEvent(new CustomEvent("frosted_profile_updated", { detail: profile }));
+    const fullProfile: ChatProfile = {
+      ...profile,
+      tag: profile.tag || getOrCreateUserTag(profile.username || "User"),
+    };
+    sessionStorage.setItem("frosted_chat_profile", JSON.stringify(fullProfile));
+    localStorage.setItem("frosted_chat_profile", JSON.stringify(fullProfile));
+    window.dispatchEvent(new CustomEvent("frosted_profile_updated", { detail: fullProfile }));
     broadcastPresenceUpdate();
   } catch (e) {}
 }
@@ -215,6 +228,7 @@ export function broadcastPresenceUpdate(activity?: UserActivity) {
   const presencePayload = {
     uid: profile.uid,
     username: profile.username,
+    tag: profile.tag || getOrCreateUserTag(profile.username || "User"),
     photoURL: profile.photoURL || "",
     status: "online",
     lastSeen: now,

@@ -23,9 +23,10 @@ interface CallMenuDropdownProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenSettings?: () => void;
+  onOpenFilters?: (tab?: "effects" | "filters" | "backgrounds") => void;
 }
 
-export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: CallMenuDropdownProps) {
+export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, onOpenFilters }: CallMenuDropdownProps) {
   const { onlineUsers, voiceUserCount, startDirectCall, joinGeneralVoice } = useCall();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const myProfile = getSavedProfile();
@@ -111,20 +112,37 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
             </div>
           </div>
 
-          {onOpenSettings && (
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onOpenSettings();
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-[11px] transition-colors cursor-pointer"
-              title="Customize Incoming Call Ringtone"
-            >
-              <Music size={12} className="text-emerald-400" />
-              <span>Ringtone</span>
-            </button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {onOpenFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenFilters("effects");
+                }}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-white text-[11px] font-semibold transition-colors cursor-pointer shadow-sm"
+                title="Call & Voice Effects, Filters, Backgrounds"
+              >
+                <Sparkles size={12} className="text-emerald-400" />
+                <span>Filters</span>
+              </button>
+            )}
+
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenSettings();
+                }}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-[11px] transition-colors cursor-pointer"
+                title="Customize Incoming Call Ringtone"
+              >
+                <Music size={12} className="text-emerald-400" />
+                <span>Ringtone</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Scrollable Content */}

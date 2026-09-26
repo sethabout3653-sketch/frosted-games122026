@@ -21,6 +21,7 @@ import FriendsPanel from "./FriendsPanel";
 import { ChatProfile, ChatMessage } from "../types";
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
 import { saveUserProfile } from "../lib/activity-tracker";
+import { getOrCreateUserTag } from "../lib/friends";
 import { SOUND_ASSETS } from "../lib/ringtone-synthesizer";
 import {
   collection,
@@ -369,12 +370,15 @@ export default function Chat({
   const handleProfileComplete = async (p: {
     username: string;
     photoURL: string;
+    tag?: string;
   }) => {
+    const computedTag = p.tag || getOrCreateUserTag(p.username);
     const newProfile: ChatProfile = {
       uid:
         profile?.uid || "user_" + Math.random().toString(36).substring(2, 11),
       username: p.username,
       photoURL: p.photoURL,
+      tag: computedTag,
     };
     try {
       localStorage.setItem("frosted_has_signed_in", "true");
@@ -437,6 +441,7 @@ export default function Chat({
             >
               <ProfileSetup
                 initialUsername={profile?.username}
+                initialTag={profile?.tag}
                 initialPhotoURL={profile?.photoURL}
                 onComplete={handleProfileComplete}
                 onCancel={profile && !isGuestUser(profile.username) ? () => setActiveTab("chat") : undefined}

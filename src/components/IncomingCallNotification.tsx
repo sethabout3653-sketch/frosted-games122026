@@ -22,9 +22,9 @@ export default function IncomingCallNotification() {
         }}
       >
         <div className="flex items-start gap-3.5">
-          {/* Avatar with pulsing ring */}
+          {/* Avatar with pulsing ring and nervous shake */}
           <div className="relative shrink-0">
-            <div className="w-13 h-13 rounded-full overflow-hidden border-2 border-emerald-400/80 bg-neutral-800 shadow-md">
+            <div className="w-13 h-13 rounded-full overflow-hidden border-2 border-emerald-400/80 bg-neutral-800 shadow-md incoming-call-avatar nervous-shake">
               <img
                 src={
                   incomingCall.callerPhotoURL ||

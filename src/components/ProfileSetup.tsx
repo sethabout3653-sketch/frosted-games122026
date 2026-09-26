@@ -1,6 +1,7 @@
 import React, { useState, useRef } from "react";
 import Cropper from "react-easy-crop";
-import { MessageSquare, User, Camera, Check, X, ArrowRight } from "lucide-react";
+import { MessageSquare, User, Camera, Check, X, ArrowRight, Tag, Dices, Edit3 } from "lucide-react";
+import { getOrCreateUserTag } from "../lib/friends";
 
 // Pre-defined color swatches matching Image 3
 const COLOR_SWATCHES = [
@@ -21,21 +22,67 @@ function createColorAvatarSvg(color: string) {
 
 interface ProfileSetupProps {
   initialUsername?: string;
+  initialTag?: string;
   initialPhotoURL?: string;
-  onComplete: (profile: { username: string; photoURL: string }) => void;
+  onComplete: (profile: { username: string; photoURL: string; tag?: string }) => void;
   onCancel?: () => void;
 }
 
 export default function ProfileSetup({
   initialUsername = "",
+  initialTag = "",
   initialPhotoURL = createColorAvatarSvg("#5b6cf6"),
   onComplete,
   onCancel,
 }: ProfileSetupProps) {
   const [username, setUsername] = useState(initialUsername);
+  const [tag, setTag] = useState<string>(() => {
+    if (initialTag && /^#\d{4}$/.test(initialTag)) return initialTag;
+    return getOrCreateUserTag(initialUsername || "Player");
+  });
+  const [isEditingTag, setIsEditingTag] = useState<boolean>(false);
+  const [customTagInput, setCustomTagInput] = useState<string>(() => tag.replace(/^#/, ""));
   const [photoURL, setPhotoURL] = useState(initialPhotoURL);
   const [selectedColor, setSelectedColor] = useState<string>("#5b6cf6");
   const [isCustomPhoto, setIsCustomPhoto] = useState<boolean>(false);
+
+  const handleUsernameChange = (val: string) => {
+    if (val.includes("#")) {
+      const parts = val.split("#");
+      const cleanName = parts[0];
+      const digits = parts[1].replace(/\D/g, "").slice(0, 4);
+      setUsername(cleanName);
+      if (digits.length > 0) {
+        const padded = `#${digits.padEnd(4, "0")}`;
+        setTag(padded);
+        setCustomTagInput(digits.padEnd(4, "0"));
+      }
+      return;
+    }
+    setUsername(val);
+    if (!isEditingTag) {
+      const newTag = getOrCreateUserTag(val.trim() || "Player");
+      setTag(newTag);
+      setCustomTagInput(newTag.replace(/^#/, ""));
+    }
+  };
+
+  const handleRollTag = () => {
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const newTag = `#${randomNum}`;
+    setTag(newTag);
+    setCustomTagInput(String(randomNum));
+    setIsEditingTag(true);
+  };
+
+  const handleSaveCustomTag = (digits: string) => {
+    const clean = digits.replace(/\D/g, "").slice(0, 4);
+    setCustomTagInput(clean);
+    if (clean.length === 4) {
+      setTag(`#${clean}`);
+      setIsEditingTag(true);
+    }
+  };
 
   // Cropper state
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
@@ -101,7 +148,18 @@ export default function ProfileSetup({
     e.preventDefault();
     const trimmed = username.trim();
     if (!trimmed || trimmed.toLowerCase() === "anonymous") return;
-    onComplete({ username: trimmed, photoURL });
+    
+    let cleanName = trimmed;
+    let finalTag = tag.trim();
+    if (cleanName.includes("#")) {
+      const parts = cleanName.split("#");
+      cleanName = parts[0].trim();
+      finalTag = "#" + parts[1].trim().replace(/\D/g, "").slice(0, 4);
+    }
+    if (!finalTag || !/^#\d{4}$/.test(finalTag)) {
+      finalTag = getOrCreateUserTag(cleanName);
+    }
+    onComplete({ username: cleanName, photoURL, tag: finalTag });
   };
 
   if (imageToCrop) {
@@ -208,7 +266,7 @@ export default function ProfileSetup({
           {/* USERNAME field */}
           <div className="flex flex-col gap-1.5">
             <label style={{ color: "var(--theme-text-accent)" }} className="text-[11px] font-bold tracking-wider uppercase">
-              USERNAME
+              USERNAME & GAMER TAG
             </label>
             <div className="relative flex items-center">
               <User size={16} className="absolute left-3.5 text-neutral-400" />
@@ -216,7 +274,7 @@ export default function ProfileSetup({
                 id="chat-username-input"
                 type="text"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => handleUsernameChange(e.target.value)}
                 placeholder="e.g. MasterGamer99"
                 maxLength={20}
                 required
@@ -226,6 +284,48 @@ export default function ProfileSetup({
                 }}
                 className="w-full border focus:border-[var(--theme-text-accent)] text-white rounded-xl pl-10 pr-4 py-3 text-sm placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-[var(--theme-text-accent)]/50 transition-all"
               />
+            </div>
+            {/* Live Gamer Tag Badge with Roll & Edit Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs px-1 pt-1">
+              <span className="text-neutral-400 text-[11px]">Your Gamer Tag:</span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono font-extrabold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1.5 shadow-sm">
+                  <Tag size={12} className="text-emerald-400" />
+                  <span>@{username.trim() || "Player"}</span>
+                  <span className="text-emerald-300 font-bold">{tag}</span>
+                </span>
+                
+                {/* Roll Random Tag Button */}
+                <button
+                  type="button"
+                  onClick={handleRollTag}
+                  title="Roll a new random gamer tag number"
+                  style={{
+                    backgroundColor: "var(--theme-darkest)",
+                    borderColor: "var(--theme-border)",
+                  }}
+                  className="p-1.5 rounded-lg border text-neutral-300 hover:text-white hover:border-emerald-500/50 hover:bg-emerald-500/10 transition-all cursor-pointer flex items-center gap-1 text-[11px] font-semibold"
+                >
+                  <Dices size={13} className="text-emerald-400" />
+                  <span>Roll</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Optional 4-Digit Tag Customizer */}
+            <div className="flex items-center justify-end gap-1.5 px-1 pt-0.5 text-[10px] text-neutral-400">
+              <span>Custom # tag:</span>
+              <div className="flex items-center bg-[var(--theme-darkest)] border border-[var(--theme-border)] rounded-md px-1.5 py-0.5">
+                <span className="text-emerald-400 font-mono font-bold">#</span>
+                <input
+                  type="text"
+                  maxLength={4}
+                  value={customTagInput}
+                  onChange={(e) => handleSaveCustomTag(e.target.value)}
+                  placeholder="1234"
+                  className="w-12 bg-transparent text-emerald-300 font-mono font-bold text-center text-xs focus:outline-none"
+                />
+              </div>
             </div>
           </div>
 

@@ -40,66 +40,15 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import FriendsPanel from "./FriendsPanel";
+import PersonaModal from "./PersonaModal";
 import { ChatProfile } from "../types";
-
-export interface AIPersona {
-  id: string;
-  name: string;
-  icon: string;
-  description: string;
-  tagline?: string;
-  accentColor?: string;
-  toneStyle?: string;
-  systemPrompt: string;
-  temperature?: number;
-  isCustom?: boolean;
-}
-
-export const DEFAULT_PERSONAS: AIPersona[] = [
-  {
-    id: "unrestricted_companion",
-    name: "AI Assistant",
-    icon: "✨",
-    description: "Intelligent, direct, and versatile AI companion.",
-    accentColor: "#38bdf8",
-    toneStyle: "Articulate, authentic, direct",
-    systemPrompt: "You are a helpful, articulate, and intelligent AI companion.",
-    temperature: 0.7,
-  },
-  {
-    id: "stem_tutor",
-    name: "STEM & Logic Tutor",
-    icon: "🧠",
-    description: "Deep step-by-step reasoning for physics, math, and logic.",
-    accentColor: "#818cf8",
-    toneStyle: "Analytical, methodical, step-by-step",
-    systemPrompt: "You are a patient and rigorous STEM tutor. Provide step-by-step breakdowns and clear equations.",
-    temperature: 0.5,
-  },
-  {
-    id: "code_architect",
-    name: "Code Architect",
-    icon: "⚡",
-    description: "Expert software engineer for debugging and architectural design.",
-    accentColor: "#34d399",
-    toneStyle: "Technical, precise, code-focused",
-    systemPrompt: "You are a senior software architect. Provide production-ready, clean, typed code with explanations.",
-    temperature: 0.3,
-  },
-];
-
-export function getAllPersonas(): AIPersona[] {
-  try {
-    const saved = localStorage.getItem("frosted_custom_personas");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return [...DEFAULT_PERSONAS, ...parsed];
-      }
-    }
-  } catch {}
-  return DEFAULT_PERSONAS;
-}
+import {
+  AIPersona,
+  DEFAULT_PERSONAS,
+  getAllPersonas,
+  getCustomPersonas,
+  saveCustomPersona,
+} from "../lib/personas";
 
 export function parseThoughtAndContent(raw: string): {
   thought: string;
@@ -167,7 +116,7 @@ const AVAILABLE_MODELS: AIModelOption[] = [
     id: "gemini-3.8-flash",
     name: "Gemini 3.8 Flash",
     provider: "Google GenAI",
-    description: "Ultra-fast multimodal reasoning and unrestricted depth.",
+    description: "Ultra-fast multimodal reasoning, coding, and general tasks.",
     badge: "Recommended",
   },
   {
@@ -266,7 +215,7 @@ export default function AIAssistant() {
   const [showFriendsModal, setShowFriendsModal] = useState<boolean>(false);
   const [showPersonaModal, setShowPersonaModal] = useState<boolean>(false);
 
-  const [chatProfile] = useState<ChatProfile>(() => {
+  const [chatProfile, setChatProfile] = useState<ChatProfile>(() => {
     try {
       const sessionSaved = sessionStorage.getItem("frosted_chat_profile");
       if (sessionSaved) {
@@ -286,6 +235,16 @@ export default function AIAssistant() {
     };
   });
 
+  useEffect(() => {
+    const handleProfileUpdate = (e: any) => {
+      if (e.detail) {
+        setChatProfile(e.detail);
+      }
+    };
+    window.addEventListener("frosted_profile_updated", handleProfileUpdate);
+    return () => window.removeEventListener("frosted_profile_updated", handleProfileUpdate);
+  }, []);
+
   const [apiKey] = useState<string>(() => localStorage.getItem("groq_api_key") || "");
   const [availableModels, setAvailableModels] = useState<AIModelOption[]>(AVAILABLE_MODELS);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -302,7 +261,7 @@ export default function AIAssistant() {
     const saved = localStorage.getItem("frosted_selected_persona_id");
     const all = getAllPersonas();
     if (saved && all.some((p: AIPersona) => p.id === saved)) return saved;
-    return all[0]?.id || "unrestricted_companion";
+    return all[0]?.id || "frosted-assistant";
   });
 
   const refreshPersonas = useCallback(() => {
@@ -529,7 +488,7 @@ export default function AIAssistant() {
       return;
     }
 
-    let markdown = `# ${activeThread.title}\n*Persona: ${activePersona.name} | Model: ${selectedModel} | Mode: Unrestricted | Exported on ${new Date().toLocaleString()}*\n\n---\n\n`;
+    let markdown = `# ${activeThread.title}\n*Persona: ${activePersona.name} | Model: ${selectedModel} | Exported on ${new Date().toLocaleString()}*\n\n---\n\n`;
     activeThread.messages.forEach((msg) => {
       const sender = msg.role === "user" ? "**You**" : `**${activePersona.name} (${msg.modelUsed || selectedModel})**`;
       markdown += `${sender}:\n${msg.content}\n\n`;
@@ -546,7 +505,7 @@ export default function AIAssistant() {
     showToast("Exported to Markdown file");
   };
 
-  // Send message & stream completion with automatic unrestricted mode
+  // Send message & stream completion
   const handleSendMessage = async (textToSend?: string) => {
     const rawContent = (textToSend !== undefined ? textToSend : inputPrompt).trim();
     if (!rawContent || isGenerating) return;
@@ -612,17 +571,11 @@ export default function AIAssistant() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    // Automatic Unrestricted Persona Directives
-    const unrestrictedDirectives = `[SYSTEM: UNRESTRICTED MODE ACTIVE]
-Persona Name: ${activePersona.name}
-Tone: ${activePersona.toneStyle || "Unrestricted, articulate, authentic"}
-Personality Guidelines:
+    // Persona Directives
+    const personaDirectives = `You are ${activePersona.name}.
 ${activePersona.systemPrompt}
-
-Behavioral rules:
-- Speak directly in this persona's voice with authentic depth, clarity, and personality.
-- Never give unsolicited corporate preachiness, moralizing disclaimers, or robotic filler phrases like "As an AI...".
-- Answer questions directly and thoroughly with rich Markdown formatting.`;
+Tone & Style: ${activePersona.toneStyle || "Helpful, clear, and friendly"}
+Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtful, and natural responses.`;
 
     const conversationHistory = currentThreadMessages.map((m) => ({
       role: m.role,
@@ -630,7 +583,7 @@ Behavioral rules:
     }));
 
     const apiMessages = [
-      { role: "system", content: unrestrictedDirectives },
+      { role: "system", content: personaDirectives },
       ...conversationHistory,
       { role: "user", content: rawContent },
     ];
@@ -649,7 +602,7 @@ Behavioral rules:
         body: JSON.stringify({
           model: selectedModel,
           messages: apiMessages,
-          systemPrompt: unrestrictedDirectives,
+          systemPrompt: personaDirectives,
           temperature: temperature,
           stream: true,
           customKey: effectiveKey || undefined,
@@ -664,7 +617,7 @@ Behavioral rules:
           body: JSON.stringify({
             model: selectedModel,
             messages: apiMessages,
-            systemPrompt: unrestrictedDirectives,
+            systemPrompt: personaDirectives,
             temperature: temperature,
             stream: false,
             customKey: effectiveKey || undefined,
@@ -890,7 +843,7 @@ Behavioral rules:
           </button>
         </div>
 
-        {/* Persona Selector & Studio Button */}
+        {/* Persona Selector */}
         <div className="px-3 pt-3 pb-2.5 border-b border-[var(--theme-border-subtle)] space-y-2">
           <div className="flex items-center justify-between px-1">
             <span className="text-[10px] uppercase font-bold tracking-wider text-cyan-400 flex items-center gap-1">
@@ -899,9 +852,9 @@ Behavioral rules:
             <button
               type="button"
               onClick={() => setShowPersonaModal(true)}
-              className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 hover:underline"
+              className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 hover:underline cursor-pointer"
             >
-              <Plus size={11} /> Studio / Custom
+              <span>View All</span>
             </button>
           </div>
 
@@ -943,17 +896,7 @@ Behavioral rules:
                   className="absolute top-full left-0 right-0 mt-1.5 z-50 p-2 rounded-2xl border shadow-2xl backdrop-blur-2xl space-y-1 max-h-80 overflow-y-auto custom-scrollbar"
                 >
                   <div className="px-2 py-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                    <span>Active Personas</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowPersonaDropdown(false);
-                        setShowPersonaModal(true);
-                      }}
-                      className="text-cyan-400 hover:text-cyan-300 font-bold"
-                    >
-                      + Create Custom
-                    </button>
+                    <span>Choose Persona</span>
                   </div>
 
                   {personas.map((persona) => {
@@ -985,14 +928,7 @@ Behavioral rules:
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="truncate">{persona.name}</span>
-                            {persona.isCustom && (
-                              <span className="text-[8px] font-black px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-300 uppercase">
-                                Custom
-                              </span>
-                            )}
-                          </div>
+                          <span className="truncate font-semibold">{persona.name}</span>
                         </div>
                         {isSelected && <Check size={13} className="text-cyan-400 shrink-0" />}
                       </button>
@@ -1046,27 +982,11 @@ Behavioral rules:
           <button
             type="button"
             onClick={() => setShowPersonaModal(true)}
-            className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-500/15 to-indigo-600/15 hover:from-cyan-500/25 hover:to-indigo-600/25 border border-cyan-500/30 text-cyan-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm"
+            className="w-full py-2 px-3 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
           >
-            <Wand2 size={13} />
-            <span>Create Custom Persona</span>
+            <Sparkles size={13} />
+            <span>Choose Persona</span>
           </button>
-
-          <div
-            style={{
-              backgroundColor: "var(--theme-surface)",
-              borderColor: "var(--theme-border-subtle)",
-            }}
-            className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-xs font-semibold text-neutral-300 shadow-sm"
-          >
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50 animate-pulse" />
-              <span className="text-[11px] truncate text-neutral-200 font-medium">
-                ⚡ Unrestricted Mode Auto
-              </span>
-            </div>
-            <Sparkles size={13} className="text-cyan-400 shrink-0" />
-          </div>
         </div>
       </aside>
 
@@ -1162,7 +1082,7 @@ Behavioral rules:
               type="button"
               onClick={() => setShowPersonaModal(true)}
               className="flex items-center gap-2 px-3 py-1 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-xs text-neutral-200 transition-colors cursor-pointer truncate"
-              title="Click to open Persona Studio"
+              title="Click to change Persona"
             >
               <div
                 className="w-5 h-5 rounded-md flex items-center justify-center text-xs shrink-0"
@@ -1175,9 +1095,6 @@ Behavioral rules:
                 )}
               </div>
               <span className="font-bold truncate text-white">{activePersona.name}</span>
-              <span className="hidden sm:inline-block px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-cyan-500/20 text-cyan-300">
-                UNRESTRICTED
-              </span>
             </button>
           </div>
 
@@ -1190,10 +1107,10 @@ Behavioral rules:
                 borderColor: "var(--theme-border)",
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all cursor-pointer shadow-sm active:scale-95"
-              title="Create or customize AI personas"
+              title="Choose AI Persona"
             >
-              <Wand2 size={13} className="text-cyan-400" />
-              <span className="hidden sm:inline">Persona Studio</span>
+              <Sparkles size={13} className="text-cyan-400" />
+              <span className="hidden sm:inline">Personas</span>
             </button>
 
             <button
@@ -1262,23 +1179,20 @@ Behavioral rules:
                 <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
                   {activePersona.name}
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                  Unrestricted
-                </span>
               </div>
               <p className="text-xs sm:text-sm text-neutral-400 mt-1.5 max-w-md leading-relaxed">
                 {activePersona.tagline || activePersona.description}
               </p>
 
-              {/* Persona Studio Action Button */}
+              {/* Persona Switch Button */}
               <div className="flex items-center gap-3 mt-4">
                 <button
                   type="button"
                   onClick={() => setShowPersonaModal(true)}
-                  className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/25 flex items-center gap-1.5 transition-all"
+                  className="px-4 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
                 >
-                  <Wand2 size={13} />
-                  Make Your Own Persona
+                  <Sparkles size={13} />
+                  Change Persona
                 </button>
               </div>
 
@@ -1361,11 +1275,6 @@ Behavioral rules:
                         <span className="font-bold text-neutral-200">
                           {isUser ? "You" : activePersona.name}
                         </span>
-                        {!isUser && (
-                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-bold uppercase">
-                            Unrestricted
-                          </span>
-                        )}
                       </div>
 
                       <div
@@ -1636,7 +1545,6 @@ Behavioral rules:
                 <span className="font-semibold text-neutral-200">
                   {activePersona.name} &bull; {currentModelDisplayName}
                 </span>
-                <span className="hidden sm:inline text-neutral-500">| Mode: Unrestricted</span>
               </div>
 
               {activeThread.messages.length > 0 && !isGenerating && (
@@ -1668,56 +1576,19 @@ Behavioral rules:
         </div>
       )}
 
-      {/* Custom Persona Studio Modal */}
-      {showPersonaModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="w-full max-w-lg rounded-3xl border border-[var(--theme-border)] bg-[var(--theme-darkest)] p-6 shadow-2xl relative space-y-4">
-            <button
-              onClick={() => setShowPersonaModal(false)}
-              className="absolute top-4 right-4 p-2 rounded-xl bg-white/5 text-neutral-400 hover:text-white transition-colors cursor-pointer"
-            >
-              <X size={18} />
-            </button>
-
-            <div className="flex items-center gap-2">
-              <Sparkles className="text-cyan-400" size={20} />
-              <h3 className="text-lg font-bold text-white">AI Persona Studio</h3>
-            </div>
-
-            <p className="text-xs text-neutral-400">
-              Select an active AI persona to customize response style, domain focus, and tone.
-            </p>
-
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
-              {personas.map((persona: AIPersona) => (
-                <button
-                  key={persona.id}
-                  onClick={() => {
-                    handleSelectPersona(persona);
-                    setShowPersonaModal(false);
-                  }}
-                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left transition-all cursor-pointer ${
-                    selectedPersonaId === persona.id
-                      ? "border-cyan-500 bg-cyan-500/10 text-white"
-                      : "border-white/10 bg-white/5 text-neutral-300 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <span className="text-2xl">{persona.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-sm text-white flex items-center justify-between">
-                      <span>{persona.name}</span>
-                      {selectedPersonaId === persona.id && (
-                        <CheckCircle2 size={16} className="text-cyan-400 shrink-0" />
-                      )}
-                    </div>
-                    <p className="text-xs text-neutral-400 truncate">{persona.description}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Choose Persona Modal */}
+      <PersonaModal
+        isOpen={showPersonaModal}
+        onClose={() => {
+          setShowPersonaModal(false);
+          refreshPersonas();
+        }}
+        selectedPersonaId={selectedPersonaId}
+        onSelectPersona={(persona: AIPersona) => {
+          handleSelectPersona(persona);
+          setShowPersonaModal(false);
+        }}
+      />
     </div>
   );
 }

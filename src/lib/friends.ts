@@ -54,6 +54,11 @@ export const DEFAULT_STUDY_BUDDIES: FriendProfile[] = [];
 
 // Generates a consistent Tag for a user (e.g. #4821)
 export function getOrCreateUserTag(username: string): string {
+  if (!username) return "#1000";
+  // If tag is already formatted as #1234, return it directly
+  if (username.startsWith("#") && /^#\d{4}$/.test(username)) {
+    return username;
+  }
   let hash = 0;
   for (let i = 0; i < username.length; i++) {
     hash = (hash << 5) - hash + username.charCodeAt(i);
@@ -70,8 +75,13 @@ export function getStoredFriends(): FriendProfile[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        // Filter out any leftover fake bots
-        return parsed.filter((f) => !f.isBot && !f.uid.startsWith("user_bot_"));
+        // Filter out any leftover fake bots and ensure valid tag exists on every friend
+        return parsed
+          .filter((f) => !f.isBot && !f.uid?.startsWith("user_bot_"))
+          .map((f) => ({
+            ...f,
+            tag: f.tag || getOrCreateUserTag(f.username || "User"),
+          }));
       }
     }
   } catch {}

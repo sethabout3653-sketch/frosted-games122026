@@ -30,6 +30,7 @@ export interface UserActivity {
 export interface ChatProfile {
   uid: string;
   username: string;
+  tag?: string;
   photoURL: string;
   isMuted?: boolean;
   isVideoOn?: boolean;
@@ -43,6 +44,7 @@ export interface ChatProfile {
 export interface MemberUser {
   uid: string;
   username: string;
+  tag?: string;
   photoURL: string;
   status?: string;
   lastSeen?: number;

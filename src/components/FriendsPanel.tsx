@@ -26,6 +26,7 @@ import {
   Gamepad2,
   BookOpen,
   Volume2,
+  Trash2,
 } from "lucide-react";
 import {
   FriendProfile,
@@ -56,6 +57,7 @@ export default function FriendsPanel({
   onOpenVoiceChat,
   onSelectDirectMessage,
 }: FriendsPanelProps) {
+  const [currentProfile, setCurrentProfile] = useState<ChatProfile>(profile);
   const [friends, setFriends] = useState<FriendProfile[]>(getStoredFriends);
   const [requests, setRequests] = useState<FriendRequest[]>(getStoredFriendRequests);
   const [activeTab, setActiveTab] = useState<"online" | "all" | "pending" | "add">("online");
@@ -72,9 +74,51 @@ export default function FriendsPanel({
 
   const { startDirectCall } = useCall();
 
+  // Keep profile synchronized
+  useEffect(() => {
+    setCurrentProfile(profile);
+  }, [profile]);
+
+  useEffect(() => {
+    const handleProfileUpdate = (e: any) => {
+      if (e.detail) {
+        setCurrentProfile(e.detail);
+      }
+    };
+    const handleFriendsUpdate = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setFriends(e.detail);
+      } else {
+        setFriends(getStoredFriends());
+      }
+    };
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "frosted_chat_profile" && e.newValue) {
+        try {
+          setCurrentProfile(JSON.parse(e.newValue));
+        } catch {}
+      }
+      if (e.key === "frosted_friends_v1") {
+        setFriends(getStoredFriends());
+      }
+    };
+
+    window.addEventListener("frosted_profile_updated", handleProfileUpdate);
+    window.addEventListener("frosted_friends_updated", handleFriendsUpdate);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("frosted_profile_updated", handleProfileUpdate);
+      window.removeEventListener("frosted_friends_updated", handleFriendsUpdate);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
+
   // Current user's tag & profile details
-  const myTag = useMemo(() => getOrCreateUserTag(profile.username || "Guest"), [profile.username]);
-  const fullUserTag = `@${profile.username || "Guest"}${myTag}`;
+  const myTag = useMemo(
+    () => currentProfile.tag || getOrCreateUserTag(currentProfile.username || "Guest"),
+    [currentProfile.username, currentProfile.tag]
+  );
+  const fullUserTag = `@${currentProfile.username || "Guest"}${myTag}`;
 
   // Load DM messages when active friend changes
   useEffect(() => {
@@ -96,58 +140,88 @@ export default function FriendsPanel({
     setTimeout(() => setCopiedTag(false), 2000);
   };
 
-  // Handle Sending Friend Request
+  // Handle Adding Friend Directly
   const handleSendFriendRequest = (targetUsername?: string) => {
     const rawTarget = (targetUsername || addUsernameInput).trim().replace(/^@/, "");
     if (!rawTarget) return;
 
+    // Parse username and gamer tag
+    let cleanTargetName = rawTarget;
+    let targetTag = "";
+    if (rawTarget.includes("#")) {
+      const parts = rawTarget.split("#");
+      cleanTargetName = parts[0].trim();
+      const digits = parts[1].trim().replace(/\D/g, "").slice(0, 4);
+      targetTag = digits.length > 0 ? `#${digits.padEnd(4, "0")}` : "";
+    }
+    if (!targetTag || !/^#\d{4}$/.test(targetTag)) {
+      targetTag = getOrCreateUserTag(cleanTargetName);
+    }
+
+    // Prevent adding yourself
+    if (
+      cleanTargetName.toLowerCase() === (currentProfile.username || "").toLowerCase() &&
+      targetTag.toLowerCase() === myTag.toLowerCase()
+    ) {
+      setAddFeedback({ type: "error", msg: "You cannot add yourself as a friend!" });
+      return;
+    }
+
     // Check if already friends
-    const cleanTargetName = rawTarget.split("#")[0].toLowerCase();
-    const existing = friends.find((f) => f.username.toLowerCase() === cleanTargetName);
+    const existing = friends.find(
+      (f) =>
+        f.username.toLowerCase() === cleanTargetName.toLowerCase() &&
+        (f.tag.toLowerCase() === targetTag.toLowerCase() || !f.tag)
+    );
     if (existing) {
-      setAddFeedback({ type: "error", msg: `@${existing.username} is already on your friends list!` });
+      setAddFeedback({
+        type: "error",
+        msg: `@${existing.username}${existing.tag} is already on your friends list!`,
+      });
       return;
     }
 
-    // Check if pending request exists
-    const existingReq = requests.find((r) => r.toUsername.toLowerCase() === cleanTargetName);
-    if (existingReq) {
-      setAddFeedback({ type: "error", msg: `Friend request to @${cleanTargetName} is already pending!` });
-      return;
-    }
-
-    // Check if adding built-in study buddy
-    const preset = DEFAULT_STUDY_BUDDIES.find((b) => b.username.toLowerCase() === cleanTargetName);
-    if (preset) {
-      const updated = [preset, ...friends.filter((f) => f.uid !== preset.uid)];
-      setFriends(updated);
-      saveStoredFriends(updated);
-      setAddFeedback({ type: "success", msg: `Added @${preset.username} to your friends list!` });
-      setAddUsernameInput("");
-      playChatSound("send");
-      return;
-    }
-
-    // Create new pending friend request
-    const newReq: FriendRequest = {
-      id: "req_" + Date.now(),
-      fromUid: profile.uid,
-      fromUsername: profile.username || "Guest",
-      fromTag: myTag,
-      fromPhotoURL: profile.photoURL || "",
-      toUid: "user_" + cleanTargetName,
-      toUsername: cleanTargetName,
-      status: "pending",
-      createdAt: Date.now(),
+    // Instantly create friend profile with online status so they show up right away!
+    const newFriend: FriendProfile = {
+      uid: `friend_${cleanTargetName.toLowerCase().replace(/[^a-z0-9]/g, "")}_${targetTag.replace("#", "") || "1000"}`,
+      username: cleanTargetName,
+      tag: targetTag,
+      photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanTargetName)}`,
+      status: "online",
+      customStatus: "Friended • Online",
+      lastSeen: Date.now(),
     };
 
-    const updatedReqs = [newReq, ...requests];
-    setRequests(updatedReqs);
-    saveStoredFriendRequests(updatedReqs);
+    const updatedFriends = [newFriend, ...friends.filter((f) => f.uid !== newFriend.uid)];
+    setFriends(updatedFriends);
+    saveStoredFriends(updatedFriends);
+    window.dispatchEvent(new CustomEvent("frosted_friends_updated", { detail: updatedFriends }));
 
-    setAddFeedback({ type: "success", msg: `Friend request sent to @${cleanTargetName}!` });
+    setAddFeedback({
+      type: "success",
+      msg: `Added @${newFriend.username}${newFriend.tag} to your friends list!`,
+    });
     setAddUsernameInput("");
     playChatSound("send");
+
+    // Automatically navigate to friends list so the user immediately sees the friended person!
+    setTimeout(() => {
+      setActiveTab("all");
+    }, 400);
+  };
+
+  // Handle removing a friend
+  const handleRemoveFriend = (friendUid: string, friendName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(`Remove @${friendName} from your friends list?`)) {
+      const updated = friends.filter((f) => f.uid !== friendUid);
+      setFriends(updated);
+      saveStoredFriends(updated);
+      window.dispatchEvent(new CustomEvent("frosted_friends_updated", { detail: updated }));
+      if (activeDMFriend?.uid === friendUid) {
+        setActiveDMFriend(null);
+      }
+    }
   };
 
   // Accept incoming friend request
@@ -155,21 +229,23 @@ export default function FriendsPanel({
     const newFriend: FriendProfile = {
       uid: req.fromUid,
       username: req.fromUsername,
-      tag: req.fromTag,
+      tag: req.fromTag || getOrCreateUserTag(req.fromUsername),
       photoURL: req.fromPhotoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${req.fromUsername}`,
       status: "online",
-      customStatus: "Studying on Frosted Studying 📚",
+      customStatus: "Friended • Online",
       lastSeen: Date.now(),
     };
 
-    const updatedFriends = [newFriend, ...friends];
+    const updatedFriends = [newFriend, ...friends.filter((f) => f.uid !== newFriend.uid)];
     setFriends(updatedFriends);
     saveStoredFriends(updatedFriends);
+    window.dispatchEvent(new CustomEvent("frosted_friends_updated", { detail: updatedFriends }));
 
     const updatedReqs = requests.filter((r) => r.id !== req.id);
     setRequests(updatedReqs);
     saveStoredFriendRequests(updatedReqs);
 
+    setActiveTab("all");
     playChatSound("join");
   };
 
@@ -232,13 +308,13 @@ export default function FriendsPanel({
 
   // Filtered friends
   const onlineFriends = useMemo(() => friends.filter((f) => f.status === "online"), [friends]);
-  const pendingIncoming = useMemo(() => requests.filter((r) => r.status === "pending" && r.toUid === profile.uid), [requests, profile.uid]);
+  const pendingIncoming = useMemo(() => requests.filter((r) => r.status === "pending" && r.toUid === currentProfile.uid), [requests, currentProfile.uid]);
 
   const displayedFriends = useMemo(() => {
     let list = activeTab === "online" ? onlineFriends : friends;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      list = list.filter((f) => f.username.toLowerCase().includes(q) || f.tag.toLowerCase().includes(q));
+      list = list.filter((f) => f.username.toLowerCase().includes(q) || (f.tag && f.tag.toLowerCase().includes(q)));
     }
     return list;
   }, [activeTab, onlineFriends, friends, searchQuery]);
@@ -250,8 +326,8 @@ export default function FriendsPanel({
         <div className="flex items-center gap-3">
           <div className="relative">
             <img
-              src={profile.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${profile.username}`}
-              alt={profile.username}
+              src={currentProfile.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentProfile.username}`}
+              alt={currentProfile.username}
               className="w-10 h-10 rounded-xl border border-[var(--theme-border)] object-cover shadow-sm"
             />
             <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-400 border-2 border-[var(--theme-darkest)] shadow-sm" />
@@ -259,7 +335,7 @@ export default function FriendsPanel({
 
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="font-bold text-sm text-white">{profile.username}</span>
+              <span className="font-bold text-sm text-white">{currentProfile.username}</span>
               <span className="text-xs text-neutral-400 font-mono font-medium">{myTag}</span>
             </div>
             <p className="text-[11px] text-emerald-400 font-medium">Online &bull; Frosted Studying</p>
@@ -502,7 +578,7 @@ export default function FriendsPanel({
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Enter username tag..."
+                  placeholder="Enter username or @username#1234..."
                   value={addUsernameInput}
                   onChange={(e) => {
                     setAddUsernameInput(e.target.value);
@@ -517,7 +593,7 @@ export default function FriendsPanel({
                   style={{ backgroundColor: "var(--theme-accent)", borderColor: "var(--theme-border-strong)" }}
                   className="absolute right-1.5 top-1.5 bottom-1.5 px-4 rounded-xl border text-xs font-bold text-white transition-all cursor-pointer shadow-md hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Send Request
+                  Add Friend
                 </button>
               </div>
 
@@ -560,7 +636,12 @@ export default function FriendsPanel({
                         className="w-9 h-9 rounded-xl object-cover"
                       />
                       <div>
-                        <span className="font-bold text-xs text-white">@{req.fromUsername}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-xs text-white">@{req.fromUsername}</span>
+                          <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
+                            {req.fromTag || getOrCreateUserTag(req.fromUsername)}
+                          </span>
+                        </div>
                         <p className="text-[10px] text-neutral-400">Incoming Friend Request</p>
                       </div>
                     </div>
@@ -625,16 +706,18 @@ export default function FriendsPanel({
                     </div>
 
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-xs sm:text-sm text-white truncate">@{friend.username}</span>
-                        <span className="text-[10px] text-neutral-400 font-mono shrink-0">{friend.tag}</span>
+                        <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 shrink-0">
+                          {friend.tag || getOrCreateUserTag(friend.username)}
+                        </span>
                       </div>
                       <p className="text-[11px] text-neutral-400 truncate">{friend.customStatus || "Studying on Frosted Studying"}</p>
                     </div>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => setActiveDMFriend(friend)}
                       style={{ backgroundColor: "var(--theme-darker)", borderColor: "var(--theme-border)" }}
@@ -647,9 +730,17 @@ export default function FriendsPanel({
                     <button
                       onClick={() => startDirectCall({ uid: friend.uid, username: friend.username, photoURL: friend.photoURL }, "audio")}
                       className="p-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition-all cursor-pointer active:scale-95"
-                      title="Start Study Call"
+                      title="Start Call"
                     >
                       <Phone size={14} />
+                    </button>
+
+                    <button
+                      onClick={(e) => handleRemoveFriend(friend.uid, friend.username, e)}
+                      className="p-2 rounded-xl text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+                      title="Remove Friend"
+                    >
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 </div>

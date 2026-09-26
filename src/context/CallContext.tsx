@@ -37,6 +37,7 @@ function optimizeAudioSdp(sdp: string): string {
 }
 
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
+import { globalVoiceProcessor } from "../lib/voice-processor";
 
 export interface CallUser {
   uid: string;
@@ -175,7 +176,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const handleProfileUpdate = () => {
       const p = getSavedProfile();
-      setMyProfile(p);
+      setMyProfile((prev) => {
+        if (prev?.uid === p.uid && prev?.username === p.username && prev?.photoURL === p.photoURL && prev?.tag === p.tag) {
+          return prev;
+        }
+        return p;
+      });
     };
 
     window.addEventListener("frosted_profile_updated", handleProfileUpdate);
@@ -187,9 +193,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const getMyProfile = useCallback(() => {
-    const p = getSavedProfile();
-    setMyProfile(p);
-    return p;
+    return getSavedProfile();
   }, []);
 
   const setOnOpenGroupVoice = useCallback((cb: () => void) => {
@@ -972,15 +976,16 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
         }
 
-        setLocalStream(stream);
-        localStreamRef.current = stream;
+        const processedStream = await globalVoiceProcessor.processStream(stream);
+        setLocalStream(processedStream);
+        localStreamRef.current = processedStream;
 
         // Initialize PeerConnection
         const pc = createDirectPeerConnection(targetUser.uid, callId);
 
         // Add initial tracks to PC
-        stream.getTracks().forEach((track) => {
-          pc.addTrack(track, stream);
+        processedStream.getTracks().forEach((track) => {
+          pc.addTrack(track, processedStream);
         });
 
         // Start outgoing ringback sound
@@ -1093,14 +1098,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      setLocalStream(stream);
-      localStreamRef.current = stream;
+      const processedStream = await globalVoiceProcessor.processStream(stream);
+      setLocalStream(processedStream);
+      localStreamRef.current = processedStream;
 
       const pc = createDirectPeerConnection(currentInc.callerUid, currentInc.callId);
 
       // Add local tracks to PeerConnection immediately
-      stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream);
+      processedStream.getTracks().forEach((track) => {
+        pc.addTrack(track, processedStream);
       });
 
       const activeData: ActiveCallData = {
