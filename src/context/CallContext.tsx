@@ -22,6 +22,22 @@ function optimizeAudioSdp(sdp: string): string {
     }
   }
 
+  const av1Pt: string[] = [];
+  const vp9Pt: string[] = [];
+  const h264Pt: string[] = [];
+  const vp8Pt: string[] = [];
+
+  for (const line of lines) {
+    const av1Match = line.match(/^a=rtpmap:(\d+)\s+AV1\//i);
+    if (av1Match) av1Pt.push(av1Match[1]);
+    const vp9Match = line.match(/^a=rtpmap:(\d+)\s+VP9\//i);
+    if (vp9Match) vp9Pt.push(vp9Match[1]);
+    const h264Match = line.match(/^a=rtpmap:(\d+)\s+H264\//i);
+    if (h264Match) h264Pt.push(h264Match[1]);
+    const vp8Match = line.match(/^a=rtpmap:(\d+)\s+VP8\//i);
+    if (vp8Match) vp8Pt.push(vp8Match[1]);
+  }
+
   return lines
     .map((line) => {
       if (
@@ -29,7 +45,15 @@ function optimizeAudioSdp(sdp: string): string {
         (line.startsWith("a=fmtp:") && line.toLowerCase().includes("opus"))
       ) {
         const base = line.split(";")[0];
-        return `${base};maxaveragebitrate=96000;stereo=1;sprop-stereo=1;maxplaybackrate=48000;minptime=20;useinbandfec=1;usedtx=1;cbr=0`;
+        return `${base};maxaveragebitrate=64000;stereo=0;sprop-stereo=0;maxplaybackrate=48000;minptime=20;useinbandfec=1;usedtx=1;cbr=0`;
+      }
+      if (line.startsWith("m=video")) {
+        const parts = line.split(" ");
+        const prefix = parts.slice(0, 3);
+        const existingPts = parts.slice(3);
+        const prioritized = [...av1Pt, ...vp9Pt, ...h264Pt, ...vp8Pt];
+        const others = existingPts.filter(pt => !prioritized.includes(pt));
+        return [...prefix, ...prioritized, ...others].join(" ");
       }
       return line;
     })

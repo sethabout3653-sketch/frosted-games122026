@@ -153,9 +153,9 @@ export async function acquireRobustMediaStream(options: { audio: boolean; video:
           latency: 0,
         } : false) as any,
         video: {
-          width: { ideal: 1280, max: 1280 },
-          height: { ideal: 720, max: 720 },
-          frameRate: { ideal: 30 },
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 360, max: 720 },
+          frameRate: { ideal: 24, max: 30 },
         },
       });
       return stream;
