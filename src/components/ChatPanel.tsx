@@ -801,7 +801,6 @@ export default function ChatPanel({
 
           rawDict[uid] = voiceObj;
           vMap.set(uid, voiceObj);
-          vMap.set(uname.toLowerCase(), voiceObj);
 
           voiceMembers.push({
             uid,
@@ -825,9 +824,9 @@ export default function ChatPanel({
         if (voiceMembers.length > 0) {
           setMemberUsers((prev) => {
             const map = new Map<string, MemberUser>();
-            prev.forEach((u) => map.set((u.username || u.uid).toLowerCase(), u));
+            prev.forEach((u) => map.set(u.uid, u));
             voiceMembers.forEach((vu) => {
-              const key = (vu.username || vu.uid).toLowerCase();
+              const key = vu.uid;
               const existing = map.get(key);
               map.set(key, { ...existing, ...vu });
             });
@@ -863,7 +862,6 @@ export default function ChatPanel({
 
       const vObj = { ...vu, uid, username: uname, timestamp: ts, inVoice: true };
       vMap.set(uid, vObj);
-      vMap.set(uname.toLowerCase(), vObj);
 
       voiceMembers.push({
         uid,
@@ -885,9 +883,9 @@ export default function ChatPanel({
     if (voiceMembers.length > 0) {
       setMemberUsers((prev) => {
         const map = new Map<string, MemberUser>();
-        prev.forEach((u) => map.set((u.username || u.uid).toLowerCase(), u));
+        prev.forEach((u) => map.set(u.uid, u));
         voiceMembers.forEach((vu) => {
-          const key = (vu.username || vu.uid).toLowerCase();
+          const key = vu.uid;
           const existing = map.get(key);
           map.set(key, { ...existing, ...vu });
         });
@@ -1001,8 +999,7 @@ export default function ChatPanel({
           if (!uname || !isAllowedUsername(uname, docSnap.id, profile?.uid)) {
             return;
           }
-          const unameClean = uname.toLowerCase();
-          const vInfo = voiceUsersMap.get(docSnap.id) || voiceUsersMap.get(unameClean);
+          const vInfo = voiceUsersMap.get(docSnap.id);
 
           users.push({
             uid: docSnap.id,
@@ -1021,7 +1018,7 @@ export default function ChatPanel({
 
         // Ensure current profile is present if valid and not already in the list by unique UID
         if (profile?.uid && !users.some((u) => u.uid === profile.uid)) {
-          const myVInfo = voiceUsersMap.get(profile.uid) || voiceUsersMap.get((profile.username || "").toLowerCase());
+          const myVInfo = voiceUsersMap.get(profile.uid);
           users.unshift({
             uid: profile.uid,
             username: profile.username,

@@ -194,16 +194,16 @@ export default function Chat({
       latestVoiceDocs.forEach((d) => {
         const data = d.data();
         const uname = (data?.username || "").trim();
-        const unameClean = uname.toLowerCase();
-        if (!data?.uid || !uname || !isAllowedUsername(uname, data?.uid, profile?.uid)) {
+        const uUid = data?.uid || "";
+        if (!uUid || !uname || !isAllowedUsername(uname, uUid, profile?.uid)) {
           return;
         }
         const ts = toTimestampMs(data.timestamp || data.lastSeen);
         if (ts > 0 && Math.abs(now - ts) <= 180000) {
-          const existing = userMap.get(unameClean);
-          const isSelf = data.uid === profile?.uid || unameClean === myNameClean;
+          const existing = userMap.get(uUid);
+          const isSelf = uUid === profile?.uid;
           if (!existing || isSelf || ts > (existing.timestamp || 0)) {
-            userMap.set(unameClean, { ...data, uid: isSelf ? profile?.uid : data.uid, timestamp: ts });
+            userMap.set(uUid, { ...data, uid: isSelf ? profile?.uid : uUid, timestamp: ts });
           }
         }
       });
@@ -212,18 +212,18 @@ export default function Chat({
       latestPresenceDocs.forEach((d) => {
         const data = d.data();
         const uname = (data?.username || "").trim();
-        const unameClean = uname.toLowerCase();
-        if (!data?.uid || !uname || !isAllowedUsername(uname, data?.uid, profile?.uid)) {
+        const uUid = data?.uid || "";
+        if (!uUid || !uname || !isAllowedUsername(uname, uUid, profile?.uid)) {
           return;
         }
         if (data.inVoice) {
           const ts = toTimestampMs(data.lastSeen || data.timestamp);
           if (ts > 0 && Math.abs(now - ts) <= 180000) {
-            const existing = userMap.get(unameClean);
-            const isSelf = data.uid === profile?.uid || unameClean === myNameClean;
+            const existing = userMap.get(uUid);
+            const isSelf = uUid === profile?.uid;
             if (!existing || isSelf || ts > (existing.timestamp || 0)) {
-              userMap.set(unameClean, {
-                uid: isSelf ? profile?.uid : data.uid,
+              userMap.set(uUid, {
+                uid: isSelf ? profile?.uid : uUid,
                 username: uname,
                 photoURL: data.photoURL || existing?.photoURL || "",
                 isMuted: data.isMuted !== undefined ? data.isMuted : existing?.isMuted ?? false,
@@ -240,11 +240,10 @@ export default function Chat({
       setRawVoiceUsers((prev) => {
         const mergedMap = new Map(userMap);
         prev.forEach((p) => {
-          const pNameClean = (p.username || "").trim().toLowerCase();
-          if (pNameClean && !mergedMap.has(pNameClean)) {
+          if (p.uid && !mergedMap.has(p.uid)) {
             const ts = toTimestampMs(p.timestamp);
-            if (now - ts < 10000) {
-              mergedMap.set(pNameClean, p);
+            if (now - ts < 15000) {
+              mergedMap.set(p.uid, p);
             }
           }
         });

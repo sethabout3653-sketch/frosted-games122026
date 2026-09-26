@@ -272,26 +272,25 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
   // Filter out local user (since local user is rendered via renderLocalTile) and deduplicate remote participants
   const activeParticipants = useMemo(() => {
-    const myNameClean = (profile?.username || "").trim().toLowerCase();
     const myUid = profile?.uid;
     const remoteMap = new Map<string, Participant>();
 
     participants.forEach((p) => {
       if (!p || !p.uid) return;
       const uName = (p.username || "").trim();
-      const uNameClean = uName.toLowerCase();
+      const uUid = p.uid;
 
       // Filter out invalid/anonymous users
-      if (!uName || uNameClean === "anonymous") {
+      if (!uName || uName.toLowerCase() === "anonymous") {
         return;
       }
 
       // STRICTLY EXCLUDE LOCAL USER - local user tile is explicitly rendered by renderLocalTile()!
-      if (p.uid === myUid || uNameClean === myNameClean) {
+      if (uUid === myUid) {
         return;
       }
 
-      const pc = peersRef.current[p.uid];
+      const pc = peersRef.current[uUid];
       const isConnected = pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected");
       const ts = toTimestampMs(p.timestamp);
 
@@ -299,16 +298,16 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         return;
       }
 
-      const existing = remoteMap.get(uNameClean);
+      const existing = remoteMap.get(uUid);
       if (!existing || isConnected || ts > toTimestampMs(existing.timestamp)) {
-        remoteMap.set(uNameClean, p);
+        remoteMap.set(uUid, p);
       }
     });
 
     return Array.from(remoteMap.values()).sort((a, b) => {
       return (a.username || "").localeCompare(b.username || "");
     });
-  }, [participants, currentTime, profile?.uid, profile?.username]);
+  }, [participants, currentTime, profile?.uid]);
 
   // Active Screen Share descriptor (local or remote)
   const activeScreenShare = useMemo(() => {
@@ -1601,17 +1600,17 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           latestVoiceDocs.forEach((d) => {
             const u = d.data() as Participant;
             const uName = (u?.username || "").trim();
-            const uNameClean = uName.toLowerCase();
-            if (!u?.uid || !uName || uNameClean === "anonymous") {
+            const uUid = u?.uid || "";
+            if (!uUid || !uName || uName.toLowerCase() === "anonymous") {
               return;
             }
             let ts = toTimestampMs(u.timestamp || (u as any).lastSeen);
             if (ts <= 0) ts = now;
             if (Math.abs(now - ts) <= 180000) {
-              const existing = userMap.get(uNameClean);
-              const isSelf = u.uid === profile.uid || uNameClean === myNameClean;
+              const existing = userMap.get(uUid);
+              const isSelf = uUid === profile.uid;
               if (!existing || isSelf || ts > (existing.timestamp || 0)) {
-                userMap.set(uNameClean, { ...u, uid: isSelf ? profile.uid : u.uid, timestamp: ts });
+                userMap.set(uUid, { ...u, uid: isSelf ? profile.uid : uUid, timestamp: ts });
               }
             }
           });
@@ -1620,19 +1619,19 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           latestPresenceDocs.forEach((d) => {
             const pData = d.data();
             const uName = (pData?.username || "").trim();
-            const uNameClean = uName.toLowerCase();
-            if (!pData?.uid || !uName || uNameClean === "anonymous") {
+            const uUid = pData?.uid || "";
+            if (!uUid || !uName || uName.toLowerCase() === "anonymous") {
               return;
             }
             if (pData.inVoice) {
               let ts = toTimestampMs(pData.lastSeen || pData.timestamp);
               if (ts <= 0) ts = now;
               if (Math.abs(now - ts) <= 180000) {
-                const existing = userMap.get(uNameClean);
-                const isSelf = pData.uid === profile.uid || uNameClean === myNameClean;
+                const existing = userMap.get(uUid);
+                const isSelf = uUid === profile.uid;
                 if (!existing || isSelf || ts > (existing.timestamp || 0)) {
-                  userMap.set(uNameClean, {
-                    uid: isSelf ? profile.uid : pData.uid,
+                  userMap.set(uUid, {
+                    uid: isSelf ? profile.uid : uUid,
                     username: uName,
                     photoURL: pData.photoURL || existing?.photoURL || "",
                     channelId: existing?.channelId || "general",
@@ -1650,9 +1649,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           });
 
           // Ensure local user profile is present in userMap with FRESH values from Refs
-          if (profile && profile.uid && myNameClean) {
-            const existingSelf = userMap.get(myNameClean);
-            userMap.set(myNameClean, {
+          if (profile && profile.uid) {
+            const existingSelf = userMap.get(profile.uid);
+            userMap.set(profile.uid, {
               uid: profile.uid,
               username: profile.username,
               photoURL: profile.photoURL || existingSelf?.photoURL || "",
@@ -1668,15 +1667,14 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           }
 
           setParticipants((prev) => {
-            // Merge with "optimistic" users from previous state if they are very recent (< 10s old)
-            // This prevents flickering when signals arrive faster than database snapshots.
+            // Merge with "optimistic" users from previous state if they are very recent (< 15s old)
+            // Key by UID for absolute uniqueness.
             const mergedMap = new Map(userMap);
             prev.forEach(p => {
-              const pNameClean = (p.username || "").toLowerCase();
-              if (!mergedMap.has(pNameClean)) {
+              if (p.uid && !mergedMap.has(p.uid)) {
                 const ts = toTimestampMs(p.timestamp);
-                if (now - ts < 10000) {
-                  mergedMap.set(pNameClean, p);
+                if (now - ts < 15000) {
+                  mergedMap.set(p.uid, p);
                 }
               }
             });
