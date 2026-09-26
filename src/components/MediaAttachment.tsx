@@ -98,57 +98,10 @@ export default function MediaAttachment({
 
   const [displayUrl, setDisplayUrl] = useState<string>(initialUrl);
 
-  // Proactive moderation check: Run immediately when media is loaded / mounted (without playing)
+  // Moderation check disabled per user directive - all media permitted
   useEffect(() => {
-    let isCancelled = false;
-    const targetName = effectiveName || displayName || "";
-    const targetUrl = displayUrl || url || "";
-
-    // 1. Instant local text check on filename and URL
-    if (targetName) {
-      const nameCheck = checkTextModeration(targetName);
-      if (!nameCheck.safe) {
-        setModerationBlocked({ blocked: true, reason: nameCheck.reason || "Filename contains prohibited language." });
-        return;
-      }
-    }
-    if (targetUrl) {
-      const urlCheck = checkTextModeration(decodeURIComponent(targetUrl));
-      if (!urlCheck.safe) {
-        setModerationBlocked({ blocked: true, reason: urlCheck.reason || "Media link contains prohibited language." });
-        return;
-      }
-    }
-
-    // 2. Proactive server check for media frames / audio sounds (without waiting for play)
-    if (targetUrl && !targetUrl.startsWith("blob:") && !targetUrl.startsWith("data:")) {
-      fetch("/api/moderate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mediaUrl: targetUrl,
-          mediaTitle: targetName,
-          mediaType: effectiveType === "video" ? "video/mp4" : effectiveType === "audio" ? "audio/mp3" : effectiveType === "image" ? "image/jpeg" : undefined,
-          mediaSize: effectiveSize,
-        }),
-      })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (isCancelled || !data) return;
-          if (data.safe === false) {
-            setModerationBlocked({
-              blocked: true,
-              reason: data.reason || "Prohibited or inappropriate content detected in media.",
-            });
-          }
-        })
-        .catch(() => {});
-    }
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [displayUrl, url, effectiveName, effectiveType, effectiveSize]);
+    // No-op - filters deleted
+  }, []);
 
   // Probe media metadata in background to accurately recognize ANY file type
   useEffect(() => {

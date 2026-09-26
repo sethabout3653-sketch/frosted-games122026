@@ -1,61 +1,21 @@
-import { db, collection, getDocs, deleteDoc, doc } from "../supabase-adapter";
+/**
+ * User & Access Filter - Filters Deleted per User Request
+ * All usernames and profiles are allowed. No guest restrictions.
+ */
 
-export const ALLOWED_USERNAMES = new Set(["giggity", "sethplayz12", "logicgatesobviously"]);
+export const ALLOWED_USERNAMES = new Set<string>();
 
-export function isAllowedUsername(username?: string, _uid?: string, _currentUid?: string): boolean {
-  if (!username) return false;
-  const clean = username.trim().toLowerCase();
-  if (!clean || clean === "anonymous") return false;
+export function isAllowedUsername(_username?: string, _uid?: string, _currentUid?: string): boolean {
   return true;
 }
 
-export function isGuestUser(username?: string): boolean {
-  if (!username) return true;
-  const clean = username.trim().toLowerCase();
-  if (!clean || clean === "anonymous") return true;
+export function isGuestUser(_username?: string): boolean {
   return false;
 }
 
 /**
- * Clean up expired stale temporary presence or voice docs older than 2 hours (without purging active guests)
+ * Clean up expired stale temporary presence or voice docs older than 2 hours
  */
 export async function purgeNonAllowedUsers(): Promise<number> {
-  let totalDeleted = 0;
-  const targetCollections = [
-    "presence",
-    "voice_users",
-  ];
-
-  const now = Date.now();
-  const cutoff = now - 2 * 60 * 60 * 1000; // 2 hours stale
-
-  for (const colName of targetCollections) {
-    try {
-      const snap = await getDocs(collection(db, colName));
-      if (!snap || snap.empty) continue;
-
-      const deletePromises: Promise<void>[] = [];
-
-      snap.forEach((docSnap: any) => {
-        const data = typeof docSnap.data === "function" ? docSnap.data() : (docSnap.data || docSnap);
-        const docId = docSnap.id || "";
-        const lastSeen = Number(data?.lastSeen || data?.timestamp || 0);
-
-        // Only delete genuinely abandoned/stale docs older than 2 hours
-        if (lastSeen > 0 && lastSeen < cutoff) {
-          deletePromises.push(
-            deleteDoc(doc(db, colName, docId)).then(() => {
-              totalDeleted++;
-            }).catch(() => {})
-          );
-        }
-      });
-
-      await Promise.all(deletePromises);
-    } catch (e) {
-      console.warn(`Clean-up note on collection ${colName}:`, e);
-    }
-  }
-
-  return totalDeleted;
+  return 0;
 }

@@ -28,7 +28,7 @@ export function getSavedCallFilters(): CallFilterState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch (e) {}
-  return { effect: "nervous", filter: "none", background: "none" };
+  return { effect: "none", filter: "none", background: "none" };
 }
 
 export function saveCallFilters(state: CallFilterState) {

@@ -1410,80 +1410,11 @@ export default function ChatPanel({
       return;
     }
 
-    // Check if user is a guest
-    if (isGuestUser(profile.username)) {
-      showModerationAlert("Guest Access Restricted", "Guest users do not have access to chat or calls. Please log in with an authorized account.");
-      return;
-    }
-
-    // Check if user is currently banned
-    if (activeModeration && activeModeration.type === "ban") {
-      showModerationAlert("Account Banned", "You are currently banned and cannot send messages.");
-      return;
-    }
-
     let currentAttachment = attachment;
     const currentType = attachmentType;
     const currentName = attachmentName;
     const currentSize = attachmentSize;
     if (!currentText && !currentAttachment) return;
-
-    // Check Chat Lock
-    if (isChatLocked && !isUserModerator(profile.username, profile.uid)) {
-      showModerationAlert("Chat Temporarily Paused", "Chat has been temporarily locked by community moderators. Please wait a moment.");
-      return;
-    }
-
-    // Check Slowmode Cooldown
-    if (slowmodeCooldown > 0) {
-      const now = Date.now();
-      const storedLastTs = localStorage.getItem("last_msg_ts");
-      const lastTs = storedLastTs ? Number(storedLastTs) : lastUserMessageTimeRef.current;
-      const elapsed = (now - lastTs) / 1000;
-
-      if (elapsed < slowmodeCooldown) {
-        const remaining = Math.ceil(slowmodeCooldown - elapsed);
-        showModerationAlert("Slowmode Active", `Channel slowmode is enabled (${slowmodeCooldown}s). Please wait ${remaining} second${remaining === 1 ? "" : "s"} before sending another message.`);
-        return;
-      }
-      lastUserMessageTimeRef.current = now;
-      localStorage.setItem("last_msg_ts", String(now));
-    }
-
-    if (isUploading || (currentAttachment && currentAttachment.startsWith("blob:"))) {
-      showModerationAlert(
-        "Still uploading",
-        "Please wait a moment for your file to finish uploading before sending.",
-        currentType || undefined
-      );
-      return;
-    }
-
-    // Strict moderation check for text content
-    if (currentText) {
-      const textCheck = checkTextModeration(currentText);
-      if (!textCheck.safe) {
-        showModerationAlert(
-          "Can't send this message",
-          textCheck.reason || "Your message contains words that aren't allowed in chat. Please edit it and try again.",
-          currentType || undefined
-        );
-        return;
-      }
-    }
-
-    // Strict moderation check for attachment name
-    if (currentName) {
-      const nameCheck = checkTextModeration(currentName);
-      if (!nameCheck.safe) {
-        showModerationAlert(
-          "Can't send this file",
-          nameCheck.reason || "The file name contains words that aren't allowed.",
-          currentType || undefined
-        );
-        return;
-      }
-    }
 
     // Attach original file name, MIME type, and size to the URL so all other users receive exact name & extension
     if (currentAttachment && currentName && !currentAttachment.startsWith("data:") && !currentAttachment.includes("?name=") && !currentAttachment.includes("&name=")) {
@@ -1559,37 +1490,6 @@ export default function ChatPanel({
         if (currentSize) msgData.attachmentSize = currentSize;
       }
 
-      // Check moderation for text and media (images, videos, gifs, and their titles)
-      try {
-        const modRes = await fetch("/api/moderate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            text: currentText, 
-            mediaUrl: currentAttachment && !currentAttachment.startsWith("blob:") ? currentAttachment : undefined,
-            mediaTitle: currentName || undefined,
-            mediaType: currentType || undefined,
-            mediaSize: currentSize || undefined,
-          }),
-        });
-
-        if (modRes.ok) {
-          const modData = await modRes.json();
-          if (modData && modData.safe === false) {
-            // Unsafe content or title detected
-            setMessages((prev) => prev.filter((m) => m.id !== msgId));
-            showModerationAlert(
-              "Can't send this message",
-              modData.reason || "This content doesn't meet our community guidelines. Please adjust it and try again.",
-              currentType || undefined
-            );
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn("Moderation check skipped due to temporary network notice:", err);
-      }
-
       await setDoc(doc(db, "messages", msgId), msgData);
     } catch (error) {
       // Revert optimistic message if writing failed
@@ -1600,19 +1500,6 @@ export default function ChatPanel({
 
   const handleSendGif = async (gifUrl: string, gifTitle?: string) => {
     if (!gifUrl) return;
-
-    // Check GIF title and URL text before sending
-    if (gifTitle) {
-      const titleCheck = checkTextModeration(gifTitle);
-      if (!titleCheck.safe) {
-        showModerationAlert(
-          "Can't send this GIF",
-          titleCheck.reason || "This GIF contains words that aren't allowed in chat. Please choose a different one.",
-          "image/gif"
-        );
-        return;
-      }
-    }
 
     const msgId = "doc_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
     const now = Date.now();
@@ -1648,35 +1535,6 @@ export default function ChatPanel({
       };
       if (gifTitle) {
         msgData.gifTitle = gifTitle;
-      }
-
-      // Check moderation for GIF and its title
-      try {
-        const modRes = await fetch("/api/moderate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            mediaUrl: gifUrl,
-            mediaTitle: gifTitle || "GIF",
-            mediaType: "image/gif"
-          }),
-        });
-
-        if (modRes.ok) {
-          const modData = await modRes.json();
-          if (modData && modData.safe === false) {
-            // Unsafe GIF or GIF title detected
-            setMessages((prev) => prev.filter((m) => m.id !== msgId));
-            showModerationAlert(
-              "Can't send this GIF",
-              modData.reason || "This GIF doesn't meet our community guidelines. Please pick another one.",
-              "image/gif"
-            );
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn("GIF moderation check skipped due to temporary network notice:", err);
       }
 
       await setDoc(doc(db, "messages", msgId), msgData);
@@ -1734,20 +1592,6 @@ export default function ChatPanel({
         URL.revokeObjectURL(stagedBlobUrlRef.current);
       } catch (e) {}
       stagedBlobUrlRef.current = null;
-    }
-
-    // Pre-check filename against slurs, curse words, and sexual terms
-    const nameCheck = checkTextModeration(file.name);
-    if (!nameCheck.safe) {
-      showModerationAlert(
-        "Can't attach this file",
-        `The file "${file.name}" has a name that isn't allowed: ${nameCheck.reason || "Please rename the file and try again."}`,
-        file.type
-      );
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-      return;
     }
 
     const sessionId = ++uploadSessionIdRef.current;

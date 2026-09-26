@@ -444,43 +444,8 @@ export default function Chat({
                 initialTag={profile?.tag}
                 initialPhotoURL={profile?.photoURL}
                 onComplete={handleProfileComplete}
-                onCancel={profile && !isGuestUser(profile.username) ? () => setActiveTab("chat") : undefined}
+                onCancel={profile ? () => setActiveTab("chat") : undefined}
               />
-            </div>
-          ) : isGuestUser(profile?.username) ? (
-            /* Guest Access Guard Screen */
-            <div
-              style={{ backgroundColor: "var(--theme-chat-bg)" }}
-              className="flex-1 w-full flex flex-col items-center justify-center p-6 text-center animate-in fade-in"
-            >
-              <div className="max-w-md w-full bg-[#0a0f28]/90 border border-indigo-900/60 p-8 rounded-3xl shadow-2xl backdrop-blur-xl flex flex-col items-center gap-5">
-                <div className="w-16 h-16 rounded-3xl bg-indigo-950/80 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-inner">
-                  <MessageSquare size={32} />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-white tracking-tight">Guest Access Restricted</h2>
-                  <p className="text-xs text-neutral-300 mt-2 leading-relaxed">
-                    Chat and Voice Call features are disabled for Guest accounts. You must log in with an authorized profile to access chat and calls.
-                  </p>
-                  <p className="text-[11px] text-indigo-300/80 mt-1 font-mono">
-                    Allowed profiles: giggity, SethPlayz12, logicgatesobviously
-                  </p>
-                </div>
-                <div className="flex flex-col sm:flex-row items-center gap-3 w-full mt-2">
-                  <button
-                    onClick={() => setActiveTab("profile")}
-                    className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg transition-all cursor-pointer active:scale-95"
-                  >
-                    Sign In / Set Profile
-                  </button>
-                  <button
-                    onClick={onClose}
-                    className="w-full py-3 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-bold text-xs transition-all cursor-pointer"
-                  >
-                    Back to Games
-                  </button>
-                </div>
-              </div>
             </div>
           ) : (
             /* Discord Main App Shell */

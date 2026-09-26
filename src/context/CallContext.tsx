@@ -510,7 +510,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       switch (sig.type) {
         case "direct_call_invite": {
-          if (isGuestUser(myProf.username)) return;
           // If already in an active or outgoing call, auto-decline as busy
           if (activeCallRef.current || outgoingCallRef.current) {
             sendBroadcastSignal({
@@ -934,10 +933,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const startDirectCall = useCallback(
     async (targetUser: CallUser, type: "audio" | "video") => {
       const myProf = getMyProfile();
-      if (isGuestUser(myProf?.username)) {
-        alert("Guest accounts do not have access to phone, video, or voice calls.");
-        return;
-      }
       cleanupCall();
       const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -1045,10 +1040,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const answerIncomingCall = useCallback(async () => {
     const currentInc = incomingCallRef.current;
     const myProf = getMyProfile();
-    if (isGuestUser(myProf?.username)) {
-      alert("Guest accounts do not have access to calls.");
-      return;
-    }
     if (!currentInc || !myProf?.uid) return;
 
     if (ringtoneStopRef.current) {
