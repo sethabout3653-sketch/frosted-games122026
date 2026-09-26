@@ -211,7 +211,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const uname = (data?.username || "").trim();
           if (!isAllowedUsername(uname, data?.uid, myProfile?.uid)) return;
           const ts = toTimestampMs(data?.timestamp || data?.lastSeen);
-          if (ts > 0 && now - ts <= 30000) {
+          if (ts > 0 && Math.abs(now - ts) <= 180000) {
             count++;
           }
         });

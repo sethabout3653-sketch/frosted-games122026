@@ -154,7 +154,7 @@ export class SmartVoiceDetector {
     const isTriggered = this.speechCounter >= 1;
 
     if (isTriggered) {
-      this.hangoverRemaining = 12; // Hold light for ~280-300ms so words don't flicker between syllables
+      this.hangoverRemaining = 20; // Hold light/audio for ~500ms so words don't flicker between syllables
       this.isSpeakingState = true;
     } else if (this.hangoverRemaining > 0) {
       this.hangoverRemaining--;

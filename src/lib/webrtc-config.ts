@@ -136,13 +136,22 @@ export async function acquireRobustMediaStream(options: { audio: boolean; video:
   if (video) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: audio ? {
-          echoCancellation: { ideal: true },
-          noiseSuppression: { ideal: true },
-          autoGainControl: { ideal: true },
-          channelCount: { ideal: 1 },
-          sampleRate: { ideal: 48000 },
-        } : false,
+        audio: (audio ? {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          // Advanced Chromium-specific echo mitigation flags
+          googEchoCancellation: true,
+          googAutoGainControl: true,
+          googNoiseSuppression: true,
+          googHighpassFilter: true,
+          googTypingNoiseDetection: true,
+          googEchoCancellation2: true,
+          googAutoGainControl2: true,
+          channelCount: 1,
+          sampleRate: 48000,
+          latency: 0,
+        } : false) as any,
         video: {
           width: { ideal: 1280, max: 1280 },
           height: { ideal: 720, max: 720 },
@@ -157,7 +166,11 @@ export async function acquireRobustMediaStream(options: { audio: boolean; video:
     // Level 2: Generic video + audio constraints
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: audio,
+        audio: audio ? {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        } : false,
         video: true,
       });
       return stream;
@@ -171,10 +184,18 @@ export async function acquireRobustMediaStream(options: { audio: boolean; video:
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: { ideal: true },
-          noiseSuppression: { ideal: true },
-          autoGainControl: { ideal: true },
-        },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          googEchoCancellation: true,
+          googAutoGainControl: true,
+          googNoiseSuppression: true,
+          googHighpassFilter: true,
+          googEchoCancellation2: true,
+          googAutoGainControl2: true,
+          channelCount: 1,
+          sampleRate: 48000,
+        } as any,
         video: false,
       });
       return stream;

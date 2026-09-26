@@ -237,7 +237,19 @@ export default function Chat({
         }
       });
 
-      setRawVoiceUsers(Array.from(userMap.values()));
+      setRawVoiceUsers((prev) => {
+        const mergedMap = new Map(userMap);
+        prev.forEach((p) => {
+          const pNameClean = (p.username || "").trim().toLowerCase();
+          if (pNameClean && !mergedMap.has(pNameClean)) {
+            const ts = toTimestampMs(p.timestamp);
+            if (now - ts < 10000) {
+              mergedMap.set(pNameClean, p);
+            }
+          }
+        });
+        return Array.from(mergedMap.values());
+      });
     };
 
     const unsubVoiceUsers = onSnapshot(

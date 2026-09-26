@@ -95,7 +95,7 @@ function optimizeAudioSdp(sdp: string): string {
         (line.startsWith("a=fmtp:") && line.toLowerCase().includes("opus"))
       ) {
         const base = line.split(";")[0];
-        return `${base};maxaveragebitrate=96000;stereo=1;sprop-stereo=1;maxplaybackrate=48000;minptime=20;useinbandfec=1;usedtx=1;cbr=0`;
+        return `${base};maxaveragebitrate=64000;stereo=0;sprop-stereo=0;maxplaybackrate=48000;minptime=20;useinbandfec=1;usedtx=1;cbr=0`;
       }
       return line;
     })
@@ -214,7 +214,26 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   useEffect(() => {
     isMutedRef.current = isMuted;
     setVoiceState({ inVoice: true, isMuted });
+
+    // Sync physical track state with manual mute
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = !isMuted;
+      });
+    }
   }, [isMuted]);
+
+  // Aggressive Automatic Noise Gate:
+  // When devices are near each other, we MUST disable the mic when the user isn't talking.
+  // This breaks the acoustic feedback loop (echo) instantly.
+  useEffect(() => {
+    if (localStreamRef.current && !isMuted) {
+      localStreamRef.current.getAudioTracks().forEach((track) => {
+        // Only enable the track if the VAD detects active speech
+        track.enabled = isLocalSpeaking;
+      });
+    }
+  }, [isLocalSpeaking, isMuted]);
 
   useEffect(() => {
     isVideoOnRef.current = isVideoOn;
@@ -1397,8 +1416,29 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           }
           setTrackTrigger((v) => v + 1);
         } else if (signal.type === "user_joined") {
+          // Optimistically add participant to state for instant UI reflection
+          try {
+            const data = JSON.parse(signal.sdp || "{}");
+            if (data.username) {
+              setParticipants(prev => {
+                if (prev.some(p => p.uid === partnerUid)) return prev;
+                return [...prev, {
+                  uid: partnerUid,
+                  username: data.username,
+                  photoURL: data.photoURL || "",
+                  timestamp: Date.now(),
+                  inVoice: true,
+                  channelId: "general"
+                }];
+              });
+            }
+          } catch (e) {}
+
           // Immediately send ACK so the new joiner knows this client is active in the channel
-          sendSignal(partnerUid, "user_joined_ack", "");
+          sendSignal(partnerUid, "user_joined_ack", JSON.stringify({
+            username: profile.username,
+            photoURL: profile.photoURL
+          }));
           const pc = peersRef.current[partnerUid];
           const isDead = !pc || pc.connectionState === "closed" || pc.connectionState === "failed";
           if (isDead && localStreamRef.current) {
@@ -1408,6 +1448,24 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             syncPeerTracks(partnerUid, pc);
           }
         } else if ((signal.type as any) === "user_joined_ack") {
+          // Optimistically add participant to state
+          try {
+            const data = JSON.parse(signal.sdp || "{}");
+            if (data.username) {
+              setParticipants(prev => {
+                if (prev.some(p => p.uid === partnerUid)) return prev;
+                return [...prev, {
+                  uid: partnerUid,
+                  username: data.username,
+                  photoURL: data.photoURL || "",
+                  timestamp: Date.now(),
+                  inVoice: true,
+                  channelId: "general"
+                }];
+              });
+            }
+          } catch (e) {}
+
           const pc = peersRef.current[partnerUid];
           const isDead = !pc || pc.connectionState === "closed" || pc.connectionState === "failed";
           if (isDead && localStreamRef.current) {
@@ -1525,7 +1583,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         hasJoinedVoiceRef.current = true;
 
         // Broadcast join signal immediately so all active peers connect instantly
-        sendSignal("all", "user_joined", "");
+        sendSignal("all", "user_joined", JSON.stringify({
+          username: profile.username,
+          photoURL: profile.photoURL
+        }));
 
         let latestVoiceDocs: any[] = [];
         let latestPresenceDocs: any[] = [];
@@ -1588,7 +1649,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             }
           });
 
-          // Ensure local user profile is present in userMap
+          // Ensure local user profile is present in userMap with FRESH values from Refs
           if (profile && profile.uid && myNameClean) {
             const existingSelf = userMap.get(myNameClean);
             userMap.set(myNameClean, {
@@ -1596,110 +1657,124 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
               username: profile.username,
               photoURL: profile.photoURL || existingSelf?.photoURL || "",
               channelId: existingSelf?.channelId || "general",
-              isMuted: isMuted,
-              isVideoOn: isVideoOn,
-              isScreenSharing: isScreenSharing,
-              isScreenAudioOn: isScreenAudioOn,
+              isMuted: isMutedRef.current,
+              isVideoOn: isVideoOnRef.current,
+              isVideoLoading: isCameraLoadingRef.current,
+              isScreenSharing: isScreenSharingRef.current,
+              isScreenAudioOn: isScreenAudioOnRef.current,
               activity: getCurrentActivity(),
               timestamp: now,
             });
           }
 
-          const users: Participant[] = [];
-          const activeUids = new Set<string>();
+          setParticipants((prev) => {
+            // Merge with "optimistic" users from previous state if they are very recent (< 10s old)
+            // This prevents flickering when signals arrive faster than database snapshots.
+            const mergedMap = new Map(userMap);
+            prev.forEach(p => {
+              const pNameClean = (p.username || "").toLowerCase();
+              if (!mergedMap.has(pNameClean)) {
+                const ts = toTimestampMs(p.timestamp);
+                if (now - ts < 10000) {
+                  mergedMap.set(pNameClean, p);
+                }
+              }
+            });
 
-          userMap.forEach((u) => {
-            activeUids.add(u.uid);
-            users.push(u);
+            const users = Array.from(mergedMap.values());
+            
+            // Re-run WebRTC health checks and sync logic for the merged list
+            users.forEach((u) => {
+              if (u.uid !== profile.uid) {
+                const pc = peersRef.current[u.uid];
+                const isDead =
+                  !pc ||
+                  pc.connectionState === "closed" ||
+                  pc.connectionState === "failed" ||
+                  pc.iceConnectionState === "failed";
 
-            if (u.uid !== profile.uid) {
-              const pc = peersRef.current[u.uid];
-              const isDead =
-                !pc ||
-                pc.connectionState === "closed" ||
-                pc.connectionState === "failed" ||
-                pc.iceConnectionState === "failed";
+                const lastAttempt = lastCallAttemptRef.current[u.uid] || 0;
+                const failCount = callFailCountRef.current[u.uid] || 0;
+                const backoffTime = failCount > 3 ? 5000 : 200;
 
-              const lastAttempt = lastCallAttemptRef.current[u.uid] || 0;
-              const failCount = callFailCountRef.current[u.uid] || 0;
-              const backoffTime = failCount > 3 ? 5000 : 800;
+                const isStalled = pc && (pc.connectionState === "new" || pc.connectionState === "connecting") && (now - lastAttempt > 6000);
+                const isDisconnected = pc && (pc.connectionState === "disconnected" || pc.iceConnectionState === "disconnected") && (now - lastAttempt > 4000);
+                if (isStalled || isDisconnected) {
+                  try { pc.close(); } catch (e) {}
+                  delete peersRef.current[u.uid];
+                }
 
-              const isStalled = pc && (pc.connectionState === "new" || pc.connectionState === "connecting") && (now - lastAttempt > 8000);
-              const isDisconnected = pc && (pc.connectionState === "disconnected" || pc.iceConnectionState === "disconnected") && (now - lastAttempt > 5000);
-              if (isStalled || isDisconnected) {
-                try { pc.close(); } catch (e) {}
-                delete peersRef.current[u.uid];
+                const shouldInitiate =
+                  lastAttempt === 0 ||
+                  (profile.uid < u.uid && now - lastAttempt > backoffTime) ||
+                  (profile.uid > u.uid && now - lastAttempt > (backoffTime + 300));
+
+                if (shouldInitiate && (isDead || isStalled || isDisconnected) && localStreamRef.current) {
+                  lastCallAttemptRef.current[u.uid] = now;
+                  initiateCall(u.uid, localStreamRef.current);
+                } else if (pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected")) {
+                  syncPeerTracks(u.uid, pc);
+                }
+              }
+            });
+
+            // Synchronize screen & camera streams for all active users
+            users.forEach((u) => {
+              const isSharing = !!u.isScreenSharing || !!remoteScreenSharersRef.current[u.uid];
+              if (!isSharing) {
+                if (remoteScreenStreamsRef.current[u.uid]) {
+                  delete remoteScreenStreamsRef.current[u.uid];
+                }
+                if (remoteScreenVideoRefs.current[u.uid]) {
+                  remoteScreenVideoRefs.current[u.uid]!.srcObject = null;
+                }
+              } else {
+                const pc = peersRef.current[u.uid];
+                if (pc) {
+                  syncPeerTracks(u.uid, pc);
+                }
               }
 
-              const shouldInitiate =
-                lastAttempt === 0 ||
-                (profile.uid < u.uid && now - lastAttempt > backoffTime) ||
-                (profile.uid > u.uid && now - lastAttempt > (backoffTime + 600));
-
-              if (shouldInitiate && (isDead || isStalled || isDisconnected) && localStreamRef.current) {
-                lastCallAttemptRef.current[u.uid] = now;
-                initiateCall(u.uid, localStreamRef.current);
-              } else if (pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected")) {
-                syncPeerTracks(u.uid, pc);
+              if (u.isVideoOn) {
+                const pc = peersRef.current[u.uid];
+                if (pc) {
+                  syncPeerTracks(u.uid, pc);
+                }
               }
-            }
+            });
+
+            // Clean up peers who disconnected
+            const activeUids = new Set(users.map(u => u.uid));
+            Object.keys(peersRef.current).forEach((peerUid) => {
+              if (!activeUids.has(peerUid)) {
+                try {
+                  peersRef.current[peerUid].close();
+                } catch (e) {}
+                delete peersRef.current[peerUid];
+                delete iceCandidateQueuesRef.current[peerUid];
+                delete cameraSendersRef.current[peerUid];
+                delete screenSendersRef.current[peerUid];
+                delete audioSendersRef.current[peerUid];
+                delete lastCallAttemptRef.current[peerUid];
+                delete callFailCountRef.current[peerUid];
+                if (remoteStreamsRef.current[peerUid]) {
+                  delete remoteStreamsRef.current[peerUid];
+                }
+                if (remoteScreenStreamsRef.current[peerUid]) {
+                  delete remoteScreenStreamsRef.current[peerUid];
+                }
+              }
+            });
+
+            users.sort((a, b) => {
+              if (!a || !b) return 0;
+              const nameCompare = (a.username || "").localeCompare(b.username || "");
+              if (nameCompare !== 0) return nameCompare;
+              return (a.uid || "").localeCompare(b.uid || "");
+            });
+
+            return users;
           });
-
-          // Synchronize screen & camera streams for all active users
-          users.forEach((u) => {
-            const isSharing = !!u.isScreenSharing || !!remoteScreenSharersRef.current[u.uid];
-            if (!isSharing) {
-              if (remoteScreenStreamsRef.current[u.uid]) {
-                delete remoteScreenStreamsRef.current[u.uid];
-              }
-              if (remoteScreenVideoRefs.current[u.uid]) {
-                remoteScreenVideoRefs.current[u.uid]!.srcObject = null;
-              }
-            } else {
-              const pc = peersRef.current[u.uid];
-              if (pc) {
-                syncPeerTracks(u.uid, pc);
-              }
-            }
-
-            if (u.isVideoOn) {
-              const pc = peersRef.current[u.uid];
-              if (pc) {
-                syncPeerTracks(u.uid, pc);
-              }
-            }
-          });
-
-          // Clean up peers who disconnected
-          Object.keys(peersRef.current).forEach((peerUid) => {
-            if (!activeUids.has(peerUid)) {
-              try {
-                peersRef.current[peerUid].close();
-              } catch (e) {}
-              delete peersRef.current[peerUid];
-              delete iceCandidateQueuesRef.current[peerUid];
-              delete cameraSendersRef.current[peerUid];
-              delete screenSendersRef.current[peerUid];
-              delete audioSendersRef.current[peerUid];
-              delete lastCallAttemptRef.current[peerUid];
-              delete callFailCountRef.current[peerUid];
-              if (remoteStreamsRef.current[peerUid]) {
-                delete remoteStreamsRef.current[peerUid];
-              }
-              if (remoteScreenStreamsRef.current[peerUid]) {
-                delete remoteScreenStreamsRef.current[peerUid];
-              }
-            }
-          });
-
-          users.sort((a, b) => {
-            if (!a || !b) return 0;
-            const nameCompare = (a.username || "").localeCompare(b.username || "");
-            if (nameCompare !== 0) return nameCompare;
-            return (a.uid || "").localeCompare(b.uid || "");
-          });
-
-          setParticipants(users);
         };
 
         // Real-time listener for voice_users
@@ -2568,6 +2643,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                     if (el.srcObject !== stream) {
                       el.srcObject = stream;
                     }
+                    el.volume = 0.85; // Prevent 100% speaker clipping/bleed to reduce echo
                     el.play().catch(() => {});
                   }
                 }}
