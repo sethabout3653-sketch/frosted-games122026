@@ -597,6 +597,23 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           break;
         }
 
+        case "direct_call_answered_elsewhere":
+        case "direct_call_declined_elsewhere": {
+          // If another device of the same user handled the call, dismiss it here
+          if (
+            incomingCallRef.current &&
+            incomingCallRef.current.callId === sig.callId
+          ) {
+            if (ringtoneStopRef.current) {
+              ringtoneStopRef.current();
+              ringtoneStopRef.current = null;
+            }
+            incomingCallRef.current = null;
+            setIncomingCall(null);
+          }
+          break;
+        }
+
         case "direct_call_accepted": {
           const currentOut = outgoingCallRef.current;
           const isMatch =
@@ -1089,6 +1106,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           sendAcceptSignal();
         }
       }, 250);
+
+      // Also notify other tabs of the same receiver that the call is answered/handled elsewhere
+      sendBroadcastSignal({
+        type: "direct_call_answered_elsewhere",
+        uid: myProf.uid,
+        targetUid: myProf.uid,
+        callId: currentInc.callId,
+      });
     } catch (err) {
       console.error("Failed to answer call:", err);
       alert("Could not access media devices to answer call.");
@@ -1111,6 +1136,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       type: "direct_call_declined",
       uid: myProf.uid,
       targetUid: currentInc.callerUid,
+      callId: currentInc.callId,
+    });
+
+    // Notify other tabs of the same user to stop ringing
+    sendBroadcastSignal({
+      type: "direct_call_declined_elsewhere",
+      uid: myProf.uid,
+      targetUid: myProf.uid,
       callId: currentInc.callId,
     });
 
