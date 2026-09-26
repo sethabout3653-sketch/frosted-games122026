@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
-import { ICE_SERVERS, acquireRobustMediaStream } from "../lib/webrtc-config";
+import { ICE_SERVERS, acquireRobustMediaStream, IceManager, gatherAndConsolidate } from "../lib/webrtc-config";
 import { sendBroadcastSignal, subscribeBroadcastSignals } from "../lib/database";
 import { getSavedProfile } from "../lib/activity-tracker";
 import {
@@ -370,6 +370,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Handle ICE candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) {
+          const cached = IceManager.getCachedCandidates(partnerUid);
+          IceManager.saveCandidates(partnerUid, [...cached, event.candidate]);
           const prof = getSavedProfile();
           sendBroadcastSignal({
             type: "direct_call_candidate",
@@ -677,12 +679,22 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   });
                 }
 
+                // Reuse cached candidates for direct calls
+                const cached = IceManager.getCachedCandidates(currentOut.targetUid);
+                for (const cand of cached) {
+                  try { await pc.addIceCandidate(cand); } catch {}
+                }
+
                 const offer = await pc.createOffer({
                   offerToReceiveAudio: true,
                   offerToReceiveVideo: true,
                 });
+                
                 const optOfferSdp = optimizeAudioSdp(offer.sdp || "");
                 await pc.setLocalDescription({ type: "offer", sdp: optOfferSdp });
+
+                // Consolidate gathering
+                const consolidatedSdp = await gatherAndConsolidate(pc, 400);
 
                 // Optimize senders bitrate
                 pc.getSenders().forEach((s) => {
@@ -706,7 +718,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   uid: myProf.uid,
                   targetUid: currentOut.targetUid,
                   callId: currentOut.callId,
-                  sdp: JSON.stringify({ type: "offer", sdp: optOfferSdp }),
+                  sdp: JSON.stringify({ type: "offer", sdp: consolidatedSdp }),
                 });
 
                 const activeData: ActiveCallData = {
@@ -800,12 +812,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 } catch {}
               });
 
+              // Consolidate
+              const consolidatedSdp = await gatherAndConsolidate(pc, 300);
+
               sendBroadcastSignal({
                 type: "direct_call_answer",
                 uid: myProf.uid,
                 targetUid: sig.uid,
                 callId: sig.callId,
-                sdp: JSON.stringify({ type: "answer", sdp: optAnswerSdp }),
+                sdp: JSON.stringify({ type: "answer", sdp: consolidatedSdp }),
               });
             } catch (err) {
               console.error("Error answering direct call offer:", err);

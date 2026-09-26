@@ -93,6 +93,59 @@ export const ICE_SERVERS: RTCConfiguration = {
 };
 
 /**
+ * Global ICE Candidate Cache
+ * Persists gathered candidates across session reconnects to bypass the 2-5s gathering phase.
+ */
+const ICE_CACHE = new Map<string, RTCIceCandidate[]>();
+
+export const IceManager = {
+  saveCandidates: (uid: string, candidates: RTCIceCandidate[]) => {
+    if (candidates.length > 0) {
+      ICE_CACHE.set(uid, candidates);
+    }
+  },
+  getCachedCandidates: (uid: string): RTCIceCandidate[] => {
+    return ICE_CACHE.get(uid) || [];
+  },
+  clearCache: (uid?: string) => {
+    if (uid) ICE_CACHE.delete(uid);
+    else ICE_CACHE.clear();
+  }
+};
+
+/**
+ * Consolidates SDP and ICE candidates into a single signaling packet.
+ * This reduces round-trips by sending all gathered network info with the initial offer/answer.
+ */
+export async function gatherAndConsolidate(pc: RTCPeerConnection, timeoutMs = 800): Promise<string> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    
+    // If we have cached candidates, we can resolve almost instantly if they are still valid
+    const checkResolved = () => {
+      if (pc.iceGatheringState === "complete") {
+        if (!resolved) {
+          resolved = true;
+          resolve(pc.localDescription?.sdp || "");
+        }
+      }
+    };
+
+    pc.onicegatheringstatechange = checkResolved;
+    
+    // Safety timeout: gathering shouldn't block the handshake if STUN is slow
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve(pc.localDescription?.sdp || "");
+      }
+    }, timeoutMs);
+    
+    checkResolved();
+  });
+}
+
+/**
  * Generates a silent dummy audio track using Web Audio API oscillator.
  * Essential for devices without physical microphones or where permissions are blocked.
  */

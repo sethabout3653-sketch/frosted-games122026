@@ -1009,40 +1009,38 @@ const PORT = Number(process.env.PORT) || 3000;
     signal: any,
     excludeWs?: WebSocket
   ) => {
+    if (!signal) return;
+    
     const payload = JSON.stringify({
       type: "webrtc_signal",
       payload: signal,
       timestamp: Date.now(),
     });
 
-    const targetUid = (signal?.targetUid || "").trim();
+    const targetUid = (signal.targetUid || "").trim();
+    const senderUid = (signal.uid || "").trim();
 
     wsClients.forEach((client) => {
       if (client === excludeWs) return;
       if (client.readyState === WebSocket.OPEN) {
-        // Broadcast if target is "all" or omitted
+        // 1. Broadcast if target is "all" or omitted
         if (!targetUid || targetUid === "all") {
-          try {
-            client.send(payload);
-          } catch (e) {
-            wsClients.delete(client);
-          }
+          try { client.send(payload); } catch (e) { wsClients.delete(client); }
           return;
         }
 
-        // Check matching client UID
+        // 2. Precise targeting (including tab-aware matching)
         const clientUid = (client.uid || "").trim();
+        if (!clientUid) return;
+
         const baseTarget = targetUid.split("_tab_")[0];
         const baseClient = clientUid.split("_tab_")[0];
 
-        // Send if client UID is not yet registered (as fallback so signal isn't lost),
-        // OR exact match, OR prefix match, OR base UID match
         const isMatch =
-          !clientUid ||
           clientUid === targetUid ||
-          clientUid.startsWith(targetUid) ||
-          targetUid.startsWith(clientUid) ||
-          (baseTarget && baseClient && baseTarget === baseClient);
+          clientUid.startsWith(targetUid + "_tab_") ||
+          targetUid.startsWith(clientUid + "_tab_") ||
+          (baseTarget === baseClient);
 
         if (isMatch) {
           try {
@@ -1205,22 +1203,25 @@ const PORT = Number(process.env.PORT) || 3000;
             timestamp: payload.timestamp || Date.now(),
           };
 
-          // WebRTC signaling is ephemeral. Persisting every ICE candidate and
-          // SDP message serializes disk/database work on the voice path and can
-          // stall the event loop under load. The socket is the authoritative
-          // low-latency transport; peers reconnect and renegotiate when needed.
-
           // Direct instant delivery to peer(s)
           broadcastWebSocketSignal(sigObj, ws);
 
           // Mirror to SSE stream
           broadcastWebRTCSignal(sigObj);
 
-          // Broadcast WebRTC signals cross-instance to other nodes!
+          // Broadcast WebRTC signals cross-instance to other nodes
           publishCrossInstanceEvent({
             type: "webrtc_signal",
             payload: sigObj,
           });
+
+          // Persistent fallback storage for robust connection success
+          getDb().then((db) => {
+            db.run(
+              "INSERT INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
+              [sigObj.id, sigObj.targetUid || "all", sigObj.uid, JSON.stringify(sigObj), sigObj.timestamp]
+            );
+          }).catch(() => {});
 
           return;
         }

@@ -577,6 +577,79 @@ class UniversalDatabaseManager {
       keepalive: true,
     }).catch(() => {});
   }
+
+  public from(collectionName: string) {
+    return {
+      select: (fields?: string) => {
+        const queryObj: QueryObject = { colName: collectionName, constraints: [] };
+        return {
+          eq: (field: string, value: any) => {
+            queryObj.constraints!.push({ type: "where", field, op: "==", value });
+            return this.executeFluent(queryObj);
+          },
+          order: (field: string, direction: "asc" | "desc" = "asc") => {
+            queryObj.constraints!.push({ type: "orderBy", field, direction });
+            return this.executeFluent(queryObj);
+          },
+          limit: (count: number) => {
+            queryObj.constraints!.push({ type: "limit", limitCount: count });
+            return this.executeFluent(queryObj);
+          },
+          on: (event: string, callback: (payload: any) => void) => {
+            return this.subscribe(queryObj, (snap) => {
+              callback(snap);
+            });
+          },
+          get: () => getDocs(queryObj),
+        };
+      },
+      insert: (data: any) => addDoc(collectionName, data),
+      upsert: (data: any) => {
+        const id = data.id || "doc_" + Math.random().toString(36).substring(2, 11);
+        return setDoc({ colName: collectionName, id }, data);
+      },
+      delete: () => {
+        return {
+          eq: (field: string, value: any) => {
+            // Simplified delete for fluent API
+            this.fetchCollection(collectionName).then(items => {
+              items.filter(it => it[field] === value).forEach(it => {
+                deleteDoc({ colName: collectionName, id: it.id });
+              });
+            });
+          }
+        };
+      }
+    };
+  }
+
+  private executeFluent(queryObj: QueryObject) {
+    const self = this;
+    const fluent = {
+      eq: (field: string, value: any) => {
+        queryObj.constraints!.push({ type: "where", field, op: "==", value });
+        return fluent;
+      },
+      order: (field: string, direction: "asc" | "desc" = "asc") => {
+        queryObj.constraints!.push({ type: "orderBy", field, direction });
+        return fluent;
+      },
+      limit: (count: number) => {
+        queryObj.constraints!.push({ type: "limit", limitCount: count });
+        return fluent;
+      },
+      on: (event: string, callback: (payload: any) => void) => {
+        return self.subscribe(queryObj, (snap) => {
+          callback(snap);
+        });
+      },
+      get: () => getDocs(queryObj),
+      subscribe: (callback: (payload: any) => void) => {
+        return self.subscribe(queryObj, callback);
+      }
+    };
+    return fluent;
+  }
 }
 
 // Export singleton engine instance

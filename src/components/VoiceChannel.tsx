@@ -49,7 +49,7 @@ import { SmartVoiceDetector } from "../utils/audioVAD";
 import { extractDominantColor, getFallbackColor, parseHexToRgb } from "../utils/colorExtractor";
 import { getCurrentActivity, onActivityChanged, setVoiceState } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
-import { ICE_SERVERS, acquireRobustMediaStream } from "../lib/webrtc-config";
+import { ICE_SERVERS, acquireRobustMediaStream, IceManager, gatherAndConsolidate } from "../lib/webrtc-config";
 import { wsClient } from "../lib/websocket-client";
 
 interface VoiceChannelProps {
@@ -152,6 +152,35 @@ export default function VoiceChannel({
   const [audioLevel, setAudioLevel] = useState<number>(0);
   const [isLocalSpeaking, setIsLocalSpeaking] = useState<boolean>(false);
   const [remoteSpeaking, setRemoteSpeaking] = useState<{ [uid: string]: boolean }>({});
+  const [dominantSpeaker, setDominantSpeaker] = useState<string | null>(null);
+
+  // SFU-Like Selective Forwarding: 
+  // In large groups (>4), we pause video for non-speakers to mimic SFU architecture and save massive bandwidth.
+  useEffect(() => {
+    const speakers = Object.entries(remoteSpeaking)
+      .filter(([_, isSpeaking]) => isSpeaking)
+      .map(([uid]) => uid);
+    
+    if (speakers.length > 0) {
+      setDominantSpeaker(speakers[0]);
+    }
+
+    if (participants.length > 4) {
+      Object.keys(peersRef.current).forEach((pUid) => {
+        const pc = peersRef.current[pUid];
+        if (!pc) return;
+        
+        pc.getTransceivers().forEach((t) => {
+          if (t.receiver.track?.kind === "video") {
+            // Only keep video enabled for the dominant speaker or screen sharers
+            const isScreen = remoteScreenSharersRef.current[pUid];
+            const isDominant = pUid === dominantSpeaker;
+            t.receiver.track.enabled = isDominant || isScreen || speakers.includes(pUid);
+          }
+        });
+      });
+    }
+  }, [remoteSpeaking, participants.length, dominantSpeaker]);
   const localVadRef = useRef<SmartVoiceDetector>(new SmartVoiceDetector());
   const remoteVadMapRef = useRef<{ [uid: string]: SmartVoiceDetector }>({});
 
@@ -1093,6 +1122,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       // Handle local ICE candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) {
+          const cached = IceManager.getCachedCandidates(partnerUid);
+          IceManager.saveCandidates(partnerUid, [...cached, event.candidate]);
+          // Still trickle for robustness, but consolidate for speed
           sendSignal(partnerUid, "candidate", JSON.stringify(event.candidate));
         }
       };
@@ -1254,16 +1286,28 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
     async (partnerUid: string, micStream: MediaStream) => {
       try {
         const pc = createPeerConnection(partnerUid, micStream);
+        
+        // 1. Reuse cached candidates to bypass gathering delay
+        const cached = IceManager.getCachedCandidates(partnerUid);
+        for (const cand of cached) {
+          try { await pc.addIceCandidate(cand); } catch {}
+        }
+
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: true,
         });
-        const highQualityOffer = new RTCSessionDescription({
-          type: offer.type,
-          sdp: optimizeAudioSdp(offer.sdp || ""),
-        });
-        await pc.setLocalDescription(highQualityOffer);
-        sendSignal(partnerUid, "offer", JSON.stringify(highQualityOffer));
+        
+        const highQualityOfferSdp = optimizeAudioSdp(offer.sdp || "");
+        await pc.setLocalDescription({ type: offer.type, sdp: highQualityOfferSdp });
+        
+        // 2. Consolidate: Wait briefly for candidates to be bundled in the SDP
+        const consolidatedSdp = await gatherAndConsolidate(pc, 400);
+        
+        sendSignal(partnerUid, "offer", JSON.stringify({
+          type: "offer",
+          sdp: consolidatedSdp
+        }));
       } catch (err) {
         console.warn("Error initiating call to", partnerUid, err);
       }
@@ -1319,12 +1363,16 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
               if ((pc.signalingState as string) === "have-remote-offer") {
                 const answer = await pc.createAnswer();
-                const highQualityAnswer = new RTCSessionDescription({
-                  type: answer.type,
-                  sdp: optimizeAudioSdp(answer.sdp || ""),
-                });
-                await pc.setLocalDescription(highQualityAnswer);
-                sendSignal(partnerUid, "answer", JSON.stringify(highQualityAnswer));
+                const optimizedAnswerSdp = optimizeAudioSdp(answer.sdp || "");
+                await pc.setLocalDescription({ type: answer.type, sdp: optimizedAnswerSdp });
+                
+                // Consolidate candidates into the answer SDP for 1-RTT connection
+                const consolidatedSdp = await gatherAndConsolidate(pc, 300);
+                
+                sendSignal(partnerUid, "answer", JSON.stringify({
+                  type: "answer",
+                  sdp: consolidatedSdp
+                }));
               }
 
               syncPeerTracks(partnerUid, pc);

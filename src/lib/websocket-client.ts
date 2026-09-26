@@ -334,10 +334,10 @@ export class WebSocketClient {
       this.ws.send(json);
       return true;
     } else {
-      // Never queue ephemeral WebRTC signaling while offline. Replaying stale
-      // offers/candidates after reconnect creates renegotiation storms and lag.
-      if (data.type === "change") {
-        if (this.sendQueue.length > 100) this.sendQueue.shift();
+      // Buffer both 'change' and 'webrtc_signal' messages while offline/connecting
+      // to ensure initial handshakes (like 'user_joined') are not dropped.
+      if (data.type === "change" || data.type === "webrtc_signal") {
+        if (this.sendQueue.length > 200) this.sendQueue.shift();
         this.sendQueue.push(json);
       }
       return false;
