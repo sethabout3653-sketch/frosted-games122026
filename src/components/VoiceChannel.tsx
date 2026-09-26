@@ -287,9 +287,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         return;
       }
 
-      // STRICTLY EXCLUDE LOCAL USER AND OTHER TABS OF SAME USER
-      // This prevents echo loops when the same user has multiple tabs open in the same room.
-      if (uUid === myUid || (uBaseUid && uBaseUid === myBaseUid)) {
+      // STRICTLY EXCLUDE LOCAL USER
+      // We keep other tabs of the same user in the list so they don't "disappear",
+      // but we filter their audio playback separately to prevent echo loops.
+      if (uUid === myUid) {
         return;
       }
 

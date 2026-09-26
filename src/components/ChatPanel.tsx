@@ -1802,12 +1802,12 @@ export default function ChatPanel({
     }
 
     candidates.forEach((u) => {
-      const uNameClean = (u.username || "").trim().toLowerCase();
-      if (!uNameClean || uNameClean === "anonymous" || !isAllowedUsername(uNameClean, u.uid, profile.uid)) return;
+      const uName = (u.username || "").trim();
+      if (!u.uid || !uName || uName.toLowerCase() === "anonymous" || !isAllowedUsername(uName, u.uid, profile.uid)) return;
 
-      const isMe = u.uid === profile.uid || uNameClean === myNameClean;
+      const isMe = u.uid === profile.uid;
       const lastSeenMs = toTimestampMs(u.lastSeen);
-      const vInfo = voiceUsersMap.get(u.uid) || voiceUsersMap.get(uNameClean);
+      const vInfo = voiceUsersMap.get(u.uid);
       const isVoiceActive = isMe
         ? Boolean(getVoiceState().inVoice || vInfo)
         : Boolean(vInfo || (u.inVoice && u.status !== "left"));
@@ -1818,16 +1818,16 @@ export default function ChatPanel({
       const isValid = isMe || isVoiceActive || (isRecentlyActive && u.status !== "left");
 
       if (isValid) {
-        const existing = userMap.get(uNameClean);
+        const existing = userMap.get(u.uid);
         const effectiveVoice = isVoiceActive;
         const effectiveMuted = vInfo?.isMuted ?? u.isMuted ?? existing?.isMuted ?? false;
         const effectiveVideo = vInfo?.isVideoOn ?? u.isVideoOn ?? existing?.isVideoOn ?? false;
         const effectiveScreen = vInfo?.isScreenSharing ?? u.isScreenSharing ?? existing?.isScreenSharing ?? false;
 
-        userMap.set(uNameClean, {
+        userMap.set(u.uid, {
           ...existing,
           ...u,
-          uid: isMe ? profile.uid : (u.uid || existing?.uid || uNameClean),
+          uid: isMe ? profile.uid : u.uid,
           inVoice: effectiveVoice,
           isMuted: effectiveMuted,
           isVideoOn: effectiveVideo,
@@ -1841,8 +1841,8 @@ export default function ChatPanel({
     });
 
     const all = Array.from(userMap.values()).sort((a, b) => {
-      const aIsMe = a.uid === profile.uid || (a.username || "").toLowerCase() === myNameClean;
-      const bIsMe = b.uid === profile.uid || (b.username || "").toLowerCase() === myNameClean;
+      const aIsMe = a.uid === profile.uid;
+      const bIsMe = b.uid === profile.uid;
       if (aIsMe) return -1;
       if (bIsMe) return 1;
       if (a.inVoice && !b.inVoice) return -1;
@@ -1853,14 +1853,13 @@ export default function ChatPanel({
     const inVoice = all.filter((u) => u.inVoice);
     const standard = all.filter((u) => !u.inVoice);
 
-    const onlineKeys = new Set(all.map((u) => (u.username || "").toLowerCase()));
+    const onlineKeys = new Set(all.map((u) => u.uid));
     const leftMap = new Map<string, MemberUser>();
     memberUsers.forEach((u) => {
-      const key = (u.username || "").trim().toLowerCase();
-      if (!key || onlineKeys.has(key) || u.uid === profile.uid || key === myNameClean) return;
+      if (!u.uid || onlineKeys.has(u.uid) || u.uid === profile.uid) return;
       const lastSeenMs = toTimestampMs(u.lastSeen);
       if (now - lastSeenMs < 120000) {
-        leftMap.set(key, u);
+        leftMap.set(u.uid, u);
       }
     });
 
@@ -2079,17 +2078,13 @@ export default function ChatPanel({
               (msg.username === profile.username &&
                 msg.photoURL === profile.photoURL);
 
-            const authorVoice = inVoiceUsers.find(
-              (vu) => vu.uid === msg.uid || vu.username.toLowerCase() === (msg.username || "").toLowerCase()
-            );
-            const authorOnline = activeOnlineUsers.find(
-              (ou) => ou.uid === msg.uid || ou.username.toLowerCase() === (msg.username || "").toLowerCase()
-            );
+            const authorVoice = inVoiceUsers.find((vu) => vu.uid === msg.uid);
+            const authorOnline = activeOnlineUsers.find((ou) => ou.uid === msg.uid);
             const openAuthorProfile = () => {
               setSelectedUserProfile(
                 authorVoice ||
                   authorOnline || {
-                    uid: msg.uid || `user_${msg.username}`,
+                    uid: msg.uid || `user_${(msg.username || "user").toLowerCase()}`,
                     username: msg.username || "User",
                     photoURL: msg.photoURL || "",
                     status: "online",
@@ -2704,6 +2699,67 @@ export default function ChatPanel({
                     <Ban size={11} />
                     <span>Banned ({bannedList.length})</span>
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* 🎧 IN VOICE SECTION */}
+            {inVoiceUsers.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <h3 className="text-[10px] font-bold text-emerald-400 tracking-wider uppercase flex items-center gap-1.5">
+                    <Volume2 size={12} className="animate-pulse" />
+                    <span>In Voice & Calls — {inVoiceUsers.length}</span>
+                  </h3>
+                </div>
+                <div className="space-y-1">
+                  {inVoiceUsers.map((user, uIdx) => {
+                    const isCurrentUser = user.uid === profile.uid;
+                    const userActivity = isCurrentUser ? (localActivity || user.activity) : user.activity;
+
+                    return (
+                      <div
+                        key={`voice-${user.uid || "voice"}-${uIdx}`}
+                        className="group relative flex items-start gap-2.5 p-1.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10 hover:bg-emerald-500/10 hover:border-emerald-500/20 transition-all duration-150 cursor-pointer"
+                        onClick={() => setSelectedUserProfile(user)}
+                      >
+                        {/* Avatar with Voice Ring */}
+                        <div className="relative mt-0.5 flex-shrink-0">
+                          <div className="w-8 h-8 rounded-full overflow-hidden bg-neutral-800 border-2 border-emerald-500/50 flex items-center justify-center text-xs font-bold text-white shadow-[0_0_8px_rgba(16,185,129,0.2)]">
+                            {user.photoURL ? (
+                              <img
+                                src={user.photoURL}
+                                alt={user.username || "User"}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span>{(user.username || "?").charAt(0).toUpperCase()}</span>
+                            )}
+                          </div>
+                          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-[#030514]" />
+                        </div>
+
+                        <div className="flex-1 min-w-0 flex flex-col">
+                          <div className="flex items-center justify-between gap-1 w-full">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-xs font-bold text-emerald-50 text-white truncate">
+                                {user.username}
+                              </span>
+                              {isCurrentUser && (
+                                <span className="bg-[#0a1236] text-indigo-300 border border-indigo-700/80 text-[8px] font-bold px-1 py-0.2 rounded uppercase tracking-wider flex-shrink-0">
+                                  YOU
+                                </span>
+                              )}
+                            </div>
+                            <Volume2 size={10} className="text-emerald-400 flex-shrink-0" />
+                          </div>
+                          <span className="text-[10px] text-emerald-400/80 font-medium mt-0.5 truncate">
+                            {user.channelName || "General Voice"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

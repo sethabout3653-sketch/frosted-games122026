@@ -240,9 +240,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       snapshot.docs.forEach((d: any) => {
         const data = d.data();
         const uname = (data.username || "").trim();
-        const unameClean = uname.toLowerCase();
-        if (!uname || unameClean === "anonymous" || !isAllowedUsername(uname, data.uid, myUid)) return;
-        if (data.uid === myUid || unameClean === myName) return;
+        if (!uname || uname.toLowerCase() === "anonymous" || !isAllowedUsername(uname, data.uid, myUid)) return;
+        if (data.uid === myUid) return;
 
         const ts = toTimestampMs(data.lastSeen || data.timestamp);
         if (ts > 0 && now - ts <= 35000) {

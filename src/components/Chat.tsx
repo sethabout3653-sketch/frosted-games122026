@@ -157,12 +157,10 @@ export default function Chat({
     
     rawVoiceUsers.forEach(u => {
       if (!u || !u.uid) return;
-      const uname = (u.username || "").trim().toLowerCase();
-      if (!uname) return;
       
-      const existing = userMap.get(uname);
+      const existing = userMap.get(u.uid);
       if (!existing || (u.timestamp || 0) > (existing.timestamp || 0) || u.uid === profile?.uid) {
-        userMap.set(uname, u);
+        userMap.set(u.uid, u);
       }
     });
 
