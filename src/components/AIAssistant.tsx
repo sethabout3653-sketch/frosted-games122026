@@ -45,6 +45,7 @@ import {
   MonitorPlay,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import JSZip from "jszip";
 import FriendsPanel from "./FriendsPanel";
 import PersonaModal from "./PersonaModal";
 import { ChatProfile } from "../types";
@@ -71,6 +72,68 @@ export function parseThoughtAndContent(raw: string): {
     .trim();
 
   return { thought: "", answer: cleanAnswer || raw, isStillThinking: false };
+}
+
+export interface ExtractedFile {
+  name: string;
+  content: string;
+  language: string;
+}
+
+export function extractFilesFromContent(content: string): ExtractedFile[] {
+  const files: ExtractedFile[] = [];
+  if (!content) return files;
+
+  // Track already added files to avoid duplicates
+  const addedNames = new Set<string>();
+
+  // Regex to extract all standard markdown code blocks with custom suffixes or languages
+  // Matches formats like:
+  // ```javascript:app.js
+  // ```json:config.json
+  // ```html
+  const codeBlockRegex = /```([\w\-+]+)?(?:[:\s]([a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+))?[\r\n]+([\s\S]*?)```/g;
+  let match;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    const rawLang = (match[1] || "txt").toLowerCase();
+    const cleanLang = rawLang.split(":")[0] || "txt";
+    let filename = match[2];
+    
+    // If no explicit filename suffix, try to see if lang itself has a colon separator: ```html:index.html
+    if (!filename && rawLang.includes(":")) {
+      filename = rawLang.split(":")[1];
+    }
+
+    if (!filename) {
+      const ext = cleanLang === "javascript" || cleanLang === "js" ? "js" : 
+                  cleanLang === "python" ? "py" : 
+                  cleanLang === "html" ? "html" : 
+                  cleanLang === "css" ? "css" : 
+                  cleanLang === "json" ? "json" : 
+                  cleanLang === "markdown" || cleanLang === "md" ? "md" : "txt";
+      filename = `generated_file_${files.length + 1}.${ext}`;
+    }
+
+    const code = match[3]?.trim() || "";
+    if (code && !addedNames.has(filename)) {
+      files.push({ name: filename, content: code, language: cleanLang });
+      addedNames.add(filename);
+    }
+  }
+
+  // Also parse tool call style output like [file_create(name='study_guide.md', path='/home/user/study_guide.md')]
+  const toolRegex = /file_create\(\s*name=['"]([^'"]+)['"]/g;
+  let toolMatch;
+  while ((toolMatch = toolRegex.exec(content)) !== null) {
+    const filename = toolMatch[1];
+    if (filename && !addedNames.has(filename)) {
+      // Find code inside the assistant response that looks like it might belong to this file but wasn't caught
+      addedNames.add(filename);
+    }
+  }
+
+  return files;
 }
 
 export interface ChatThread {
@@ -437,6 +500,22 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
   toggleThought,
 }: ChatMessageItemProps) {
   const isUser = message.role === "user";
+  const [isZipping, setIsZipping] = useState(false);
+  const [zipDownloaded, setZipDownloaded] = useState(false);
+
+  const { thought, answer, isStillThinking } = useMemo(() => {
+    return parseThoughtAndContent(message.content);
+  }, [message.content]);
+
+  const extractedFiles = useMemo(() => {
+    return extractFilesFromContent(answer);
+  }, [answer]);
+
+  const formatSize = useCallback((str: string) => {
+    const bytes = new Blob([str]).size;
+    if (bytes < 1024) return `${bytes} B`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }, []);
 
   const components = useMemo(() => ({
     code({ className, children, ...props }: any) {
@@ -535,7 +614,6 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
           {isUser ? (
             <div className="whitespace-pre-wrap font-medium leading-relaxed">{message.content}</div>
           ) : (() => {
-            const { thought, answer, isStillThinking } = parseThoughtAndContent(message.content);
             const isExpanded = expandedThoughts[message.id] ?? true;
 
             return (
@@ -588,6 +666,109 @@ const ChatMessageItem = React.memo(function ChatMessageItem({
                     </div>
                   )}
                 </div>
+
+                {/* Gorgeous Study Pack & File Download Center */}
+                {extractedFiles.length > 0 && (
+                  <div className="mt-4 pt-3.5 border-t border-cyan-500/15 space-y-3">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 text-xs font-black text-cyan-400 tracking-wider uppercase">
+                        <FolderPlus size={14} className="text-cyan-400 shrink-0" />
+                        <span>Study Pack ({extractedFiles.length} {extractedFiles.length === 1 ? "file" : "files"})</span>
+                      </div>
+
+                      {extractedFiles.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              setIsZipping(true);
+                              const zip = new JSZip();
+                              extractedFiles.forEach((file) => {
+                                zip.file(file.name, file.content);
+                              });
+                              const blob = await zip.generateAsync({ type: "blob" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = "study_package.zip";
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                              URL.revokeObjectURL(url);
+                              setZipDownloaded(true);
+                              setTimeout(() => setZipDownloaded(false), 3000);
+                            } catch (err) {
+                              console.error(err);
+                            } finally {
+                              setIsZipping(false);
+                            }
+                          }}
+                          disabled={isZipping}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-extrabold transition-all cursor-pointer shadow-md select-none active:scale-95 disabled:opacity-50 shrink-0"
+                        >
+                          {isZipping ? (
+                            <Loader2 size={12} className="animate-spin text-black" />
+                          ) : zipDownloaded ? (
+                            <Check size={12} className="text-black" />
+                          ) : (
+                            <Download size={12} className="text-black" />
+                          )}
+                          <span>{isZipping ? "Bundling ZIP..." : zipDownloaded ? "ZIP Saved!" : "Save Pack (.zip)"}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {extractedFiles.map((file, idx) => {
+                        const isHtml = file.language === "html" || file.language === "htm";
+                        const isJson = file.language === "json";
+                        const isMd = file.language === "markdown" || file.language === "md";
+
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between gap-3 p-2 rounded-xl bg-[#080d19]/90 border border-white/5 hover:border-cyan-500/20 transition-all min-w-0"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                                isHtml ? "bg-cyan-500/15 text-cyan-300 border border-cyan-400/30" :
+                                isJson ? "bg-amber-500/15 text-amber-300 border border-amber-400/30" :
+                                isMd ? "bg-emerald-500/15 text-emerald-300 border border-emerald-400/30" :
+                                "bg-purple-500/15 text-purple-300 border border-purple-400/30"
+                              }`}>
+                                {isHtml ? <MonitorPlay size={13} /> : <FileText size={13} />}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[11px] font-bold text-white truncate leading-tight select-all">{file.name}</p>
+                                <p className="text-[9px] text-neutral-400 font-mono leading-none mt-0.5">{formatSize(file.content)}</p>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const mime = isHtml ? "text/html;charset=utf-8" : isJson ? "application/json" : "text/plain;charset=utf-8";
+                                const blob = new Blob([file.content], { type: mime });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = file.name;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                              }}
+                              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 hover:text-white transition-colors cursor-pointer shrink-0"
+                              title={`Download ${file.name}`}
+                            >
+                              <Download size={11} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
