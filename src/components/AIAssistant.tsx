@@ -64,14 +64,20 @@ export function parseThoughtAndContent(raw: string): {
 } {
   if (!raw) return { thought: "", answer: "", isStillThinking: false };
 
+  // Strip any Nemotron safety or NVIDIA guardrails logs like "User Safety: safe\nResponse Safety: safe"
+  let sanitized = raw
+    .replace(/(?:User|Response|Content)\s*Safety:\s*(?:safe|unsafe)\b/gi, "")
+    .replace(/(?:User|Response|Content)\s*Safety\s*Rating:\s*(?:safe|unsafe)\b/gi, "")
+    .trim();
+
   // Strip any <think> tags completely so answers render directly
-  const cleanAnswer = raw
+  const cleanAnswer = sanitized
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
     .replace(/<think>[\s\S]*/gi, "")
     .replace(/```(?:thought|thinking)[\s\S]*?```/gi, "")
     .trim();
 
-  return { thought: "", answer: cleanAnswer || raw, isStillThinking: false };
+  return { thought: "", answer: cleanAnswer || sanitized, isStillThinking: false };
 }
 
 export interface ExtractedFile {
