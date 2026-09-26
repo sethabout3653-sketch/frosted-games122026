@@ -166,20 +166,30 @@ interface AppSandboxArtifactProps {
   code: string;
   language: string;
   rawHeader?: string;
+  isStreaming?: boolean;
 }
 
-function AppSandboxArtifact({ code, language, rawHeader }: AppSandboxArtifactProps) {
-  const [activeTab, setActiveTab] = useState<"preview" | "code">("preview");
+const AppSandboxArtifact = React.memo(function AppSandboxArtifact({ code, language, rawHeader, isStreaming }: AppSandboxArtifactProps) {
+  const [activeTab, setActiveTab] = useState<"preview" | "code">("code");
   const [copied, setCopied] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Set active tab to preview once it finishes streaming
+  useEffect(() => {
+    if (!isStreaming) {
+      setActiveTab("preview");
+    } else {
+      setActiveTab("code");
+    }
+  }, [isStreaming]);
 
   // Determine filename from header like ```html:pong.html or default
   const filenameMatch = rawHeader?.match(/[:\s]([a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+)/);
   const defaultExt = language === "python" ? "py" : language === "javascript" || language === "js" ? "js" : language === "json" ? "json" : language === "markdown" || language === "md" ? "md" : "html";
   const filename = filenameMatch ? filenameMatch[1] : `app.${defaultExt}`;
 
-  const isHtmlOrWeb = language === "html" || language === "htm" || language === "svg" || code.includes("<!DOCTYPE") || code.includes("<html") || (code.includes("<canvas") && code.includes("<script"));
+  const isHtmlOrWeb = !isStreaming && (language === "html" || language === "htm" || language === "svg" || code.includes("<!DOCTYPE") || code.includes("<html") || (code.includes("<canvas") && code.includes("<script")));
 
   const handleDownload = () => {
     const mime = isHtmlOrWeb ? "text/html;charset=utf-8" : language === "json" ? "application/json" : "text/plain;charset=utf-8";
@@ -217,18 +227,22 @@ function AppSandboxArtifact({ code, language, rawHeader }: AppSandboxArtifactPro
           <div className="flex flex-col min-w-0">
             <span className="font-bold text-white text-xs truncate flex items-center gap-1.5">
               <span>{filename}</span>
-              {isHtmlOrWeb && (
+              {isStreaming ? (
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[9px] font-bold border border-amber-400/30 animate-pulse">
+                  WRITING FILE...
+                </span>
+              ) : isHtmlOrWeb ? (
                 <span className="px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-mono text-[9px] font-bold border border-cyan-400/30">
                   LIVE APP
                 </span>
-              )}
+              ) : null}
             </span>
           </div>
         </div>
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {isHtmlOrWeb && (
+          {isHtmlOrWeb && !isStreaming && (
             <div className="flex items-center rounded-xl bg-black/40 border border-white/10 p-0.5 mr-1">
               <button
                 type="button"
@@ -253,7 +267,7 @@ function AppSandboxArtifact({ code, language, rawHeader }: AppSandboxArtifactPro
             </div>
           )}
 
-          {isHtmlOrWeb && activeTab === "preview" && (
+          {isHtmlOrWeb && activeTab === "preview" && !isStreaming && (
             <button
               type="button"
               onClick={() => setIframeKey((k) => k + 1)}
@@ -264,7 +278,7 @@ function AppSandboxArtifact({ code, language, rawHeader }: AppSandboxArtifactPro
             </button>
           )}
 
-          {isHtmlOrWeb && (
+          {isHtmlOrWeb && !isStreaming && (
             <button
               type="button"
               onClick={handleOpenInNewTab}
@@ -287,7 +301,12 @@ function AppSandboxArtifact({ code, language, rawHeader }: AppSandboxArtifactPro
           <button
             type="button"
             onClick={handleDownload}
-            className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+            disabled={isStreaming}
+            className={`px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer ${
+              isStreaming
+                ? "bg-white/5 text-neutral-500 border-white/5 cursor-not-allowed"
+                : "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40"
+            }`}
             title="Download File"
           >
             <Download size={11} />
@@ -306,7 +325,7 @@ function AppSandboxArtifact({ code, language, rawHeader }: AppSandboxArtifactPro
       </div>
 
       {/* Sandbox Body / Live Iframe / Code View */}
-      {isHtmlOrWeb && activeTab === "preview" ? (
+      {isHtmlOrWeb && activeTab === "preview" && !isStreaming ? (
         <div className={`w-full bg-black relative ${isFullscreen ? "flex-1 min-h-[400px]" : "h-80 sm:h-96"}`}>
           <iframe
             key={iframeKey}
@@ -317,13 +336,26 @@ function AppSandboxArtifact({ code, language, rawHeader }: AppSandboxArtifactPro
           />
         </div>
       ) : (
-        <pre className={`p-3.5 overflow-x-auto text-[11px] font-mono text-neutral-200 leading-relaxed custom-scrollbar bg-black/60 select-text ${isFullscreen ? "flex-1 max-h-none" : "max-h-80"}`}>
-          <code>{code}</code>
-        </pre>
+        <div className="relative">
+          {isStreaming && (
+            <div className="absolute top-3 right-4 z-10 flex items-center gap-1.5 bg-amber-500/10 text-amber-300 px-2 py-1 rounded-lg border border-amber-500/20 text-[10px] font-bold">
+              <Loader2 size={11} className="animate-spin text-amber-400" />
+              <span>Streaming complete application...</span>
+            </div>
+          )}
+          <pre className={`p-3.5 overflow-x-auto text-[11px] font-mono text-neutral-200 leading-relaxed custom-scrollbar bg-black/60 select-text ${isFullscreen ? "flex-1 max-h-none" : "max-h-80"}`}>
+            <code>{code}</code>
+          </pre>
+        </div>
       )}
     </div>
   );
-}
+}, (prevProps, nextProps) => {
+  return prevProps.code === nextProps.code &&
+         prevProps.language === nextProps.language &&
+         prevProps.rawHeader === nextProps.rawHeader &&
+         prevProps.isStreaming === nextProps.isStreaming;
+});
 
 const QUICK_ACTIONS = [
   {
@@ -1256,8 +1288,9 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
             </div>
           ) : (
             <div className="w-full max-w-5xl lg:max-w-6xl mx-auto space-y-4">
-              {activeThread.messages.map((message) => {
+              {activeThread.messages.map((message, messageIdx) => {
                 const isUser = message.role === "user";
+                const isMessageGenerating = isGenerating && messageIdx === activeThread.messages.length - 1;
                 return (
                   <div
                     key={message.id}
@@ -1366,6 +1399,7 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
                                             code={codeContent}
                                             language={lang}
                                             rawHeader={className}
+                                            isStreaming={isMessageGenerating}
                                           />
                                         );
                                       },
