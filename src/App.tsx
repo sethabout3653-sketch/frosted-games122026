@@ -11,7 +11,6 @@ import YouTubeView from "./components/YouTubeView";
 import AIAssistant from "./components/AIAssistant";
 import BackgroundEditor, { DEFAULT_BACKGROUND, AppBackground } from "./components/BackgroundEditor";
 import SettingsModal from "./components/SettingsModal";
-import CallFiltersModal, { CallTab } from "./components/CallFiltersModal";
 import LoadingScreen from "./components/LoadingScreen";
 import { applyTabCloak, getSavedTabCloak } from "./tabCloaks";
 import { useActivityTracker } from "./lib/activity-tracker";
@@ -105,8 +104,6 @@ function AppContent() {
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isThemeOpen, setIsThemeOpen] = useState(false);
-  const [isCallFiltersOpen, setIsCallFiltersOpen] = useState(false);
-  const [callFiltersTab, setCallFiltersTab] = useState<CallTab>("effects");
 
   useEffect(() => {
     const saved = getSavedTabCloak();
@@ -336,10 +333,6 @@ function AppContent() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenTheme={() => setIsThemeOpen(true)}
         onRandomGame={handleRandomGame}
-        onOpenCallFilters={(tab) => {
-          setCallFiltersTab(tab || "effects");
-          setIsCallFiltersOpen(true);
-        }}
       />
 
       {/* Main Content Area */}
@@ -613,11 +606,6 @@ function AppContent() {
       setIsSettingsOpen(false);
       setIsThemeOpen(true);
     }}
-  />
-  <CallFiltersModal
-    isOpen={isCallFiltersOpen}
-    onClose={() => setIsCallFiltersOpen(false)}
-    initialTab={callFiltersTab}
   />
 
   {/* Real-time P2P Call Modals & In-App Top Right Notification */}

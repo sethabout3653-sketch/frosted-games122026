@@ -13,7 +13,6 @@ import {
   Radio,
   Check,
   X,
-  Sparkles,
   Loader2,
   Maximize2,
   Minimize2,
@@ -28,8 +27,6 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-import CallFiltersModal, { getSavedCallFilters, CallFilterState } from "./CallFiltersModal";
-import NervousCanvasFilter from "./NervousCanvasFilter";
 import {
   collection,
   doc,
@@ -169,20 +166,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   const [screenZoom, setScreenZoom] = useState<number>(1.0);
   const [screenFitMode, setScreenFitMode] = useState<"contain" | "cover">("contain");
   const [localActivity, setLocalActivity] = useState<any>(() => getCurrentActivity());
-  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
-  const [filterState, setFilterState] = useState<CallFilterState>(() => getSavedCallFilters());
-
-  useEffect(() => {
-    const handleFiltersChange = (e: any) => {
-      if (e.detail) {
-        setFilterState(e.detail);
-      } else {
-        setFilterState(getSavedCallFilters());
-      }
-    };
-    window.addEventListener("call_filters_changed", handleFiltersChange);
-    return () => window.removeEventListener("call_filters_changed", handleFiltersChange);
-  }, []);
 
   useEffect(() => {
     return onActivityChanged((act) => {
@@ -2693,7 +2676,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                         autoPlay
                         playsInline
                         muted
-                        className={`w-full h-full object-cover ${filterState.effect === "nervous" ? "nervous-camera-effect" : ""}`}
+                        className="w-full h-full object-cover"
                       />
                     ) : (
                       <video
@@ -2710,7 +2693,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                         autoPlay
                         playsInline
                         muted
-                        className={`w-full h-full object-cover transform -scale-x-100 ${filterState.effect === "nervous" ? "nervous-camera-effect" : ""}`}
+                        className="w-full h-full object-cover transform -scale-x-100"
                       />
                     )}
                   </div>
@@ -2733,11 +2716,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                   autoPlay
                   playsInline
                   muted
-                  className={`w-full h-full object-cover ${filterState.effect === "nervous" ? "hidden" : ""}`}
-                />
-                <NervousCanvasFilter
-                  videoElement={remoteVideoRefs.current[activeRemoteWithVideo.uid]}
-                  isActive={filterState.effect === "nervous"}
+                  className="w-full h-full object-cover"
                 />
                 <div className="absolute bottom-2 left-2 bg-black/75 px-2 py-0.5 rounded text-[10px] font-semibold text-white truncate max-w-[140px]">
                   {activeRemoteWithVideo.username}
@@ -2759,11 +2738,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                       autoPlay
                       playsInline
                       muted
-                      className={`w-full h-full object-cover transform -scale-x-100 ${filterState.effect === "nervous" ? "hidden" : ""}`}
-                    />
-                    <NervousCanvasFilter
-                      videoRef={localVideoRef}
-                      isActive={filterState.effect === "nervous"}
+                      className="w-full h-full object-cover transform -scale-x-100"
                     />
                   </div>
                 )}
@@ -2784,11 +2759,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                   autoPlay
                   playsInline
                   muted
-                  className={`w-full h-full object-cover transform -scale-x-100 ${filterState.effect === "nervous" ? "hidden" : ""}`}
-                />
-                <NervousCanvasFilter
-                  videoRef={localVideoRef}
-                  isActive={filterState.effect === "nervous"}
+                  className="w-full h-full object-cover transform -scale-x-100"
                 />
                 <div className="absolute bottom-2 left-2 bg-black/75 px-2 py-0.5 rounded text-[10px] font-semibold text-white">
                   You
@@ -3673,15 +3644,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           </div>
         )}
 
-        {/* Call Filters & Effects Button */}
-        <button
-          onClick={() => setIsFiltersOpen(true)}
-          className="p-3.5 rounded-2xl bg-[#0b143c] text-emerald-400 border border-emerald-500/50 hover:bg-[#12205a] hover:border-emerald-400 shadow-md transition-all cursor-pointer"
-          title="Call & Voice Effects, Filters, Backgrounds"
-        >
-          <Sparkles size={20} className="stroke-[2.2]" />
-        </button>
-
         <button
           onClick={handleLeave}
           className="p-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white shadow-xl transition-all cursor-pointer active:scale-95"
@@ -3690,12 +3652,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           <PhoneOff size={20} className="text-white stroke-[2.5]" />
         </button>
       </div>
-
-      <CallFiltersModal
-        isOpen={isFiltersOpen}
-        onClose={() => setIsFiltersOpen(false)}
-        initialTab="effects"
-      />
     </div>
     )}
   </>

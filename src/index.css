@@ -540,22 +540,5 @@ html {
   animation: rippleFade 0.45s ease-out forwards;
 }
 
-/* Call Filter Visual Preset Styles */
-.call-filter-vintage {
-  filter: sepia(0.35) contrast(1.1) saturate(1.2);
-}
-.call-filter-neon {
-  filter: saturate(1.8) hue-rotate(200deg) contrast(1.2);
-}
-.call-filter-mono {
-  filter: grayscale(1) contrast(1.2);
-}
-.call-filter-soft {
-  filter: brightness(1.08) contrast(0.95) saturate(1.1);
-}
-.call-filter-cyber {
-  filter: saturate(2) hue-rotate(280deg) brightness(1.05);
-}
-
 
 

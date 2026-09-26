@@ -19,7 +19,6 @@ interface HeaderProps {
   onOpenSettings?: () => void;
   onOpenTheme?: () => void;
   onRandomGame?: () => void;
-  onOpenCallFilters?: (tab?: "effects" | "filters" | "backgrounds") => void;
 }
 
 const Header = memo(function Header({
@@ -36,7 +35,6 @@ const Header = memo(function Header({
   onOpenSettings,
   onOpenTheme,
   onRandomGame,
-  onOpenCallFilters,
 }: HeaderProps) {
   const { isCallMenuOpen, setIsCallMenuOpen, onlineUsers } = useCall();
   const { count: favoriteCount } = useFavorites();
@@ -239,7 +237,6 @@ const Header = memo(function Header({
                 isOpen={isCallMenuOpen}
                 onClose={() => setIsCallMenuOpen(false)}
                 onOpenSettings={onOpenSettings}
-                onOpenFilters={onOpenCallFilters}
               />
             </div>
           </nav>

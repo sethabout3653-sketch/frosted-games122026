@@ -10,7 +10,6 @@ import {
   Headphones,
   Search,
   X,
-  Sparkles,
   Gamepad2,
   BookOpen,
   UserCheck,
@@ -23,10 +22,9 @@ interface CallMenuDropdownProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenSettings?: () => void;
-  onOpenFilters?: (tab?: "effects" | "filters" | "backgrounds") => void;
 }
 
-export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, onOpenFilters }: CallMenuDropdownProps) {
+export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: CallMenuDropdownProps) {
   const { onlineUsers, voiceUserCount, startDirectCall, joinGeneralVoice } = useCall();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const myProfile = getSavedProfile();
@@ -113,21 +111,6 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, onOp
           </div>
 
           <div className="flex items-center gap-1.5">
-            {onOpenFilters && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenFilters("effects");
-                }}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-white text-[11px] font-semibold transition-colors cursor-pointer shadow-sm"
-                title="Call & Voice Effects, Filters, Backgrounds"
-              >
-                <Sparkles size={12} className="text-emerald-400" />
-                <span>Filters</span>
-              </button>
-            )}
-
             {onOpenSettings && (
               <button
                 type="button"

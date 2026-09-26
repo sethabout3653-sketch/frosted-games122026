@@ -15,11 +15,8 @@ import {
   MonitorOff,
   ScreenShareOff,
   Tv,
-  Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import CallFiltersModal, { getSavedCallFilters, CallFilterState } from "./CallFiltersModal";
-import NervousCanvasFilter from "./NervousCanvasFilter";
 
 export default function ActiveCallModal() {
   const {
@@ -44,20 +41,6 @@ export default function ActiveCallModal() {
 
   const [isMinimized, setIsMinimized] = useState(false);
   const [callDuration, setCallDuration] = useState("00:00");
-  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
-  const [filterState, setFilterState] = useState<CallFilterState>(() => getSavedCallFilters());
-
-  useEffect(() => {
-    const handleFiltersChange = (e: any) => {
-      if (e.detail) {
-        setFilterState(e.detail);
-      } else {
-        setFilterState(getSavedCallFilters());
-      }
-    };
-    window.addEventListener("call_filters_changed", handleFiltersChange);
-    return () => window.removeEventListener("call_filters_changed", handleFiltersChange);
-  }, []);
 
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -473,14 +456,7 @@ export default function ActiveCallModal() {
                 autoPlay
                 playsInline
                 muted
-                className={`w-full h-full object-contain max-h-[500px] ${
-                  filterState.effect === "nervous" ? "hidden" : ""
-                }`}
-              />
-
-              <NervousCanvasFilter
-                videoRef={remoteVideoRef}
-                isActive={filterState.effect === "nervous"}
+                className="w-full h-full object-contain max-h-[500px]"
               />
 
               {/* Local Camera Video Thumbnail (Picture in Picture) */}
@@ -502,14 +478,8 @@ export default function ActiveCallModal() {
                     autoPlay
                     playsInline
                     muted
-                    className={`w-full h-full object-cover mirror ${
-                      filterState.effect === "nervous" ? "hidden" : ""
-                    }`}
+                    className="w-full h-full object-cover mirror"
                     style={{ transform: "scaleX(-1)" }}
-                  />
-                  <NervousCanvasFilter
-                    videoRef={localVideoRef}
-                    isActive={filterState.effect === "nervous"}
                   />
                   {!activeCall.isCameraOn && (
                     <div className="absolute inset-0 bg-neutral-900/90 flex flex-col items-center justify-center text-neutral-400 text-[10px]">
@@ -524,9 +494,7 @@ export default function ActiveCallModal() {
             // Audio Call View (Rich Avatar & Voice Wave)
             <div className="flex flex-col items-center justify-center p-8 text-center">
               <div className="relative w-28 h-28 sm:w-36 sm:h-36 mb-6">
-                <div className={`w-full h-full rounded-full overflow-hidden border-4 border-emerald-500/40 bg-neutral-800 shadow-2xl ${
-                  filterState.effect === "nervous" ? "nervous-shake" : ""
-                }`}>
+                <div className="w-full h-full rounded-full overflow-hidden border-4 border-emerald-500/40 bg-neutral-800 shadow-2xl">
                   <img
                     src={
                       activeCall.partnerPhotoURL ||
@@ -698,18 +666,6 @@ export default function ActiveCallModal() {
             <span>{activeCall.isDeafened ? "Deafened" : "Sound"}</span>
           </button>
 
-          {/* Filters & Effects Button */}
-          <button
-            id="call-filters-btn"
-            type="button"
-            onClick={() => setIsFiltersOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-sm"
-            title="Call Effects, Filters, Backgrounds"
-          >
-            <Sparkles size={15} className="text-emerald-400" />
-            <span>Filters</span>
-          </button>
-
           {/* End Call Button */}
           <button
             id="end-call-btn"
@@ -724,13 +680,6 @@ export default function ActiveCallModal() {
       </motion.div>
     </div>
       )}
-
-      {/* Call Filters Modal */}
-      <CallFiltersModal
-        isOpen={isFiltersOpen}
-        onClose={() => setIsFiltersOpen(false)}
-        initialTab="effects"
-      />
     </>
   );
 }

@@ -1416,6 +1416,15 @@ export default function ChatPanel({
     const currentSize = attachmentSize;
     if (!currentText && !currentAttachment) return;
 
+    // Content moderation and word filter check
+    if (currentText) {
+      const textCheck = checkTextModeration(currentText);
+      if (!textCheck.safe) {
+        showModerationAlert("Message Blocked", textCheck.reason || "Your message contains words that violate community guidelines.");
+        return;
+      }
+    }
+
     // Attach original file name, MIME type, and size to the URL so all other users receive exact name & extension
     if (currentAttachment && currentName && !currentAttachment.startsWith("data:") && !currentAttachment.includes("?name=") && !currentAttachment.includes("&name=")) {
       const sep = currentAttachment.includes("?") ? "&" : "?";
