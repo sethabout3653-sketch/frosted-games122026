@@ -617,9 +617,82 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             playCallTone("connected");
 
-            // Direct call accepted -> user joins general voice channel connections
-            setOutgoingCall(null);
-            outgoingCallRef.current = null;
+            let pc = peerConnectionRef.current;
+            if (!pc) {
+              pc = createDirectPeerConnection(currentOut.targetUid, currentOut.callId);
+            }
+
+            if (pc) {
+              try {
+                // Ensure local stream and tracks are attached
+                if (localStreamRef.current) {
+                  const currentSenders = pc.getSenders();
+                  localStreamRef.current.getTracks().forEach((track) => {
+                    const alreadyAdded = currentSenders.some(
+                      (s) => s.track && s.track.kind === track.kind
+                    );
+                    if (!alreadyAdded) {
+                      pc!.addTrack(track, localStreamRef.current!);
+                    }
+                  });
+                }
+
+                const offer = await pc.createOffer({
+                  offerToReceiveAudio: true,
+                  offerToReceiveVideo: true,
+                });
+                const optOfferSdp = optimizeAudioSdp(offer.sdp || "");
+                await pc.setLocalDescription({ type: "offer", sdp: optOfferSdp });
+
+                // Optimize senders bitrate
+                pc.getSenders().forEach((s) => {
+                  try {
+                    const params = s.getParameters();
+                    if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+                    if (s.track?.kind === "video") {
+                      params.encodings[0].maxBitrate = 1200000;
+                      params.encodings[0].priority = "high";
+                      params.encodings[0].networkPriority = "high";
+                    } else if (s.track?.kind === "audio") {
+                      params.encodings[0].maxBitrate = 96000;
+                      params.encodings[0].priority = "high";
+                    }
+                    s.setParameters(params).catch(() => {});
+                  } catch {}
+                });
+
+                sendBroadcastSignal({
+                  type: "direct_call_offer",
+                  uid: myProf.uid,
+                  targetUid: currentOut.targetUid,
+                  callId: currentOut.callId,
+                  sdp: JSON.stringify({ type: "offer", sdp: optOfferSdp }),
+                });
+
+                const activeData: ActiveCallData = {
+                  callId: currentOut.callId,
+                  partnerUid: currentOut.targetUid,
+                  partnerName: currentOut.targetName,
+                  partnerPhotoURL: currentOut.targetPhotoURL,
+                  callType: currentOut.callType,
+                  startTime: Date.now(),
+                  isMuted: false,
+                  isDeafened: false,
+                  isCameraOn: currentOut.callType === "video",
+                  isInitiator: true,
+                };
+
+                activeCallRef.current = activeData;
+                currentCallIdRef.current = currentOut.callId;
+                outgoingCallRef.current = null;
+
+                setActiveCall(activeData);
+                setOutgoingCall(null);
+              } catch (err) {
+                console.error("Error creating direct call offer:", err);
+                cleanupCall();
+              }
+            }
           }
           break;
         }
@@ -865,13 +938,25 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
       cleanupCall();
+      try {
+        // Automatically leave general voice channel when initiating a direct call
+        window.dispatchEvent(new CustomEvent("leave_general_voice"));
+      } catch (e) {}
       const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       try {
-        // Automatically join the general voice channel immediately!
-        if (onOpenGroupVoiceRef.current) {
-          onOpenGroupVoiceRef.current();
-        }
+        const stream = await acquireRobustMediaStream({ audio: true, video: type === "video" });
+
+        setLocalStream(stream);
+        localStreamRef.current = stream;
+
+        // Initialize PeerConnection
+        const pc = createDirectPeerConnection(targetUser.uid, callId);
+
+        // Add initial tracks to PC
+        stream.getTracks().forEach((track) => {
+          pc.addTrack(track, stream);
+        });
 
         // Start outgoing ringback sound
         ringbackStopRef.current = playCallTone("calling");
@@ -918,11 +1003,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           alert(`${targetUser.username} did not answer.`);
         }, 35000);
       } catch (err: any) {
-        console.error("Failed to start direct call:", err);
+        console.error("Failed to access microphone or camera for direct call:", err);
+        alert("Could not access microphone/camera. Please grant media permissions in browser.");
         cleanupCall();
       }
     },
-    [getMyProfile, cleanupCall]
+    [getMyProfile, cleanupCall, createDirectPeerConnection]
   );
 
   // Action: Answer Incoming Call
@@ -945,31 +1031,70 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       callTimeoutRef.current = null;
     }
 
+    try {
+      // Automatically leave general voice channel when answering a direct call
+      window.dispatchEvent(new CustomEvent("leave_general_voice"));
+    } catch (e) {}
+
     playCallTone("connected");
 
     try {
-      // Automatically join the general voice channel immediately!
-      if (onOpenGroupVoiceRef.current) {
-        onOpenGroupVoiceRef.current();
-      }
+      const stream = await acquireRobustMediaStream({ audio: true, video: currentInc.callType === "video" });
 
-      // Send acceptance signal back to caller instantly
-      sendBroadcastSignal({
-        type: "direct_call_accepted",
-        uid: myProf.uid,
-        targetUid: currentInc.callerUid,
-        callId: currentInc.callId,
-        callerName: myProf.username,
-        callerPhotoURL: myProf.photoURL,
+      setLocalStream(stream);
+      localStreamRef.current = stream;
+
+      const pc = createDirectPeerConnection(currentInc.callerUid, currentInc.callId);
+
+      // Add local tracks to PeerConnection immediately
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
       });
 
+      const activeData: ActiveCallData = {
+        callId: currentInc.callId,
+        partnerUid: currentInc.callerUid,
+        partnerName: currentInc.callerName,
+        partnerPhotoURL: currentInc.callerPhotoURL,
+        callType: currentInc.callType,
+        startTime: Date.now(),
+        isMuted: false,
+        isDeafened: false,
+        isCameraOn: currentInc.callType === "video",
+        isInitiator: false,
+      };
+
+      activeCallRef.current = activeData;
+      currentCallIdRef.current = currentInc.callId;
       incomingCallRef.current = null;
+
+      setActiveCall(activeData);
       setIncomingCall(null);
+
+      // Send acceptance signal back to caller instantly and with 250ms backup retry
+      const sendAcceptSignal = () => {
+        sendBroadcastSignal({
+          type: "direct_call_accepted",
+          uid: myProf.uid,
+          targetUid: currentInc.callerUid,
+          callId: currentInc.callId,
+          callerName: myProf.username,
+          callerPhotoURL: myProf.photoURL,
+        });
+      };
+
+      sendAcceptSignal();
+      setTimeout(() => {
+        if (activeCallRef.current && activeCallRef.current.callId === currentInc.callId) {
+          sendAcceptSignal();
+        }
+      }, 250);
     } catch (err) {
       console.error("Failed to answer call:", err);
+      alert("Could not access media devices to answer call.");
       cleanupCall();
     }
-  }, [getMyProfile, cleanupCall]);
+  }, [getMyProfile, createDirectPeerConnection, cleanupCall]);
 
   // Action: Decline Incoming Call
   const declineIncomingCall = useCallback(() => {

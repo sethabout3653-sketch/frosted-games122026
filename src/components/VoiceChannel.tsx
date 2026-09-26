@@ -276,7 +276,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       const isConnected = pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected");
       const ts = toTimestampMs(p.timestamp);
 
-      if (!isConnected && ts > 0 && currentTime - ts > 15000) {
+      if (!isConnected && ts > 0 && Math.abs(currentTime - ts) > 180000) {
         return;
       }
 
@@ -1445,8 +1445,13 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       }).catch(() => {});
     };
 
+    const handleLeaveGeneralVoice = () => {
+      onLeave();
+    };
+
     window.addEventListener("beforeunload", handleUnload);
     window.addEventListener("pagehide", handleUnload);
+    window.addEventListener("leave_general_voice", handleLeaveGeneralVoice);
 
     async function initVoice() {
       try {
@@ -1541,7 +1546,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             }
             let ts = toTimestampMs(u.timestamp || (u as any).lastSeen);
             if (ts <= 0) ts = now;
-            if (now - ts <= 60000) {
+            if (Math.abs(now - ts) <= 180000) {
               const existing = userMap.get(uNameClean);
               const isSelf = u.uid === profile.uid || uNameClean === myNameClean;
               if (!existing || isSelf || ts > (existing.timestamp || 0)) {
@@ -1561,7 +1566,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             if (pData.inVoice) {
               let ts = toTimestampMs(pData.lastSeen || pData.timestamp);
               if (ts <= 0) ts = now;
-              if (now - ts <= 60000) {
+              if (Math.abs(now - ts) <= 180000) {
                 const existing = userMap.get(uNameClean);
                 const isSelf = pData.uid === profile.uid || uNameClean === myNameClean;
                 if (!existing || isSelf || ts > (existing.timestamp || 0)) {
@@ -1827,6 +1832,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       clearInterval(heartbeatInterval);
       window.removeEventListener("beforeunload", handleUnload);
       window.removeEventListener("pagehide", handleUnload);
+      window.removeEventListener("leave_general_voice", handleLeaveGeneralVoice);
 
       stopAllMediaTracks();
       hasJoinedVoiceRef.current = false;
@@ -2542,23 +2548,35 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         }}
         aria-hidden="true"
       >
-        {activeParticipants
-          .filter((p) => p.uid !== profile.uid)
-          .map((p) => (
-            <audio
-              key={`audio-playback-${p.uid}`}
-              ref={(el) => {
-                remoteAudioRefs.current[p.uid] = el;
-                const remoteAudioStream = remoteAudioStreamsRef.current[p.uid] || remoteStreamsRef.current[p.uid];
-                if (el && remoteAudioStream && el.srcObject !== remoteAudioStream) {
-                  el.srcObject = remoteAudioStream;
-                  el.play().catch(() => {});
-                }
-              }}
-              autoPlay
-              playsInline
-            />
-          ))}
+        {(() => {
+          const uids = Array.from(
+            new Set([
+              ...Object.keys(remoteAudioStreamsRef.current),
+              ...Object.keys(remoteStreamsRef.current),
+            ])
+          ).filter((uid) => uid !== profile.uid);
+
+          return uids.map((uid) => {
+            const stream = remoteAudioStreamsRef.current[uid] || remoteStreamsRef.current[uid];
+            if (!stream) return null;
+            return (
+              <audio
+                key={`audio-playback-${uid}`}
+                ref={(el) => {
+                  remoteAudioRefs.current[uid] = el;
+                  if (el) {
+                    if (el.srcObject !== stream) {
+                      el.srcObject = stream;
+                    }
+                    el.play().catch(() => {});
+                  }
+                }}
+                autoPlay
+                playsInline
+              />
+            );
+          });
+        })()}
       </div>
 
       {isPip ? (
