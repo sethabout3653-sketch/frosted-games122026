@@ -3791,8 +3791,66 @@ Respond strictly in valid JSON format:
   });
 
   // ==========================================
-  // 🌟 AI Assistant & OpenRouter Free Models
+  // 🌐 Real-Time Live Web Search Endpoint
   // ==========================================
+  app.get("/api/search", async (req, res) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      if (!q) return res.json({ results: [] });
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
+
+      // Query DuckDuckGo Instant Search / HTML API
+      const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`;
+      const response = await fetch(searchUrl, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9"
+        }
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return res.json({ results: [] });
+      }
+
+      const html = await response.text();
+      const results: Array<{ title: string; url: string; snippet: string }> = [];
+
+      // Extract search results from DuckDuckGo HTML
+      const resultBlocks = html.split(/class="result\s+results_links/gi).slice(1);
+      for (const block of resultBlocks.slice(0, 7)) {
+        const titleMatch = block.match(/class="result__a"[^>]*>([^<]+)<\/a>/i);
+        const urlMatch = block.match(/href="([^"]+)"/i);
+        const snippetMatch = block.match(/class="result__snippet"[^>]*>([^<]+(?:<b>[^<]+<\/b>[^<]*)*)<\/a>/i) || block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i);
+
+        let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, "").trim() : "";
+        let rawUrl = urlMatch ? urlMatch[1] : "";
+        let snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() : "";
+
+        // Unpack DuckDuckGo redirect url if needed
+        if (rawUrl.includes("uddg=")) {
+          try {
+            const parsed = new URL(rawUrl, "https://duckduckgo.com");
+            const actual = parsed.searchParams.get("uddg");
+            if (actual) rawUrl = decodeURIComponent(actual);
+          } catch (e) {}
+        }
+
+        if (title && rawUrl.startsWith("http")) {
+          results.push({ title, url: rawUrl, snippet });
+        }
+      }
+
+      return res.json({ results });
+    } catch (err: any) {
+      console.warn("Live web search error:", err?.message);
+      return res.json({ results: [] });
+    }
+  });
   interface OpenRouterFreeModel {
     id: string;
     name: string;
@@ -4310,11 +4368,12 @@ Respond strictly in valid JSON format:
 
       const {
         messages = [],
-        model = "deepseek/deepseek-chat:free",
-        systemPrompt = "You are a knowledgeable, friendly, and direct study partner and engineering mentor. Provide clear, comprehensive, step-by-step reasoning in clean Markdown without robotic filler.",
+        model = "openrouter/free",
+        systemPrompt = "You are a knowledgeable, friendly, and direct study partner, full-stack app developer, and engineering mentor. Provide clear, comprehensive, step-by-step reasoning and complete working code.",
         temperature = 0.7,
         customKey = "",
         stream = false,
+        enableWebSearch = false,
         endpoint = "https://openrouter.ai/api/v1"
       } = body || {};
 
@@ -4334,17 +4393,70 @@ Respond strictly in valid JSON format:
       const serverKey = sanitizeApiKey(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
       const openrouterKey = (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : "") || serverKey;
 
-      // Natural, intelligent, un-robotic knowledge base
-      const frostedKnowledge = `You are the built-in study assistant and intelligent companion for Frosted Studying.
-You are articulate, insightful, patient, and conversational.
+      // Extract last user query to determine if web search is needed
+      const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
+      const lastQuery = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
+      const needsWebSearch = enableWebSearch || /\b(?:search|latest|news|current|price|weather|browse|look\s*up|who\s*is|what\s*happened|today|202[5-9])\b/i.test(lastQuery);
+
+      let webSearchContext = "";
+      if (needsWebSearch && lastQuery.trim().length > 3) {
+        try {
+          const searchController = new AbortController();
+          const searchTimeout = setTimeout(() => searchController.abort(), 4000);
+          const searchRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(lastQuery.slice(0, 150))}`, {
+            signal: searchController.signal,
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            }
+          });
+          clearTimeout(searchTimeout);
+          if (searchRes.ok) {
+            const html = await searchRes.text();
+            const resultBlocks = html.split(/class="result\s+results_links/gi).slice(1, 5);
+            const searchSnippets: string[] = [];
+            for (const b of resultBlocks) {
+              const tM = b.match(/class="result__a"[^>]*>([^<]+)<\/a>/i);
+              const uM = b.match(/href="([^"]+)"/i);
+              const sM = b.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i);
+              if (tM && uM) {
+                let url = uM[1];
+                if (url.includes("uddg=")) {
+                  try {
+                    const parsed = new URL(url, "https://duckduckgo.com");
+                    const act = parsed.searchParams.get("uddg");
+                    if (act) url = decodeURIComponent(act);
+                  } catch (e) {}
+                }
+                const title = tM[1].replace(/<[^>]+>/g, "").trim();
+                const snippet = sM ? sM[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() : "";
+                searchSnippets.push(`- **[${title}](${url})**: ${snippet}`);
+              }
+            }
+            if (searchSnippets.length > 0) {
+              webSearchContext = `\n\n### 🌐 Real-Time Live Web Search Results (Current):\n${searchSnippets.join("\n")}\n*Use these real-time search results to ground your factual explanations and link to sources.*`;
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Natural, intelligent, un-robotic knowledge base with File & App Creator capabilities
+      const frostedKnowledge = `You are Frosted AI, the built-in intelligent study companion, live web research assistant, and interactive app/file creator for Frosted Studying.
+You are articulate, insightful, creative, patient, and conversational.
 Never use canned robotic phrases like "As an AI language model...", "I am programmed to...", "Processing query...", or "Certainly! I would be pleased to assist you with that."
-Speak directly, warmly, and naturally, like an experienced tutor and software mentor.
+Speak directly, warmly, and naturally, like a world-class tutor and senior full-stack software engineer.
+
+🚀 CAPABILITIES:
+1. 🌐 Live Web Search & Research: You have access to real-time internet search results. Cite sources, explain current events, and find the latest docs and guides.
+2. 📱 Interactive App & Game Creator: When asked to build an app, mini-game, calculator, simulation, or widget:
+   - Provide complete, beautiful, working single-file HTML/CSS/JS applications!
+   - Include inline CSS and JavaScript with interactive Canvas, animations, sound effects, or responsive controls.
+   - Use standard code blocks with the target filename, e.g. \`\`\`html:game.html or \`\`\`html:app.html. The chat UI renders a live interactive preview sandbox!
+3. 📁 File Generator: When asked to create files (Python scripts, JSON datasets, Markdown cheat sheets, SVG illustrations, CSVs, shell scripts), output them completely without placeholders with filenames like \`\`\`python:solver.py, \`\`\`json:config.json, \`\`\`markdown:notes.md.
 
 Platform context:
-- Tab Cloaking & Stealth: Disguises the tab title and favicon (Google Drive, Canvas, Clever, Google Classroom) and provides Panic Keys (switching to Google Drive instantly) and an unblocked proxy/about:blank launcher.
+- Tab Cloaking & Stealth: Disguises the tab title and favicon (Google Drive, Canvas, Clever, Google Classroom) and provides Panic Keys.
 - Games Suite: Unblocked web games (Slope, Retro Arcade, Chess, 2048, Geometry Dash, Sudoku, etc.).
-- Productivity: Multi-persona AI tutor, active recall flashcards, markdown study notes, Pomodoro timer, step-by-step math solver.
-- Themes: Frosted Arctic, Midnight Abyss, Cyber Amethyst, Emerald Matrix, Crimson Inferno, Cyberpunk.`;
+- Productivity: Multi-persona AI tutor, active recall flashcards, markdown study notes, Pomodoro timer, step-by-step math solver.${webSearchContext}`;
 
       const openrouterMessages: any[] = [];
       const hasSystemMessage = messages.some((m: any) => m.role === "system");
@@ -4369,18 +4481,24 @@ Platform context:
       }
 
       // =========================================================================
-      // 1. PRIMARY ENGINE: OpenRouter High-Speed Inference
+      // 1. PRIMARY ENGINE: OpenRouter High-Speed Inference (with auto free fallback)
       // =========================================================================
       if (openrouterKey) {
         const isGroqKey = openrouterKey.startsWith("gsk_");
         const targetEndpoint = isGroqKey ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
         const liveModels = await resolveActiveOpenRouterModels(openrouterKey);
-        const mappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "meta-llama/llama-3.3-70b-instruct:free";
+        const mappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "openrouter/free";
+        
+        // Strip :free from models if they fail, and try auto router
         const candidateModels = Array.from(new Set([
+          "openrouter/free",
           mappedModel,
+          mappedModel.replace(/:free$/i, ""),
           model,
+          model.replace(/:free$/i, ""),
+          "openrouter/auto",
           ...liveModels,
-          ...FALLBACK_OPENROUTER_MODELS
+          ...FALLBACK_OPENROUTER_MODELS.map(m => m.replace(/:free$/i, "")),
         ])).filter(Boolean);
 
         for (const candModel of candidateModels) {
@@ -4400,7 +4518,7 @@ Platform context:
                 model: candModel,
                 messages: openrouterMessages,
                 temperature: Math.min(1.0, Math.max(0.1, temperature)),
-                max_tokens: 2048,
+                max_tokens: 3000,
                 stream: Boolean(isStream),
               }),
               signal: controller.signal,
@@ -4475,7 +4593,7 @@ Platform context:
       }
 
       // =========================================================================
-      // 2. SECONDARY ENGINE: Gemini Fast Inference
+      // 2. SECONDARY ENGINE: Gemini Fast Inference with Google Search Grounding
       // =========================================================================
       const geminiApiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "") || (isClientGemini ? (customKey || bearerToken) : "");
       if (geminiApiKey) {
@@ -4493,43 +4611,51 @@ Platform context:
             conversationContents.push({ role: "user", parts: [{ text: "Hello!" }] });
           }
 
-          if (isStream) {
-            const streamResult = await ai.models.generateContentStream({
-              model: "gemini-3.8-flash",
-              contents: conversationContents,
-              config: {
-                systemInstruction: `${frostedKnowledge}\n\n${systemPrompt}`,
-                temperature: Math.min(1.0, Math.max(0.1, temperature))
+          for (const gModel of GEMINI_MODELS_CASCADE) {
+            try {
+              if (isStream) {
+                const streamResult = await ai.models.generateContentStream({
+                  model: gModel,
+                  contents: conversationContents,
+                  config: {
+                    systemInstruction: `${frostedKnowledge}\n\n${systemPrompt}`,
+                    temperature: Math.min(1.0, Math.max(0.1, temperature)),
+                    tools: [{ googleSearch: {} }]
+                  }
+                });
+                res.setHeader("Content-Type", "text/event-stream");
+                res.setHeader("Cache-Control", "no-cache, no-transform");
+                res.setHeader("Connection", "keep-alive");
+                res.setHeader("X-Accel-Buffering", "no");
+                for await (const chunk of streamResult) {
+                  const delta = chunk.text || "";
+                  if (delta) {
+                    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n\n`);
+                  }
+                }
+                res.write("data: [DONE]\n\n");
+                return res.end();
+              } else {
+                const nonStreamResult = await ai.models.generateContent({
+                  model: gModel,
+                  contents: conversationContents,
+                  config: {
+                    systemInstruction: `${frostedKnowledge}\n\n${systemPrompt}`,
+                    temperature: Math.min(1.0, Math.max(0.1, temperature)),
+                    tools: [{ googleSearch: {} }]
+                  }
+                });
+                const text = nonStreamResult.text || "";
+                return res.json({
+                  text,
+                  choices: [{ message: { content: text } }],
+                  model: gModel,
+                  provider: "google-gemini"
+                });
               }
-            });
-            res.setHeader("Content-Type", "text/event-stream");
-            res.setHeader("Cache-Control", "no-cache, no-transform");
-            res.setHeader("Connection", "keep-alive");
-            res.setHeader("X-Accel-Buffering", "no");
-            for await (const chunk of streamResult) {
-              const delta = chunk.text || "";
-              if (delta) {
-                res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n\n`);
-              }
+            } catch (gemModelErr) {
+              continue;
             }
-            res.write("data: [DONE]\n\n");
-            return res.end();
-          } else {
-            const nonStreamResult = await ai.models.generateContent({
-              model: "gemini-3.8-flash",
-              contents: conversationContents,
-              config: {
-                systemInstruction: `${frostedKnowledge}\n\n${systemPrompt}`,
-                temperature: Math.min(1.0, Math.max(0.1, temperature))
-              }
-            });
-            const text = nonStreamResult.text || "";
-            return res.json({
-              text,
-              choices: [{ message: { content: text } }],
-              model: "gemini-3.8-flash",
-              provider: "google-gemini"
-            });
           }
         } catch (gemErr: any) {}
       }

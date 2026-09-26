@@ -37,6 +37,12 @@ import {
   Settings2,
   Flame,
   Wand2,
+  Globe,
+  Play,
+  Maximize2,
+  FolderPlus,
+  FileCode,
+  MonitorPlay,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import FriendsPanel from "./FriendsPanel";
@@ -153,58 +159,229 @@ const AVAILABLE_MODELS: AIModelOption[] = [
   },
 ];
 
+// =========================================================================
+// 🚀 Interactive App Runner, Canvas Sandbox, & File Creator Component
+// =========================================================================
+interface AppSandboxArtifactProps {
+  code: string;
+  language: string;
+  rawHeader?: string;
+}
+
+function AppSandboxArtifact({ code, language, rawHeader }: AppSandboxArtifactProps) {
+  const [activeTab, setActiveTab] = useState<"preview" | "code">("preview");
+  const [copied, setCopied] = useState(false);
+  const [iframeKey, setIframeKey] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Determine filename from header like ```html:pong.html or default
+  const filenameMatch = rawHeader?.match(/[:\s]([a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+)/);
+  const defaultExt = language === "python" ? "py" : language === "javascript" || language === "js" ? "js" : language === "json" ? "json" : language === "markdown" || language === "md" ? "md" : "html";
+  const filename = filenameMatch ? filenameMatch[1] : `app.${defaultExt}`;
+
+  const isHtmlOrWeb = language === "html" || language === "htm" || language === "svg" || code.includes("<!DOCTYPE") || code.includes("<html") || (code.includes("<canvas") && code.includes("<script"));
+
+  const handleDownload = () => {
+    const mime = isHtmlOrWeb ? "text/html;charset=utf-8" : language === "json" ? "application/json" : "text/plain;charset=utf-8";
+    const blob = new Blob([code], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleOpenInNewTab = () => {
+    const blob = new Blob([code], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className={`my-3.5 rounded-2xl overflow-hidden border border-cyan-500/30 bg-[#080d1a] shadow-2xl transition-all ${isFullscreen ? "fixed inset-2 sm:inset-6 z-50 flex flex-col bg-[#050814]" : ""}`}>
+      {/* Sandbox Header Bar */}
+      <div className="px-3.5 py-2.5 bg-gradient-to-r from-cyan-950/60 via-[#0a1226] to-indigo-950/60 border-b border-cyan-500/20 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-6 h-6 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shrink-0">
+            {isHtmlOrWeb ? <MonitorPlay size={13} /> : <FileCode size={13} />}
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span className="font-bold text-white text-xs truncate flex items-center gap-1.5">
+              <span>{filename}</span>
+              {isHtmlOrWeb && (
+                <span className="px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-mono text-[9px] font-bold border border-cyan-400/30">
+                  LIVE APP
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isHtmlOrWeb && (
+            <div className="flex items-center rounded-xl bg-black/40 border border-white/10 p-0.5 mr-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab("preview")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                  activeTab === "preview" ? "bg-cyan-500 text-black shadow-md font-extrabold" : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                <Play size={10} fill={activeTab === "preview" ? "currentColor" : "none"} />
+                <span>Run App</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("code")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                  activeTab === "code" ? "bg-cyan-500 text-black shadow-md font-extrabold" : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                <Code size={11} />
+                <span>Code</span>
+              </button>
+            </div>
+          )}
+
+          {isHtmlOrWeb && activeTab === "preview" && (
+            <button
+              type="button"
+              onClick={() => setIframeKey((k) => k + 1)}
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+              title="Restart App"
+            >
+              <RotateCcw size={12} />
+            </button>
+          )}
+
+          {isHtmlOrWeb && (
+            <button
+              type="button"
+              onClick={handleOpenInNewTab}
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+              title="Open App in New Tab"
+            >
+              <ExternalLink size={12} />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+            title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+          >
+            <Maximize2 size={12} />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+            title="Download File"
+          >
+            <Download size={11} />
+            <span className="hidden sm:inline">Save</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+            title="Copy Code"
+          >
+            {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Sandbox Body / Live Iframe / Code View */}
+      {isHtmlOrWeb && activeTab === "preview" ? (
+        <div className={`w-full bg-black relative ${isFullscreen ? "flex-1 min-h-[400px]" : "h-80 sm:h-96"}`}>
+          <iframe
+            key={iframeKey}
+            srcDoc={code}
+            title={filename}
+            sandbox="allow-scripts allow-modals allow-forms allow-same-origin allow-popups"
+            className="w-full h-full border-0 bg-neutral-900 rounded-b-2xl"
+          />
+        </div>
+      ) : (
+        <pre className={`p-3.5 overflow-x-auto text-[11px] font-mono text-neutral-200 leading-relaxed custom-scrollbar bg-black/60 select-text ${isFullscreen ? "flex-1 max-h-none" : "max-h-80"}`}>
+          <code>{code}</code>
+        </pre>
+      )}
+    </div>
+  );
+}
+
 const QUICK_ACTIONS = [
+  {
+    label: "Search Web",
+    promptPrefix: "Search the live internet and find the latest up-to-date information, sources, and guides on:\n\n",
+    icon: "🌐",
+  },
+  {
+    label: "Make a Game",
+    promptPrefix: "Build a complete, fun, self-contained single-file HTML5 Canvas game with controls, score system, sound effects, and restart button for:\n\n",
+    icon: "🎮",
+  },
+  {
+    label: "Build an App",
+    promptPrefix: "Create a complete, responsive single-file HTML/CSS/JS web application with a modern dark theme and interactive features for:\n\n",
+    icon: "📱",
+  },
+  {
+    label: "Create a File",
+    promptPrefix: "Create a complete, ready-to-run file with code, data, and full implementation for:\n\n",
+    icon: "📁",
+  },
   {
     label: "Explain Simply",
     promptPrefix: "Explain this concept in plain, simple English with an everyday analogy:\n\n",
     icon: "💡",
   },
   {
-    label: "Summarize",
-    promptPrefix: "Provide a clear, concise bulleted summary and 3 key takeaways of:\n\n",
-    icon: "📑",
-  },
-  {
     label: "Debug Code",
     promptPrefix: "Please review this code for bugs, logic errors, and performance improvements:\n\n```\n\n```",
     icon: "🔍",
-  },
-  {
-    label: "Practice Quiz",
-    promptPrefix: "Create a 4-question practice quiz with an answer key for:\n\n",
-    icon: "📝",
-  },
-  {
-    label: "Step-by-Step",
-    promptPrefix: "Walk me step-by-step through solving this problem:\n\n",
-    icon: "🎯",
   },
 ];
 
 const PROMPT_SUGGESTIONS = [
   {
-    title: "Master a Core Concept",
-    desc: "How does DNS resolution and IP routing work under the hood?",
-    prompt: "How does DNS resolution and IP routing work under the hood? Walk through each step simply.",
-    icon: "🌐",
+    title: "🎮 Create a Retro Arcade Game",
+    desc: "Build a complete playable Space Invaders or Flappy Bird Canvas game in a single file.",
+    prompt: "Build a complete, interactive HTML5 Canvas arcade space shooter game in a single file with score, sound effects, and keyboard controls.",
+    icon: "🕹️",
   },
   {
-    title: "Physics & Calculus Walkthrough",
-    desc: "Derive and explain the kinematics equations for projectile motion.",
-    prompt: "Can you derive and explain the kinematics equations for 2D projectile motion with an example?",
-    icon: "📐",
-  },
-  {
-    title: "Full Code Review",
-    desc: "Write a clean TypeScript debounce utility with cancel support.",
-    prompt: "Write a clean, fully-typed TypeScript debounce function with immediate and cancel support.",
+    title: "📱 Build an Interactive Tool / Calculator",
+    desc: "Create a sleek scientific calculator, pomodoro timer, or audio visualizer.",
+    prompt: "Build a complete, responsive dark-themed scientific calculator and unit converter in a single-file HTML/CSS/JS app.",
     icon: "⚡",
   },
   {
-    title: "Essay & Rhetoric Refinement",
-    desc: "Help structure an argumentative essay with strong counterarguments.",
-    prompt: "Help me structure an argumentative essay on the ethics of AI in academic research with strong counterarguments.",
-    icon: "✍️",
+    title: "🌐 Research Live Web Information",
+    desc: "Search the internet for the latest 2026 tech breakthroughs, news, and releases.",
+    prompt: "Search the live web and provide an up-to-date summary with source links on the latest AI, science, and computing breakthroughs.",
+    icon: "🌐",
+  },
+  {
+    title: "📁 Generate a Full Python / Data File",
+    desc: "Create a complete Python script or structured JSON dataset ready to download.",
+    prompt: "Write a complete, fully-commented Python automation script with error handling and sample dataset ready to run.",
+    icon: "🐍",
   },
 ];
 
@@ -242,6 +419,7 @@ export default function AIAssistant() {
     return () => window.removeEventListener("frosted_profile_updated", handleProfileUpdate);
   }, []);
 
+  const [webSearchEnabled, setWebSearchEnabled] = useState<boolean>(false);
   const [apiKey] = useState<string>(() => localStorage.getItem("openrouter_api_key") || localStorage.getItem("groq_api_key") || "");
   const [availableModels, setAvailableModels] = useState<AIModelOption[]>(AVAILABLE_MODELS);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -602,6 +780,7 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
           systemPrompt: personaDirectives,
           temperature: temperature,
           stream: true,
+          enableWebSearch: webSearchEnabled,
           customKey: effectiveKey || undefined,
         }),
         signal: controller.signal,
@@ -617,6 +796,7 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
             systemPrompt: personaDirectives,
             temperature: temperature,
             stream: false,
+            enableWebSearch: webSearchEnabled,
             customKey: effectiveKey || undefined,
           }),
           signal: controller.signal,
@@ -1342,34 +1522,13 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
                                           );
                                         }
 
-                                        const codeId = "code-" + Math.random().toString(36).slice(2);
-                                        const isCopied = copiedCodeId === codeId;
-
+                                        const lang = (match?.[1] || "code").toLowerCase();
                                         return (
-                                          <div className="my-2.5 rounded-xl overflow-hidden border border-white/10 bg-[#0a0d14] shadow-lg">
-                                            <div className="px-3 py-1.5 bg-white/5 border-b border-white/5 flex items-center justify-between text-[10px] text-neutral-400 font-mono">
-                                              <span>{match?.[1] || "code"}</span>
-                                              <button
-                                                onClick={() => handleCopyText(codeContent, codeId)}
-                                                className="flex items-center gap-1 text-neutral-300 hover:text-white transition-colors cursor-pointer"
-                                              >
-                                                {isCopied ? (
-                                                  <>
-                                                    <Check size={11} className="text-emerald-400" />
-                                                    <span className="text-emerald-400 font-bold">Copied</span>
-                                                  </>
-                                                ) : (
-                                                  <>
-                                                    <Copy size={11} />
-                                                    <span>Copy</span>
-                                                  </>
-                                                )}
-                                              </button>
-                                            </div>
-                                            <pre className="p-3 overflow-x-auto text-[11px] font-mono text-neutral-200 leading-relaxed custom-scrollbar">
-                                              <code>{children}</code>
-                                            </pre>
-                                          </div>
+                                          <AppSandboxArtifact
+                                            code={codeContent}
+                                            language={lang}
+                                            rawHeader={className}
+                                          />
                                         );
                                       },
                                       p({ children }) {
@@ -1476,6 +1635,20 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
           <div className="w-full max-w-5xl lg:max-w-6xl mx-auto flex flex-col gap-2 px-1 sm:px-4">
             {/* Quick Action Chips above input */}
             <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+              <button
+                type="button"
+                onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                  webSearchEnabled
+                    ? "bg-cyan-500 text-black border-cyan-400 font-extrabold shadow-sm"
+                    : "bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border-white/10"
+                }`}
+                title={webSearchEnabled ? "Live Web Search: Active" : "Click to enable Live Web Search"}
+              >
+                <Globe size={12} className={webSearchEnabled ? "text-black animate-spin" : "text-cyan-400"} />
+                <span>{webSearchEnabled ? "Web Search Active" : "Live Web Search"}</span>
+              </button>
+
               {QUICK_ACTIONS.map((action, idx) => (
                 <button
                   key={idx}
