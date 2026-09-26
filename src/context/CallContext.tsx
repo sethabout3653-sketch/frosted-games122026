@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
-import { ICE_SERVERS } from "../lib/webrtc-config";
+import { ICE_SERVERS, acquireRobustMediaStream } from "../lib/webrtc-config";
 import { sendBroadcastSignal, subscribeBroadcastSignals } from "../lib/database";
 import { getSavedProfile } from "../lib/activity-tracker";
 import {
@@ -941,39 +941,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       try {
-        let stream: MediaStream;
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: { ideal: true },
-              noiseSuppression: { ideal: true },
-              autoGainControl: { ideal: true },
-              channelCount: { ideal: 2, min: 1 },
-              sampleRate: { ideal: 48000, min: 44100 },
-              sampleSize: { ideal: 16 },
-            },
-            video:
-              type === "video"
-                ? {
-                    width: { ideal: 1280, max: 1280 },
-                    height: { ideal: 720, max: 720 },
-                    frameRate: { ideal: 30, max: 30 },
-                  }
-                : false,
-          });
-        } catch {
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            },
-            video:
-              type === "video"
-                ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
-                : false,
-          });
-        }
+        const stream = await acquireRobustMediaStream({ audio: true, video: type === "video" });
 
         setLocalStream(stream);
         localStreamRef.current = stream;
@@ -1062,39 +1030,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     playCallTone("connected");
 
     try {
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: { ideal: true },
-            noiseSuppression: { ideal: true },
-            autoGainControl: { ideal: true },
-            channelCount: { ideal: 2, min: 1 },
-            sampleRate: { ideal: 48000, min: 44100 },
-            sampleSize: { ideal: 16 },
-          },
-          video:
-            currentInc.callType === "video"
-              ? {
-                  width: { ideal: 1280, max: 1280 },
-                  height: { ideal: 720, max: 720 },
-                  frameRate: { ideal: 30, max: 30 },
-                }
-              : false,
-        });
-      } catch {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video:
-            currentInc.callType === "video"
-              ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
-              : false,
-        });
-      }
+      const stream = await acquireRobustMediaStream({ audio: true, video: currentInc.callType === "video" });
 
       setLocalStream(stream);
       localStreamRef.current = stream;

@@ -179,7 +179,14 @@ export default function ActiveCallModal() {
         ref={remoteAudioRef}
         autoPlay
         playsInline
-        className="hidden"
+        style={{
+          position: "absolute",
+          width: "1px",
+          height: "1px",
+          opacity: 0,
+          pointerEvents: "none",
+          zIndex: -1,
+        }}
       />
 
       {isMinimized ? (

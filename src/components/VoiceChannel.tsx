@@ -49,7 +49,7 @@ import { SmartVoiceDetector } from "../utils/audioVAD";
 import { extractDominantColor, getFallbackColor, parseHexToRgb } from "../utils/colorExtractor";
 import { getCurrentActivity, onActivityChanged, setVoiceState } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
-import { ICE_SERVERS } from "../lib/webrtc-config";
+import { ICE_SERVERS, acquireRobustMediaStream } from "../lib/webrtc-config";
 import { wsClient } from "../lib/websocket-client";
 
 interface VoiceChannelProps {
@@ -381,33 +381,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
     return () => clearInterval(interval);
   }, [activeScreenShare, trackTrigger]);
 
-  // Acquire microphone stream with studio quality 48kHz sampling, acoustic echo cancellation, and noise suppression
+  // Acquire microphone stream with robust automatic silent fallback if missing
   const acquireMicrophoneStream = useCallback(async (): Promise<MediaStream> => {
-    try {
-      const constraints: MediaStreamConstraints = {
-        audio: {
-          echoCancellation: { ideal: true },
-          noiseSuppression: { ideal: true },
-          autoGainControl: { ideal: true },
-          // Mono keeps echo cancellation and CPU usage stable during voice calls.
-          channelCount: { ideal: 1, min: 1 },
-          sampleRate: { ideal: 48000 },
-          sampleSize: { ideal: 16 },
-        },
-        video: false,
-      };
-      return await navigator.mediaDevices.getUserMedia(constraints);
-    } catch (err) {
-      console.warn("Studio mic constraints failed, using standard fallback:", err);
-      return await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
-    }
+    return await acquireRobustMediaStream({ audio: true, video: false });
   }, []);
 
   // Connect microphone to live Web Audio pipeline for speech/sound analysis, noise cleanup & visual VAD
@@ -2557,7 +2533,17 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   return (
     <>
       {/* Hidden persistent audio playback elements for all remote peers (never unmounted on view mode toggle) */}
-      <div className="hidden" aria-hidden="true">
+      <div
+        style={{
+          position: "absolute",
+          width: "1px",
+          height: "1px",
+          opacity: 0,
+          pointerEvents: "none",
+          zIndex: -1,
+        }}
+        aria-hidden="true"
+      >
         {activeParticipants
           .filter((p) => p.uid !== profile.uid)
           .map((p) => (
