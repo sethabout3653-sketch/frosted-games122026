@@ -4393,10 +4393,12 @@ Respond strictly in valid JSON format:
       const serverKey = sanitizeApiKey(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
       const openrouterKey = (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : "") || serverKey;
 
-      // Extract last user query to determine if web search is needed
+       // Extract last user query to determine if web search is needed
       const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
       const lastQuery = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
-      const needsWebSearch = enableWebSearch || /\b(?:search|latest|news|current|price|weather|browse|look\s*up|who\s*is|what\s*happened|today|202[5-9])\b/i.test(lastQuery);
+      const needsWebSearch = enableWebSearch || 
+        /\b(?:search|latest|news|current|price|weather|browse|look\s*up|who\s*is|what\s*happened|today|yesterday|tomorrow|release|update|when\s*did|where\s*is|how\s*to\s*install|doc|version|202[4-9]|ranking|scores?|stock|game|create|code|file|build|maker)\b/i.test(lastQuery) ||
+        /\b(?:find|check|verify|lookup)\s+(?:me\s+)?(?:the\s+)?/i.test(lastQuery);
 
       let webSearchContext = "";
       if (needsWebSearch && lastQuery.trim().length > 3) {

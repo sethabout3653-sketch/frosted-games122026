@@ -419,7 +419,7 @@ export default function AIAssistant() {
     return () => window.removeEventListener("frosted_profile_updated", handleProfileUpdate);
   }, []);
 
-  const [webSearchEnabled, setWebSearchEnabled] = useState<boolean>(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState<boolean>(true);
   const [apiKey] = useState<string>(() => localStorage.getItem("openrouter_api_key") || localStorage.getItem("groq_api_key") || "");
   const [availableModels, setAvailableModels] = useState<AIModelOption[]>(AVAILABLE_MODELS);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -1020,102 +1020,7 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
           </button>
         </div>
 
-        {/* Persona Selector */}
-        <div className="px-3 pt-3 pb-2.5 border-b border-[var(--theme-border-subtle)] space-y-2">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-cyan-400 flex items-center gap-1">
-              <Sparkles size={11} /> Persona
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowPersonaModal(true)}
-              className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 hover:underline cursor-pointer"
-            >
-              <span>View All</span>
-            </button>
-          </div>
 
-          <div className="relative">
-            <button
-              onClick={() => setShowPersonaDropdown(!showPersonaDropdown)}
-              style={{
-                backgroundColor: "var(--theme-surface)",
-                borderColor: "var(--theme-border-subtle)",
-              }}
-              className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl border text-xs font-semibold text-white hover:bg-white/5 transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2 truncate">
-                <div
-                  className="w-6 h-6 rounded-lg flex items-center justify-center text-sm shrink-0 overflow-hidden"
-                  style={{
-                    backgroundColor: `${activePersona.accentColor || "#38bdf8"}25`,
-                  }}
-                >
-                  {isCustomIcon ? (
-                    <img src={activePersona.icon} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <span>{activePersona.icon}</span>
-                  )}
-                </div>
-                <span className="truncate font-bold">{activePersona.name}</span>
-              </div>
-              <ChevronDown size={14} className="text-neutral-400 shrink-0" />
-            </button>
-
-            {showPersonaDropdown && (
-              <>
-                <div className="fixed inset-0 z-50" onClick={() => setShowPersonaDropdown(false)} />
-                <div
-                  style={{
-                    backgroundColor: "var(--theme-darkest)",
-                    borderColor: "var(--theme-border)",
-                  }}
-                  className="absolute top-full left-0 right-0 mt-1.5 z-50 p-2 rounded-2xl border shadow-2xl backdrop-blur-2xl space-y-1 max-h-80 overflow-y-auto custom-scrollbar"
-                >
-                  <div className="px-2 py-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-neutral-400">
-                    <span>Choose Persona</span>
-                  </div>
-
-                  {personas.map((persona) => {
-                    const isSelected = selectedPersonaId === persona.id;
-                    const isImg = persona.icon?.startsWith("http");
-                    return (
-                      <button
-                        key={persona.id}
-                        onClick={() => {
-                          handleSelectPersona(persona);
-                          setShowPersonaDropdown(false);
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs transition-colors cursor-pointer text-left ${
-                          isSelected
-                            ? "bg-[var(--theme-accent)] text-white font-bold"
-                            : "text-neutral-300 hover:bg-white/5 hover:text-white"
-                        }`}
-                      >
-                        <div
-                          className="w-6 h-6 rounded-md flex items-center justify-center text-xs shrink-0 overflow-hidden"
-                          style={{
-                            backgroundColor: `${persona.accentColor || "#38bdf8"}20`,
-                          }}
-                        >
-                          {isImg ? (
-                            <img src={persona.icon} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <span>{persona.icon}</span>
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span className="truncate font-semibold">{persona.name}</span>
-                        </div>
-                        {isSelected && <Check size={13} className="text-cyan-400 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
 
         {/* Conversation List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
@@ -1154,17 +1059,7 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
           })}
         </div>
 
-        {/* Sidebar Footer */}
-        <div className="p-3 border-t border-[var(--theme-border-subtle)] space-y-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => setShowPersonaModal(true)}
-            className="w-full py-2 px-3 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
-          >
-            <Sparkles size={13} />
-            <span>Choose Persona</span>
-          </button>
-        </div>
+
       </aside>
 
       {/* Main Chat Workspace */}
@@ -1254,41 +1149,14 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
               )}
             </div>
 
-            {/* Active Persona Pill Header */}
-            <button
-              type="button"
-              onClick={() => setShowPersonaModal(true)}
-              className="flex items-center gap-2 px-3 py-1 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-xs text-neutral-200 transition-colors cursor-pointer truncate"
-              title="Click to change Persona"
-            >
-              <div
-                className="w-5 h-5 rounded-md flex items-center justify-center text-xs shrink-0"
-                style={{ backgroundColor: `${activePersona.accentColor || "#38bdf8"}30` }}
-              >
-                {isCustomIcon ? (
-                  <img src={activePersona.icon} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <span>{activePersona.icon}</span>
-                )}
-              </div>
-              <span className="font-bold truncate text-white">{activePersona.name}</span>
-            </button>
+            {/* Clean branding title instead of active persona pill */}
+            <span className="text-xs font-black text-cyan-400 tracking-wider hidden sm:inline select-none uppercase px-1">
+              FROSTED AI
+            </span>
           </div>
 
           {/* Action Tools */}
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setShowPersonaModal(true)}
-              style={{
-                backgroundColor: "var(--theme-surface)",
-                borderColor: "var(--theme-border)",
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-cyan-300 hover:text-white hover:bg-cyan-500/20 transition-all cursor-pointer shadow-sm active:scale-95"
-              title="Choose AI Persona"
-            >
-              <Sparkles size={13} className="text-cyan-400" />
-              <span className="hidden sm:inline">Personas</span>
-            </button>
 
             <button
               onClick={() => setShowFriendsModal(true)}
@@ -1361,38 +1229,8 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
                 {activePersona.tagline || activePersona.description}
               </p>
 
-              {/* Persona Switch Button */}
-              <div className="flex items-center gap-3 mt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowPersonaModal(true)}
-                  className="px-4 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <Sparkles size={13} />
-                  Change Persona
-                </button>
-              </div>
-
-              {/* Quick Actions Row */}
-              <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
-                {QUICK_ACTIONS.map((action, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleApplyQuickAction(action.promptPrefix)}
-                    style={{
-                      backgroundColor: "var(--theme-surface)",
-                      borderColor: "var(--theme-border-subtle)",
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold text-neutral-200 hover:text-white hover:border-[var(--theme-border)] hover:bg-white/5 transition-all cursor-pointer shadow-sm active:scale-95"
-                  >
-                    <span>{action.icon}</span>
-                    <span>{action.label}</span>
-                  </button>
-                ))}
-              </div>
-
               {/* Starter Prompts */}
-              <div className="w-full mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+              <div className="w-full mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
                 {PROMPT_SUGGESTIONS.map((starter, idx) => (
                   <button
                     key={idx}
@@ -1633,34 +1471,6 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
           className="p-3 sm:p-5 border-t backdrop-blur-2xl shrink-0 z-20"
         >
           <div className="w-full max-w-5xl lg:max-w-6xl mx-auto flex flex-col gap-2 px-1 sm:px-4">
-            {/* Quick Action Chips above input */}
-            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
-              <button
-                type="button"
-                onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
-                  webSearchEnabled
-                    ? "bg-cyan-500 text-black border-cyan-400 font-extrabold shadow-sm"
-                    : "bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border-white/10"
-                }`}
-                title={webSearchEnabled ? "Live Web Search: Active" : "Click to enable Live Web Search"}
-              >
-                <Globe size={12} className={webSearchEnabled ? "text-black animate-spin" : "text-cyan-400"} />
-                <span>{webSearchEnabled ? "Web Search Active" : "Live Web Search"}</span>
-              </button>
-
-              {QUICK_ACTIONS.map((action, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleApplyQuickAction(action.promptPrefix)}
-                  className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-medium text-neutral-300 hover:text-white border border-white/5 transition-colors shrink-0 cursor-pointer flex items-center gap-1"
-                >
-                  <span>{action.icon}</span>
-                  <span>{action.label}</span>
-                </button>
-              ))}
-            </div>
-
             <div
               style={{
                 backgroundColor: "var(--theme-surface)",
@@ -1673,7 +1483,7 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
                 value={inputPrompt}
                 onChange={(e) => setInputPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={`Chat with ${activePersona.name} (${currentModelDisplayName})... (Enter to send, Shift+Enter for new line)`}
+                placeholder="Ask me anything... (Automatic Web Search, App Builder, and File Creator are active)"
                 rows={1}
                 className="flex-1 max-h-36 min-h-[40px] bg-transparent resize-none px-2 py-1.5 text-xs sm:text-sm text-white placeholder-neutral-500 focus:outline-none custom-scrollbar"
                 style={{ height: "auto" }}
