@@ -822,10 +822,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         candidate: type === "candidate" ? data : undefined,
         timestamp: Date.now(),
       };
-      // WebSocket is the single signaling path. Sending the same offer/candidate
-      // through multiple transports makes peers negotiate twice and causes audio
-      // glitches, duplicate tracks, and unnecessary database work.
-      wsClient.sendSignal(payload);
+      // Send signal via highly reliable dual-path sender (WebSocket + HTTP database relay)
+      sendBroadcastSignal(payload);
     },
     [profile.uid]
   );
