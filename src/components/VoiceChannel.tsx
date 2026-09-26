@@ -13,6 +13,7 @@ import {
   Radio,
   Check,
   X,
+  Sparkles,
   Loader2,
   Maximize2,
   Minimize2,

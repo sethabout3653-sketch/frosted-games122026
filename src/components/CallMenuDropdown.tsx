@@ -10,6 +10,7 @@ import {
   Headphones,
   Search,
   X,
+  Sparkles,
   Gamepad2,
   BookOpen,
   UserCheck,

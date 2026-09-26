@@ -37,7 +37,6 @@ function optimizeAudioSdp(sdp: string): string {
 }
 
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
-import { globalVoiceProcessor } from "../lib/voice-processor";
 
 export interface CallUser {
   uid: string;
@@ -510,6 +509,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       switch (sig.type) {
         case "direct_call_invite": {
+          if (isGuestUser(myProf.username)) return;
           // If already in an active or outgoing call, auto-decline as busy
           if (activeCallRef.current || outgoingCallRef.current) {
             sendBroadcastSignal({
@@ -933,6 +933,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const startDirectCall = useCallback(
     async (targetUser: CallUser, type: "audio" | "video") => {
       const myProf = getMyProfile();
+      if (isGuestUser(myProf?.username)) {
+        alert("Guest accounts do not have access to phone, video, or voice calls.");
+        return;
+      }
       cleanupCall();
       const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -971,16 +975,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
         }
 
-        const processedStream = await globalVoiceProcessor.processStream(stream);
-        setLocalStream(processedStream);
-        localStreamRef.current = processedStream;
+        setLocalStream(stream);
+        localStreamRef.current = stream;
 
         // Initialize PeerConnection
         const pc = createDirectPeerConnection(targetUser.uid, callId);
 
         // Add initial tracks to PC
-        processedStream.getTracks().forEach((track) => {
-          pc.addTrack(track, processedStream);
+        stream.getTracks().forEach((track) => {
+          pc.addTrack(track, stream);
         });
 
         // Start outgoing ringback sound
@@ -1040,6 +1043,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const answerIncomingCall = useCallback(async () => {
     const currentInc = incomingCallRef.current;
     const myProf = getMyProfile();
+    if (isGuestUser(myProf?.username)) {
+      alert("Guest accounts do not have access to calls.");
+      return;
+    }
     if (!currentInc || !myProf?.uid) return;
 
     if (ringtoneStopRef.current) {
@@ -1089,15 +1096,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      const processedStream = await globalVoiceProcessor.processStream(stream);
-      setLocalStream(processedStream);
-      localStreamRef.current = processedStream;
+      setLocalStream(stream);
+      localStreamRef.current = stream;
 
       const pc = createDirectPeerConnection(currentInc.callerUid, currentInc.callId);
 
       // Add local tracks to PeerConnection immediately
-      processedStream.getTracks().forEach((track) => {
-        pc.addTrack(track, processedStream);
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
       });
 
       const activeData: ActiveCallData = {
