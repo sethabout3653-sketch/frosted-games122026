@@ -170,18 +170,20 @@ interface AppSandboxArtifactProps {
 }
 
 const AppSandboxArtifact = React.memo(function AppSandboxArtifact({ code, language, rawHeader, isStreaming }: AppSandboxArtifactProps) {
-  const [activeTab, setActiveTab] = useState<"preview" | "code">("code");
+  const [activeTab, setActiveTab] = useState<"preview" | "code">(isStreaming ? "code" : "preview");
   const [copied, setCopied] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Set active tab to preview once it finishes streaming
+  // Keep track of streaming state to detect transition from true to false
+  const wasStreamingRef = useRef(isStreaming);
+
   useEffect(() => {
-    if (!isStreaming) {
+    if (wasStreamingRef.current && !isStreaming) {
+      // Transitioned from generating to finished: switch to preview!
       setActiveTab("preview");
-    } else {
-      setActiveTab("code");
     }
+    wasStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
   // Determine filename from header like ```html:pong.html or default
@@ -416,6 +418,184 @@ const PROMPT_SUGGESTIONS = [
     icon: "🐍",
   },
 ];
+
+interface ChatMessageItemProps {
+  message: any;
+  isMessageGenerating: boolean;
+  activePersona: any;
+  isCustomIcon: boolean;
+  expandedThoughts: Record<string, boolean>;
+  toggleThought: (msgId: string) => void;
+}
+
+const ChatMessageItem = React.memo(function ChatMessageItem({
+  message,
+  isMessageGenerating,
+  activePersona,
+  isCustomIcon,
+  expandedThoughts,
+  toggleThought,
+}: ChatMessageItemProps) {
+  const isUser = message.role === "user";
+
+  const components = useMemo(() => ({
+    code({ className, children, ...props }: any) {
+      const match = /language-(\w+)/.exec(className || "");
+      const codeContent = String(children).replace(/\n$/, "");
+      const isInline = !match && !String(children).includes("\n");
+
+      if (isInline) {
+        return (
+          <code
+            className="px-1.5 py-0.5 rounded bg-black/50 text-cyan-300 font-mono text-[11px]"
+            {...props}
+          >
+            {children}
+          </code>
+        );
+      }
+
+      const lang = (match?.[1] || "code").toLowerCase();
+      return (
+        <AppSandboxArtifact
+          code={codeContent}
+          language={lang}
+          rawHeader={className}
+          isStreaming={isMessageGenerating}
+        />
+      );
+    },
+    p({ children }: any) {
+      return <p className="mb-2.5 last:mb-0 leading-relaxed">{children}</p>;
+    },
+    ul({ children }: any) {
+      return <ul className="list-disc pl-4 mb-2.5 space-y-1">{children}</ul>;
+    },
+    ol({ children }: any) {
+      return <ol className="list-decimal pl-4 mb-2.5 space-y-1">{children}</ol>;
+    },
+    h1({ children }: any) {
+      return <h1 className="text-base font-bold text-white mb-2 mt-3">{children}</h1>;
+    },
+    h2({ children }: any) {
+      return <h2 className="text-sm font-bold text-white mb-1.5 mt-2.5">{children}</h2>;
+    },
+    h3({ children }: any) {
+      return <h3 className="text-xs font-bold text-white mb-1 mt-2">{children}</h3>;
+    },
+    blockquote({ children }: any) {
+      return (
+        <blockquote className="border-l-2 border-cyan-400 pl-3 my-2 text-neutral-300 italic">
+          {children}
+        </blockquote>
+      );
+    },
+  }), [isMessageGenerating]);
+
+  return (
+    <div className={`flex items-start gap-3.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+      {/* Message Avatar */}
+      <div
+        style={{
+          backgroundColor: isUser
+            ? "var(--theme-accent)"
+            : `${activePersona.accentColor || "#38bdf8"}25`,
+          borderColor: isUser
+            ? "var(--theme-border-strong)"
+            : `${activePersona.accentColor || "#38bdf8"}50`,
+        }}
+        className="h-9 w-9 rounded-2xl border flex items-center justify-center shrink-0 text-white shadow-md text-sm font-bold overflow-hidden"
+      >
+        {isUser ? (
+          <User size={16} />
+        ) : isCustomIcon ? (
+          <img src={activePersona.icon} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <span>{activePersona.icon}</span>
+        )}
+      </div>
+
+      <div className={`flex flex-col max-w-[92%] sm:max-w-[85%] ${isUser ? "items-end" : "items-start"}`}>
+        {/* Name / Role Pill */}
+        <div className="flex items-center gap-1.5 mb-1 px-1 text-[11px] text-neutral-400">
+          <span className="font-bold text-neutral-200">
+            {isUser ? "You" : activePersona.name}
+          </span>
+        </div>
+
+        <div
+          style={{
+            backgroundColor: isUser ? "var(--theme-accent)" : "#131826",
+            borderColor: isUser ? "var(--theme-border)" : "rgba(255,255,255,0.08)",
+          }}
+          className={`px-4 py-3.5 rounded-2xl border text-xs sm:text-sm text-neutral-100 shadow-lg ${
+            isUser ? "rounded-tr-sm" : "rounded-tl-sm"
+          } ${message.isError ? "border-rose-500/40 bg-rose-500/10 text-rose-200" : ""}`}
+        >
+          {isUser ? (
+            <div className="whitespace-pre-wrap font-medium leading-relaxed">{message.content}</div>
+          ) : (() => {
+            const { thought, answer, isStillThinking } = parseThoughtAndContent(message.content);
+            const isExpanded = expandedThoughts[message.id] ?? true;
+
+            return (
+              <div className="w-full space-y-3">
+                {/* Thinking Process */}
+                {(thought || isStillThinking) && (
+                  <div className="rounded-2xl border border-indigo-500/30 bg-indigo-950/20 backdrop-blur-md overflow-hidden transition-all shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => toggleThought(message.id)}
+                      className="w-full px-3.5 py-2 flex items-center justify-between gap-2 bg-indigo-900/20 hover:bg-indigo-900/30 transition-colors text-left cursor-pointer border-b border-indigo-500/20"
+                    >
+                      <div className="flex items-center gap-2 text-xs font-bold text-indigo-300">
+                        <Brain size={14} className={isStillThinking ? "text-indigo-400 animate-pulse" : "text-indigo-400"} />
+                        <span>
+                          {isStillThinking ? "Thinking through problem..." : "Reasoning Process"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 text-indigo-400 text-xs">
+                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="p-3 text-xs text-indigo-200/90 whitespace-pre-wrap leading-relaxed font-mono bg-black/40 max-h-72 overflow-y-auto custom-scrollbar select-text">
+                        {thought || "Analyzing steps..."}
+                        {isStillThinking && (
+                          <span className="inline-block w-1.5 h-3.5 ml-1 bg-indigo-400 animate-pulse align-middle" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Answer Markdown */}
+                <div className="prose prose-invert prose-xs sm:prose-sm max-w-none leading-relaxed break-words">
+                  {answer ? (
+                    <ReactMarkdown components={components}>
+                      {answer}
+                    </ReactMarkdown>
+                  ) : isStillThinking ? (
+                    <div className="flex items-center gap-1.5 text-indigo-300 py-1 text-xs">
+                      <Loader2 size={13} className="animate-spin text-indigo-400" />
+                      <span>Thinking through steps...</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-neutral-400 py-1">
+                      <Loader2 size={13} className="animate-spin text-cyan-400" />
+                      <span className="text-xs">Generating response...</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export default function AIAssistant() {
   const [showFriendsModal, setShowFriendsModal] = useState<boolean>(false);
@@ -1294,185 +1474,40 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
                 return (
                   <div
                     key={message.id}
-                    className={`flex items-start gap-3.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}
+                    className="flex flex-col"
                   >
-                    {/* Message Avatar */}
-                    <div
-                      style={{
-                        backgroundColor: isUser
-                          ? "var(--theme-accent)"
-                          : `${activePersona.accentColor || "#38bdf8"}25`,
-                        borderColor: isUser
-                          ? "var(--theme-border-strong)"
-                          : `${activePersona.accentColor || "#38bdf8"}50`,
-                      }}
-                      className="h-9 w-9 rounded-2xl border flex items-center justify-center shrink-0 text-white shadow-md text-sm font-bold overflow-hidden"
-                    >
-                      {isUser ? (
-                        <User size={16} />
-                      ) : isCustomIcon ? (
-                        <img src={activePersona.icon} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <span>{activePersona.icon}</span>
-                      )}
-                    </div>
+                    <ChatMessageItem
+                      message={message}
+                      isMessageGenerating={isMessageGenerating}
+                      activePersona={activePersona}
+                      isCustomIcon={isCustomIcon}
+                      expandedThoughts={expandedThoughts}
+                      toggleThought={toggleThought}
+                    />
 
-                    <div className={`flex flex-col max-w-[92%] sm:max-w-[85%] ${isUser ? "items-end" : "items-start"}`}>
-                      {/* Name / Role Pill */}
-                      <div className="flex items-center gap-1.5 mb-1 px-1 text-[11px] text-neutral-400">
-                        <span className="font-bold text-neutral-200">
-                          {isUser ? "You" : activePersona.name}
-                        </span>
+                    {/* Message Actions */}
+                    {!isUser && message.content && (
+                      <div className="flex items-center gap-2 mt-1.5 px-12 text-[10px] text-neutral-500">
+                        <span>{message.modelUsed || selectedModel}</span>
+                        <span>&bull;</span>
+                        <button
+                          onClick={() => {
+                            const parsed = parseThoughtAndContent(message.content);
+                            const textToCopy = parsed.answer || message.content;
+                            handleCopyText(textToCopy, message.id);
+                          }}
+                          className="hover:text-white transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Copy reply"
+                        >
+                          {copiedCodeId === message.id ? (
+                            <Check size={11} className="text-emerald-400" />
+                          ) : (
+                            <Copy size={11} />
+                          )}
+                          <span>{copiedCodeId === message.id ? "Copied" : "Copy"}</span>
+                        </button>
                       </div>
-
-                      <div
-                        style={{
-                          backgroundColor: isUser ? "var(--theme-accent)" : "#131826",
-                          borderColor: isUser ? "var(--theme-border)" : "rgba(255,255,255,0.08)",
-                        }}
-                        className={`px-4 py-3.5 rounded-2xl border text-xs sm:text-sm text-neutral-100 shadow-lg ${
-                          isUser ? "rounded-tr-sm" : "rounded-tl-sm"
-                        } ${message.isError ? "border-rose-500/40 bg-rose-500/10 text-rose-200" : ""}`}
-                      >
-                        {isUser ? (
-                          <div className="whitespace-pre-wrap font-medium leading-relaxed">{message.content}</div>
-                        ) : (() => {
-                          const { thought, answer, isStillThinking } = parseThoughtAndContent(message.content);
-                          const isExpanded = expandedThoughts[message.id] ?? true;
-
-                          return (
-                            <div className="w-full space-y-3">
-                              {/* Thinking Process */}
-                              {(thought || isStillThinking) && (
-                                <div className="rounded-2xl border border-indigo-500/30 bg-indigo-950/20 backdrop-blur-md overflow-hidden transition-all shadow-sm">
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleThought(message.id)}
-                                    className="w-full px-3.5 py-2 flex items-center justify-between gap-2 bg-indigo-900/20 hover:bg-indigo-900/30 transition-colors text-left cursor-pointer border-b border-indigo-500/20"
-                                  >
-                                    <div className="flex items-center gap-2 text-xs font-bold text-indigo-300">
-                                      <Brain size={14} className={isStillThinking ? "text-indigo-400 animate-pulse" : "text-indigo-400"} />
-                                      <span>
-                                        {isStillThinking ? "Thinking through problem..." : "Reasoning Process"}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-1 text-indigo-400 text-xs">
-                                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                    </div>
-                                  </button>
-
-                                  {isExpanded && (
-                                    <div className="p-3 text-xs text-indigo-200/90 whitespace-pre-wrap leading-relaxed font-mono bg-black/40 max-h-72 overflow-y-auto custom-scrollbar select-text">
-                                      {thought || "Analyzing steps..."}
-                                      {isStillThinking && (
-                                        <span className="inline-block w-1.5 h-3.5 ml-1 bg-indigo-400 animate-pulse align-middle" />
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Answer Markdown */}
-                              <div className="prose prose-invert prose-xs sm:prose-sm max-w-none leading-relaxed break-words">
-                                {answer ? (
-                                  <ReactMarkdown
-                                    components={{
-                                      code({ className, children, ...props }) {
-                                        const match = /language-(\w+)/.exec(className || "");
-                                        const codeContent = String(children).replace(/\n$/, "");
-                                        const isInline = !match && !String(children).includes("\n");
-
-                                        if (isInline) {
-                                          return (
-                                            <code
-                                              className="px-1.5 py-0.5 rounded bg-black/50 text-cyan-300 font-mono text-[11px]"
-                                              {...props}
-                                            >
-                                              {children}
-                                            </code>
-                                          );
-                                        }
-
-                                        const lang = (match?.[1] || "code").toLowerCase();
-                                        return (
-                                          <AppSandboxArtifact
-                                            code={codeContent}
-                                            language={lang}
-                                            rawHeader={className}
-                                            isStreaming={isMessageGenerating}
-                                          />
-                                        );
-                                      },
-                                      p({ children }) {
-                                        return <p className="mb-2.5 last:mb-0 leading-relaxed">{children}</p>;
-                                      },
-                                      ul({ children }) {
-                                        return <ul className="list-disc pl-4 mb-2.5 space-y-1">{children}</ul>;
-                                      },
-                                      ol({ children }) {
-                                        return <ol className="list-decimal pl-4 mb-2.5 space-y-1">{children}</ol>;
-                                      },
-                                      h1({ children }) {
-                                        return <h1 className="text-base font-bold text-white mb-2 mt-3">{children}</h1>;
-                                      },
-                                      h2({ children }) {
-                                        return <h2 className="text-sm font-bold text-white mb-1.5 mt-2.5">{children}</h2>;
-                                      },
-                                      h3({ children }) {
-                                        return <h3 className="text-xs font-bold text-white mb-1 mt-2">{children}</h3>;
-                                      },
-                                      blockquote({ children }) {
-                                        return (
-                                          <blockquote className="border-l-2 border-cyan-400 pl-3 my-2 text-neutral-300 italic">
-                                            {children}
-                                          </blockquote>
-                                        );
-                                      },
-                                    }}
-                                  >
-                                    {answer}
-                                  </ReactMarkdown>
-                                ) : isStillThinking ? (
-                                  <div className="flex items-center gap-1.5 text-indigo-300 py-1 text-xs">
-                                    <Loader2 size={13} className="animate-spin text-indigo-400" />
-                                    <span>Thinking through steps...</span>
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center gap-1.5 text-neutral-400 py-1">
-                                    <Loader2 size={13} className="animate-spin text-cyan-400" />
-                                    <span className="text-xs">Generating response...</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {/* Message Actions */}
-                      {!isUser && message.content && (
-                        <div className="flex items-center gap-2 mt-1 px-1 text-[10px] text-neutral-500">
-                          <span>{message.modelUsed || selectedModel}</span>
-                          <span>&bull;</span>
-                          <button
-                            onClick={() => {
-                              const parsed = parseThoughtAndContent(message.content);
-                              const textToCopy = parsed.answer || message.content;
-                              handleCopyText(textToCopy, message.id);
-                            }}
-                            className="hover:text-white transition-colors flex items-center gap-1 cursor-pointer"
-                            title="Copy reply"
-                          >
-                            {copiedCodeId === message.id ? (
-                              <Check size={11} className="text-emerald-400" />
-                            ) : (
-                              <Copy size={11} />
-                            )}
-                            <span>{copiedCodeId === message.id ? "Copied" : "Copy"}</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
                 );
               })}
