@@ -57,31 +57,14 @@ export function parseThoughtAndContent(raw: string): {
 } {
   if (!raw) return { thought: "", answer: "", isStillThinking: false };
 
-  // 1. Check for <think> tags (closed or currently open/streaming)
-  const openTag = raw.indexOf("<think>");
-  const closeTag = raw.indexOf("</think>");
+  // Strip any <think> tags completely so answers render directly
+  const cleanAnswer = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<think>[\s\S]*/gi, "")
+    .replace(/```(?:thought|thinking)[\s\S]*?```/gi, "")
+    .trim();
 
-  if (openTag !== -1) {
-    if (closeTag !== -1) {
-      const thought = raw.slice(openTag + 7, closeTag).trim();
-      const answer = (raw.slice(0, openTag) + raw.slice(closeTag + 8)).trim();
-      return { thought, answer, isStillThinking: false };
-    } else {
-      const thought = raw.slice(openTag + 7).trim();
-      const beforeThink = raw.slice(0, openTag).trim();
-      return { thought, answer: beforeThink, isStillThinking: true };
-    }
-  }
-
-  // 2. Check for alternative tags like ```thought ... ```
-  const altMatch = raw.match(/```(?:thought|thinking)\s*([\s\S]*?)```/i);
-  if (altMatch) {
-    const thought = altMatch[1].trim();
-    const answer = raw.replace(altMatch[0], "").trim();
-    return { thought, answer, isStillThinking: false };
-  }
-
-  return { thought: "", answer: raw, isStillThinking: false };
+  return { thought: "", answer: cleanAnswer || raw, isStillThinking: false };
 }
 
 export interface ChatThread {

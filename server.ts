@@ -4039,14 +4039,9 @@ Respond strictly in valid JSON format:
           if (res.ok) {
             const data: any = await res.json();
             const choice = data.choices?.[0];
-            const reasoning = choice?.message?.reasoning_content || choice?.message?.reasoning || "";
             const content = choice?.message?.content || "";
-            let text = content;
-            if (reasoning) {
-              text = `<think>\n${reasoning.trim()}\n</think>\n\n${content.trim()}`;
-            }
-            if (text) {
-              return { text, model: cand, provider: "openrouter" };
+            if (content) {
+              return { text: content, model: cand, provider: "openrouter" };
             }
           } else {
             const errText = await res.text().catch(() => "");
@@ -4258,7 +4253,6 @@ Platform context:
               const reader = upstreamRes.body.getReader();
               const decoder = new TextDecoder("utf-8");
               let buffer = "";
-              let inThoughtMode = false;
 
               while (true) {
                 const { done, value } = await reader.read();
@@ -4272,10 +4266,6 @@ Platform context:
                   const trimmed = line.trim();
                   if (!trimmed || trimmed.startsWith(":")) continue;
                   if (trimmed === "data: [DONE]") {
-                    if (inThoughtMode) {
-                      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" } }] })}\n\n`);
-                      inThoughtMode = false;
-                    }
                     res.write("data: [DONE]\n\n");
                     return res.end();
                   }
@@ -4284,23 +4274,10 @@ Platform context:
                     try {
                       const parsed = JSON.parse(jsonStr);
                       const delta = parsed.choices?.[0]?.delta;
-                      const reasoning = delta?.reasoning_content || delta?.reasoning || "";
                       const content = delta?.content || "";
 
-                      if (reasoning) {
-                        if (!inThoughtMode) {
-                          inThoughtMode = true;
-                          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "<think>\n" + reasoning } }] })}\n\n`);
-                        } else {
-                          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: reasoning } }] })}\n\n`);
-                        }
-                      } else if (content) {
-                        if (inThoughtMode) {
-                          inThoughtMode = false;
-                          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" + content } }] })}\n\n`);
-                        } else {
-                          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: content } }] })}\n\n`);
-                        }
+                      if (content) {
+                        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
                       }
                     } catch (e) {
                       res.write(`${line}\n\n`);
@@ -4309,23 +4286,15 @@ Platform context:
                 }
               }
 
-              if (inThoughtMode) {
-                res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "\n</think>\n\n" } }] })}\n\n`);
-              }
               res.write("data: [DONE]\n\n");
               return res.end();
             } else {
               const data: any = await upstreamRes.json();
               const choice = data?.choices?.[0];
-              const reasoning = choice?.message?.reasoning_content || choice?.message?.reasoning || "";
               const content = choice?.message?.content || "";
-              let text = content;
-              if (reasoning) {
-                text = `<think>\n${reasoning.trim()}\n</think>\n\n${content.trim()}`;
-              }
               return res.json({
-                text,
-                choices: [{ message: { content: text } }],
+                text: content,
+                choices: [{ message: { content } }],
                 model: candModel,
                 provider: "openrouter"
               });
