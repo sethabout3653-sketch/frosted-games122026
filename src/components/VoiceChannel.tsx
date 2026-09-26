@@ -273,20 +273,23 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   // Filter out local user (since local user is rendered via renderLocalTile) and deduplicate remote participants
   const activeParticipants = useMemo(() => {
     const myUid = profile?.uid;
+    const myBaseUid = myUid?.split("_tab_")[0];
     const remoteMap = new Map<string, Participant>();
 
     participants.forEach((p) => {
       if (!p || !p.uid) return;
       const uName = (p.username || "").trim();
       const uUid = p.uid;
+      const uBaseUid = uUid.split("_tab_")[0];
 
       // Filter out invalid/anonymous users
       if (!uName || uName.toLowerCase() === "anonymous") {
         return;
       }
 
-      // STRICTLY EXCLUDE LOCAL USER - local user tile is explicitly rendered by renderLocalTile()!
-      if (uUid === myUid) {
+      // STRICTLY EXCLUDE LOCAL USER AND OTHER TABS OF SAME USER
+      // This prevents echo loops when the same user has multiple tabs open in the same room.
+      if (uUid === myUid || (uBaseUid && uBaseUid === myBaseUid)) {
         return;
       }
 
@@ -468,7 +471,11 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           const shouldUpdateUi = now - lastVadFrameTime >= 90; // ~10 FPS update rate
 
           analyser.getByteFrequencyData(dataArray);
-          const vadRes = localVadRef.current.analyze(dataArray, ctx.sampleRate);
+          
+          // Determine if we should "duck" (make noise gate tougher) because others are talking
+          const anyoneElseSpeaking = Object.values(remoteSpeaking).some(v => v === true);
+          
+          const vadRes = localVadRef.current.analyze(dataArray, ctx.sampleRate, anyoneElseSpeaking);
           const isCurrentlySpeaking = vadRes.isSpeaking && !isMutedRef.current;
 
           if (shouldUpdateUi) {
@@ -2622,12 +2629,18 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         aria-hidden="true"
       >
         {(() => {
+          const myBaseUid = (profile?.uid || "").split("_tab_")[0];
           const uids = Array.from(
             new Set([
               ...Object.keys(remoteAudioStreamsRef.current),
               ...Object.keys(remoteStreamsRef.current),
             ])
-          ).filter((uid) => uid !== profile.uid);
+          ).filter((uid) => {
+            if (uid === profile.uid) return false;
+            const uBase = uid.split("_tab_")[0];
+            if (myBaseUid && uBase === myBaseUid) return false;
+            return true;
+          });
 
           return uids.map((uid) => {
             const stream = remoteAudioStreamsRef.current[uid] || remoteStreamsRef.current[uid];

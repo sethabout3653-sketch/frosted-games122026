@@ -16,7 +16,7 @@ export class SmartVoiceDetector {
    * @param freqData Uint8Array of byte frequency data from Web Audio AnalyserNode
    * @param sampleRate AudioContext sample rate (typically 44100 or 48000)
    */
-  public analyze(freqData: Uint8Array, sampleRate: number = 48000): {
+  public analyze(freqData: Uint8Array, sampleRate: number = 48000, isDucked: boolean = false): {
     isSpeaking: boolean;
     confidence: number;
     energy: number;
@@ -125,21 +125,21 @@ export class SmartVoiceDetector {
     // Real Human Voice & Intentional Sound Detection:
     // A. Normal to Loud Speech: distinct vocal resonance peaks above noise floor
     const isSpeech = !isNoiseOnly && (
-      (snr > 2.2 && maxVoicePeak >= 16 && spectralFlatness < 0.78) ||
-      (avgVoiceEnergy > 16 && maxVoicePeak >= 22)
+      (snr > 3.0 && maxVoicePeak >= 18 && spectralFlatness < 0.75) ||
+      (avgVoiceEnergy > 20 && maxVoicePeak >= 25)
     );
 
     // B. Whispering: unvoiced speech with energy in whisper band and dynamic variation
     const isWhisper = !isNoiseOnly && (
-      (avgWhisperEnergy > this.noiseFloor * 1.1 && maxVoicePeak >= 12 && avgEnergyDelta > 0.4) ||
-      (snr > 1.2 && maxVoicePeak >= 14 && spectralFlatness < 0.8)
+      (avgWhisperEnergy > this.noiseFloor * 1.25 && maxVoicePeak >= 14 && avgEnergyDelta > 0.6) ||
+      (snr > 1.8 && maxVoicePeak >= 16 && spectralFlatness < 0.78)
     );
 
     // C. Music, instruments, singing, soundboards, laughter, shouts & intentional audio / any noise
     const isIntentionalSound = !isFlatStatic && !isRumbleOrHiss && (
-      (avgVoiceEnergy > this.noiseFloor * 1.15 && maxVoicePeak >= 16) ||
-      maxVoicePeak >= 22 ||
-      (avgEnergyDelta > 3.0 && avgVoiceEnergy > 10)
+      (avgVoiceEnergy > this.noiseFloor * 1.3 && maxVoicePeak >= 20) ||
+      maxVoicePeak >= 28 ||
+      (avgEnergyDelta > 4.5 && avgVoiceEnergy > 12)
     );
 
     const isVoiceInstant = isSpeech || isWhisper || isIntentionalSound;
@@ -150,8 +150,10 @@ export class SmartVoiceDetector {
       this.speechCounter = Math.max(0, this.speechCounter - 1);
     }
 
-    // Trigger on first frame of verified voice or sound for immediate visual feedback
-    const isTriggered = this.speechCounter >= 1;
+    // Trigger on first frame of verified voice or sound
+    // If ducked (others are speaking), require more frames to open the gate (breaks echo loops)
+    const requiredFrames = isDucked ? 3 : 1;
+    const isTriggered = this.speechCounter >= requiredFrames;
 
     if (isTriggered) {
       this.hangoverRemaining = 20; // Hold light/audio for ~500ms so words don't flicker between syllables
