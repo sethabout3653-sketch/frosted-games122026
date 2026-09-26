@@ -96,46 +96,53 @@ export interface AIModelOption {
 
 const AVAILABLE_MODELS: AIModelOption[] = [
   {
-    id: "gemini-3.8-flash",
-    name: "Gemini 3.8 Flash",
-    provider: "Google GenAI",
-    description: "Ultra-fast multimodal reasoning, coding, and general tasks.",
+    id: "meta-llama/llama-3.3-70b-instruct:free",
+    name: "Llama 3.3 70B (Free)",
+    provider: "Meta via OpenRouter",
+    description: "Deep reasoning, analysis, and versatile STEM problem solving (100% Free).",
     badge: "Recommended",
   },
   {
-    id: "deepseek/deepseek-r1:free",
-    name: "DeepSeek R1",
-    provider: "DeepSeek via OpenRouter",
-    description: "Flagship deep chain-of-thought reasoning and math solving.",
-    badge: "Reasoning",
-  },
-  {
-    id: "deepseek/deepseek-chat:free",
-    name: "DeepSeek V3",
-    provider: "DeepSeek via OpenRouter",
-    description: "High-capability general intelligence, coding, and structured writing.",
-    badge: "Flagship",
-  },
-  {
-    id: "meta-llama/llama-3.3-70b-instruct:free",
-    name: "Llama 3.3 (70B)",
-    provider: "Meta via OpenRouter",
-    description: "Deep reasoning, analysis, and versatile STEM problem solving.",
-    badge: "Versatile",
-  },
-  {
     id: "qwen/qwen-2.5-coder-32b-instruct:free",
-    name: "Qwen 2.5 Coder (32B)",
+    name: "Qwen 2.5 Coder 32B (Free)",
     provider: "Alibaba via OpenRouter",
-    description: "Optimized for software development, debugging, and algorithms.",
+    description: "Optimized for software development, debugging, and algorithms (100% Free).",
     badge: "Coder",
   },
   {
     id: "meta-llama/llama-3.1-8b-instruct:free",
-    name: "Llama 3.1 (8B)",
+    name: "Llama 3.1 8B (Free)",
     provider: "Meta via OpenRouter",
-    description: "Sub-second low latency for rapid answers and study notes.",
+    description: "Sub-second low latency for rapid answers and study notes (100% Free).",
     badge: "Ultra Fast",
+  },
+  {
+    id: "google/gemini-2.0-flash-exp:free",
+    name: "Gemini 2.0 Flash (Free)",
+    provider: "Google via OpenRouter",
+    description: "Multimodal speed, real-time responses, and broad knowledge (100% Free).",
+    badge: "Fast Vision",
+  },
+  {
+    id: "mistralai/mistral-small-24b-instruct-2501:free",
+    name: "Mistral Small 24B (Free)",
+    provider: "Mistral via OpenRouter",
+    description: "Compact high-performance reasoning and writing model (100% Free).",
+    badge: "Balanced",
+  },
+  {
+    id: "microsoft/phi-4:free",
+    name: "Phi-4 14B (Free)",
+    provider: "Microsoft via OpenRouter",
+    description: "High-grade mathematical problem solving and logic (100% Free).",
+    badge: "Math & Logic",
+  },
+  {
+    id: "gemini-3.8-flash",
+    name: "Gemini 3.8 Flash (Built-in)",
+    provider: "Google GenAI",
+    description: "Ultra-fast multimodal assistant engine.",
+    badge: "Built-in",
   },
 ];
 
@@ -235,7 +242,7 @@ export default function AIAssistant() {
     if (saved && AVAILABLE_MODELS.some((m) => m.id === saved)) {
       return saved;
     }
-    return "gemini-3.8-flash";
+    return "meta-llama/llama-3.3-70b-instruct:free";
   });
 
   // Persona management

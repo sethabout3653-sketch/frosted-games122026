@@ -870,85 +870,87 @@ export default function ModeratorPanelModal({
 
                 {/* Model Configuration Matrix */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {/* 1. Video Moderation */}
-                  <div className="p-3.5 rounded-xl bg-[#080b1a] border border-white/10 hover:border-indigo-500/40 transition-all space-y-2">
+                  {/* 1. Omni / All-In-One Multimodal Models */}
+                  <div className="p-3.5 rounded-xl bg-[#080b1a] border border-white/10 hover:border-cyan-500/40 transition-all space-y-2">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-indigo-400 font-bold text-xs">
-                        <Video size={16} />
-                        <span>VIDEO MODERATION MODEL</span>
+                      <div className="flex items-center gap-2 text-cyan-400 font-bold text-xs">
+                        <Sparkles size={16} />
+                        <span>OMNI ALL-IN-ONE MODELS</span>
                       </div>
-                      <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        VISION + OCR + AUDIO
+                      <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
+                        TEXT + IMG + VID + AUDIO
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">google/gemini-2.0-flash-exp:free</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ meta-llama/llama-3.2-11b-vision-instruct:free</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ deepseek/deepseek-chat:free (timeline synthesis)</div>
+                      <div className="text-xs font-mono font-bold text-white">perceptron/perceptron-mk1.5</div>
+                      <div className="text-[11px] font-mono text-neutral-300">+ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ google/gemini-2.0-flash-exp:free (Gemini Family)</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
-                      Samples multi-frame visual keyframes across the timeline, extracts & transcribes audio speech, and checks for nudity, gore, or prohibited acts.
+                      Natively processes all 4 media modalities simultaneously with embodied spatial bounding boxes & temporal clip annotations.
                     </p>
                   </div>
 
-                  {/* 2. Audio Moderation */}
+                  {/* 2. Audio & Inaudible Checking Models */}
                   <div className="p-3.5 rounded-xl bg-[#080b1a] border border-white/10 hover:border-amber-500/40 transition-all space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-amber-400 font-bold text-xs">
                         <Volume2 size={16} />
-                        <span>AUDIO MODERATION MODEL</span>
+                        <span>AUDIO & INAUDIBLE SPEECH</span>
                       </div>
                       <span className="text-[10px] bg-amber-950 text-amber-300 border border-amber-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        ACOUSTICS + TEXT GUARD
+                        WHISPER V3 + MAI-TRANSCRIBE
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">meta-llama/llama-guard-3-8b</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ spectrogram vision acoustics</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ deterministic regex keyword guard</div>
+                      <div className="text-xs font-mono font-bold text-white">openai/whisper-large-v3-turbo</div>
+                      <div className="text-[11px] font-mono text-neutral-300">+ mai-transcribe-2 (inaudible & faint speech)</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ openai/gpt-audio-mini & meta-llama/llama-guard-3-8b</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
-                      Transcribes spoken voice tracks, evaluates spoken slurs and vulgarity, and analyzes spectrogram frequencies for moaning and erotic sounds.
+                      High-resilience speech analytics that transcribe muffled, low-volume, or background audio clips while evaluating tonal acoustic safety.
                     </p>
                   </div>
 
-                  {/* 3. Image Moderation */}
+                  {/* 3. Video & Image Verification Models */}
                   <div className="p-3.5 rounded-xl bg-[#080b1a] border border-white/10 hover:border-emerald-500/40 transition-all space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
                         <ImageIcon size={16} />
-                        <span>IMAGE MODERATION MODEL</span>
+                        <span>IMAGE & VIDEO VERIFICATION</span>
                       </div>
                       <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        MULTIMODAL VISION
+                        GEMMA 4 + DEEPSEEK + GLM
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">google/gemini-2.0-flash-exp:free</div>
-                      <div className="text-[11px] font-mono text-neutral-400">Fallback: meta-llama/llama-3.2-11b-vision-instruct:free</div>
+                      <div className="text-xs font-mono font-bold text-white">google/gemma-4</div>
+                      <div className="text-[11px] font-mono text-neutral-300">+ deepseek/deepseek-v4.1-flash</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ glm-5.3-flash (high-throughput visual & OCR)</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
-                      Evaluates static images, photos, artwork, and animated GIFs for nudity, sexual content, violence, hate symbols, and OCR overlays.
+                      High-throughput visual safety evaluation for static artwork, photos, GIFs, and sequential video frames without soundtrack overhead.
                     </p>
                   </div>
 
-                  {/* 4. Text Moderation */}
+                  {/* 4. Text & Chat Moderation */}
                   <div className="p-3.5 rounded-xl bg-[#080b1a] border border-white/10 hover:border-red-500/40 transition-all space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-red-400 font-bold text-xs">
                         <MessageSquare size={16} />
-                        <span>TEXT & CHAT MODERATION MODEL</span>
+                        <span>TEXT & CHAT MODERATION</span>
                       </div>
                       <span className="text-[10px] bg-red-950 text-red-300 border border-red-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        OPENROUTER LLAMA GUARD
+                        LLAMA GUARD 3 + GLM
                       </span>
                     </div>
                     <div className="space-y-1">
                       <div className="text-xs font-mono font-bold text-white">meta-llama/llama-guard-3-8b</div>
-                      <div className="text-[11px] font-mono text-neutral-400">Fallback: meta-llama/llama-3.1-8b-instruct:free</div>
+                      <div className="text-[11px] font-mono text-neutral-300">+ deepseek/deepseek-v4.1-flash</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ glm-5.3-flash & deterministic regex guard</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
-                      Ultra-fast check on all live chat messages, usernames, and file titles against slurs, harassment, and disallowed profanity.
+                      Zero-latency safety enforcement on live chat messages, user handles, and room titles against slurs, harassment, and threats.
                     </p>
                   </div>
                 </div>

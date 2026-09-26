@@ -2230,38 +2230,60 @@ const PORT = Number(process.env.PORT) || 3000;
   // =========================================================================
   const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") || "";
   
-  // Separate Dedicated Models per Medium
+  // Separate Dedicated Models per Medium (Omni, Audio, Image, Video, Text)
   export const MODERATION_GROQ_MODELS = {
-    // 1. Image Moderation: Vision Model
-    image: {
-      primary: "google/gemini-2.0-flash-exp:free",
-      fallback: "meta-llama/llama-3.2-11b-vision-instruct:free",
-      name: "OpenRouter Gemini 2.0 Flash Vision",
-      modality: "image",
+    // 1. Omni / All-In-One Multimodal Models (Text, Image, Video, & Audio Input)
+    omni: {
+      perceptron: "perceptron/perceptron-mk1.5",
+      nemotron: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      gemini: "gemini-3.8-flash",
+      geminiFree: "google/gemini-2.0-flash-exp:free",
+      name: "Perceptron Mk1.5 & NVIDIA Nemotron 3 Nano Omni",
+      modality: "omni",
     },
-    // 2. Audio Moderation: Audio & Acoustic Spectrogram Pipeline
+    // 2. Audio & Inaudible Speech / Acoustic Analytics
     audio: {
-      transcription: "whisper-large-v3-turbo",
-      transcriptionFallback: "whisper-large-v3",
+      transcription: "openai/whisper-large-v3-turbo",
+      transcriptionAlt: "whisper-large-v3-turbo",
+      transcriptionFallback: "openai/whisper-large-v3",
+      deepSpeech: "mai-transcribe-2",
+      audioStream: "openai/gpt-audio-mini",
       guard: "meta-llama/llama-guard-3-8b",
       spectrogramVision: "google/gemini-2.0-flash-exp:free",
-      name: "OpenRouter Whisper + Llama Guard 3",
+      name: "OpenAI Whisper Large V3 Turbo + MAI-Transcribe 2 + GPT Audio",
       modality: "audio",
     },
-    // 3. Video Moderation: Multimodal Frame Evaluator + Synthesis
+    // 3. Video & Image Verification Models (Visual & OCR Verification)
+    image: {
+      primary: "google/gemma-4",
+      deepseekVision: "deepseek/deepseek-v4.1-flash",
+      glmVision: "glm-5.3-flash",
+      geminiVision: "google/gemini-2.0-flash-exp:free",
+      perceptronVision: "perceptron/perceptron-mk1.5",
+      nemotronVision: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      fallback: "meta-llama/llama-3.2-11b-vision-instruct:free",
+      name: "Google Gemma 4 + DeepSeek V4.1 Flash + GLM 5.3 Flash",
+      modality: "image",
+    },
     video: {
-      frameVision: "google/gemini-2.0-flash-exp:free",
-      frameVisionFallback: "meta-llama/llama-3.2-11b-vision-instruct:free",
-      audioTranscription: "whisper-large-v3-turbo",
-      synthesis: "deepseek/deepseek-chat:free",
-      name: "OpenRouter Multimodal Video Compound",
+      omniReasoning: "perceptron/perceptron-mk1.5",
+      omniNano: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      frameVision: "google/gemma-4",
+      frameVisionAlt: "deepseek/deepseek-v4.1-flash",
+      glmVision: "glm-5.3-flash",
+      geminiVision: "google/gemini-2.0-flash-exp:free",
+      audioTranscription: "openai/whisper-large-v3-turbo",
+      synthesis: "deepseek/deepseek-v4.1-flash",
+      name: "Perceptron Mk1.5 + NVIDIA Nemotron Omni + Gemma 4 + Whisper Large V3",
       modality: "video",
     },
-    // 4. Text & Chat Moderation: Llama Guard 3 Model
+    // 4. Text & Chat Moderation
     text: {
       primary: "meta-llama/llama-guard-3-8b",
+      deepseek: "deepseek/deepseek-v4.1-flash",
+      glm: "glm-5.3-flash",
       fallback: "meta-llama/llama-3.1-8b-instruct:free",
-      name: "OpenRouter Llama Guard 3 8B",
+      name: "Llama Guard 3 + DeepSeek V4.1 Flash + GLM 5.3 Flash",
       modality: "text",
     },
   };
@@ -2339,23 +2361,28 @@ const PORT = Number(process.env.PORT) || 3000;
   ): Promise<{ safe: boolean; reason?: string; category?: string; model?: string; moderator?: string; extractedText?: string }> {
     const key = OPENROUTER_API_KEY;
     const modelsToTry = [
-      MODERATION_GROQ_MODELS.image.primary,
-      MODERATION_GROQ_MODELS.image.fallback,
-    ];
+      MODERATION_GROQ_MODELS.image.primary, // google/gemma-4
+      MODERATION_GROQ_MODELS.image.deepseekVision, // deepseek/deepseek-v4.1-flash
+      MODERATION_GROQ_MODELS.image.glmVision, // glm-5.3-flash
+      MODERATION_GROQ_MODELS.image.geminiVision, // google/gemini-2.0-flash-exp:free
+      MODERATION_GROQ_MODELS.image.perceptronVision, // perceptron/perceptron-mk1.5
+      MODERATION_GROQ_MODELS.image.nemotronVision, // nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+      MODERATION_GROQ_MODELS.image.fallback, // meta-llama/llama-3.2-11b-vision-instruct:free
+    ].filter(Boolean);
 
     const systemPrompt = `You are a high-speed Content Safety & Visual Moderation Model.
 Thoroughly inspect this image/frame for:
 1. Nudity, sexually explicit content, pornography, NSFW acts, suggestive poses, genitalia, exposed breasts, or sexualized content (STRICTLY FORBIDDEN).
 2. Graphic violence, blood, gore, real-world weapons pointed at screen, self-harm, terrorism, or threats.
 3. Racial/homophobic/ethnic slurs or hate speech symbols (STRICTLY FORBIDDEN).
-4. Threats of violence, death threats, doxxing text overlays, or SWAT/bomb threats.
+4. Threats of violence, death threats, doxxing text overlays, or SWAT/bomb threats (STRICTLY FORBIDDEN).
 Rules:
-- General profanity and casual swearing in text overlays ARE PERMITTED (allow swearing).
-- Slurs, hate speech, pornography, nudity, explicit NSFW content, and threats MUST be rejected with safe: false.
+- General profanity, casual cursing, and swearing (e.g. 'shit', 'fuck', 'bitch', 'ass', 'damn', 'hell', 'piss', 'crap') ARE FULLY PERMITTED. NEVER flag casual cursing as unsafe.
+- ONLY reject if there is pornography/nudity/NSFW, hate speech/slurs, or real threats/graphic violence (set safe: false).
 Respond strictly in valid JSON format:
 {
   "safe": boolean,
-  "category": "clean" | "nsfw" | "violence" | "slur" | "hate_speech" | "threat",
+  "category": "clean" | "nsfw" | "violence" | "slur" | "threat",
   "reason": "A friendly, non-robotic 1-sentence explanation if unsafe",
   "extractedText": "any text seen in the image"
 }`;
@@ -2482,18 +2509,31 @@ Respond strictly in valid JSON format:
     return { safe: true, model: MODERATION_GROQ_MODELS.image.primary, moderator: "OpenRouter Vision Engine" };
   }
 
-  // 2. 🎵 Audio Transcription & Moderation
+  // 2. 🎵 Audio Transcription & Moderation (OpenRouter & Whisper / MAI-Transcribe 2)
   async function callGroqAudioTranscription(audioFilePath: string): Promise<{ transcript: string; model: string } | null> {
     const key = OPENROUTER_API_KEY;
     if (!key || !fs.existsSync(audioFilePath) || fs.statSync(audioFilePath).size < 100) return null;
 
-    if (key.startsWith("gsk_")) {
-      const modelsToTry = [
-        MODERATION_GROQ_MODELS.audio.transcription,
-        MODERATION_GROQ_MODELS.audio.transcriptionFallback,
-      ];
+    const audioEndpoints = [
+      {
+        url: "https://openrouter.ai/api/v1/audio/transcriptions",
+        models: [
+          MODERATION_GROQ_MODELS.audio.transcription, // openai/whisper-large-v3-turbo
+          MODERATION_GROQ_MODELS.audio.deepSpeech, // mai-transcribe-2
+          MODERATION_GROQ_MODELS.audio.transcriptionFallback, // openai/whisper-large-v3
+        ]
+      },
+      {
+        url: "https://api.groq.com/openai/v1/audio/transcriptions",
+        models: [
+          MODERATION_GROQ_MODELS.audio.transcriptionAlt,
+          "whisper-large-v3",
+        ]
+      }
+    ];
 
-      for (const model of modelsToTry) {
+    for (const ep of audioEndpoints) {
+      for (const model of ep.models) {
         try {
           const fileBuffer = fs.readFileSync(audioFilePath);
           const fileName = path.basename(audioFilePath);
@@ -2506,13 +2546,15 @@ Respond strictly in valid JSON format:
           formData.append("temperature", "0.0");
 
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 8000);
+          const timeout = setTimeout(() => controller.abort(), 8500);
 
-          const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+          const response = await fetch(ep.url, {
             method: "POST",
             signal: controller.signal,
             headers: {
               Authorization: `Bearer ${key}`,
+              "HTTP-Referer": "https://frosted-studying.app",
+              "X-Title": "Frosted Studying"
             },
             body: formData,
           });
@@ -2522,7 +2564,9 @@ Respond strictly in valid JSON format:
 
           const data: any = await response.json();
           const transcript = data?.text || "";
-          return { transcript: transcript.trim(), model };
+          if (transcript.trim()) {
+            return { transcript: transcript.trim(), model };
+          }
         } catch (err) {
           continue;
         }
@@ -2532,7 +2576,7 @@ Respond strictly in valid JSON format:
     return null;
   }
 
-  // 3. 🛡️ Dedicated Text & Spoken Guard Model (llama-guard-3-8b via OpenRouter)
+  // 3. 🛡️ Dedicated Text & Spoken Guard Model (llama-guard-3-8b, deepseek-v4.1-flash, glm-5.3-flash)
   async function callGroqTextModeration(
     inputText: string,
     contextInfo?: string
@@ -2540,16 +2584,16 @@ Respond strictly in valid JSON format:
     const key = OPENROUTER_API_KEY;
     if (!inputText || !inputText.trim()) return { safe: true };
 
-    const prompt = `You are Llama Guard, a content safety model.
+    const prompt = `You are a content safety and moderation model.
 Evaluate the following text for safety violations:
 Text to evaluate: "${inputText}"
 ${contextInfo ? `Context: ${contextInfo}` : ""}
 
 Evaluation Rules:
-- General profanity, casual cursing, and swearing ARE PERMITTED (allow profanity). DO NOT flag standard swear words as unsafe.
-- STRICTLY REJECT with safe: false for:
-  1. Hate speech, racial/ethnic/religious/homophobic slurs (STRICTLY FORBIDDEN).
-  2. NSFW content, pornography, sexual harassment, explicit descriptions (STRICTLY FORBIDDEN).
+- General profanity, casual cursing, and swearing (e.g. 'shit', 'fuck', 'bitch', 'ass', 'damn', 'hell', 'crap', 'piss') ARE EXPLICITLY PERMITTED. NEVER flag standard swear words as unsafe or inappropriate.
+- STRICTLY REJECT with safe: false ONLY for:
+  1. Hate speech, racial/ethnic/religious/homophobic/transphobic slurs (STRICTLY FORBIDDEN).
+  2. NSFW content, pornography, sexual harassment, explicit descriptions, sexual acts (STRICTLY FORBIDDEN).
   3. Real threats of violence, death threats, doxxing, swatting, or self-harm (STRICTLY FORBIDDEN).
 
 Respond strictly in valid JSON format:
@@ -2560,9 +2604,11 @@ Respond strictly in valid JSON format:
 }`;
 
     const modelsToTry = [
-      MODERATION_GROQ_MODELS.text.primary,
-      MODERATION_GROQ_MODELS.text.fallback,
-    ];
+      MODERATION_GROQ_MODELS.text.primary, // meta-llama/llama-guard-3-8b
+      MODERATION_GROQ_MODELS.text.deepseek, // deepseek/deepseek-v4.1-flash
+      MODERATION_GROQ_MODELS.text.glm, // glm-5.3-flash
+      MODERATION_GROQ_MODELS.text.fallback, // meta-llama/llama-3.1-8b-instruct:free
+    ].filter(Boolean);
 
     if (key) {
       const endpoint = key.startsWith("gsk_") ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
@@ -2633,85 +2679,100 @@ Respond strictly in valid JSON format:
     if (!frameBase64List || frameBase64List.length === 0) return { safe: true };
 
     const key = OPENROUTER_API_KEY;
-    const model = MODERATION_GROQ_MODELS.video.frameVision;
+    const defaultModel = MODERATION_GROQ_MODELS.video.omniReasoning;
+
+    const modelsToTry = [
+      MODERATION_GROQ_MODELS.video.omniReasoning, // perceptron/perceptron-mk1.5
+      MODERATION_GROQ_MODELS.video.omniNano, // nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+      MODERATION_GROQ_MODELS.video.frameVision, // google/gemma-4
+      MODERATION_GROQ_MODELS.video.frameVisionAlt, // deepseek/deepseek-v4.1-flash
+      MODERATION_GROQ_MODELS.video.glmVision, // glm-5.3-flash
+      MODERATION_GROQ_MODELS.video.geminiVision, // google/gemini-2.0-flash-exp:free
+    ].filter(Boolean);
 
     const systemPrompt = `You are a specialized High-Capacity Video Scene & Frame Moderation Model.
 You will inspect sampled keyframes across the timeline of a video (duration ~${Math.round(durationSeconds)}s).
 Check ALL frames thoroughly for:
-1. Nudity, pornography, sexually suggestive scenes, NSFW body parts, sexual acts.
-2. Real-world violence, graphic injuries, blood, gore, brandishing weapons.
-3. Hate symbols, offensive gestures, slurs or prohibited profanity in video graphics (allow 'damn' and 'hell').
+1. Nudity, pornography, sexually suggestive scenes, NSFW body parts, sexual acts (STRICTLY FORBIDDEN).
+2. Real-world violence, graphic injuries, blood, gore, brandishing weapons (STRICTLY FORBIDDEN).
+3. Hate symbols, hate speech, slurs, doxxing, or threats in video graphics.
+Rules:
+- General swear words (e.g. 'shit', 'fuck', 'bitch', 'ass', 'damn', 'hell') in on-screen captions or spoken audio ARE PERMITTED. NEVER reject for standard cursing.
 Respond strictly in valid JSON format:
 {
   "safe": boolean,
-  "category": "clean" | "nsfw" | "violence" | "slur" | "profanity",
+  "category": "clean" | "nsfw" | "violence" | "slur" | "threat",
   "reason": "explanation if any frame is unsafe",
   "unsafeFrameIndices": [number]
 }`;
 
     if (key) {
-      try {
-        const contentParts: any[] = [
-          { type: "text", text: `Inspect these ${frameBase64List.length} sequential keyframes sampled across the video timeline. Return valid JSON only.` }
-        ];
+      const endpoint = key.startsWith("gsk_") ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+      const contentParts: any[] = [
+        { type: "text", text: `Inspect these ${frameBase64List.length} sequential keyframes sampled across the video timeline. Return valid JSON only.` }
+      ];
 
-        // Attach up to 4 keyframes per vision request for optimal latency and accuracy
-        const selectedFrames = frameBase64List.slice(0, 4);
-        for (const b64 of selectedFrames) {
-          contentParts.push({
-            type: "image_url",
-            image_url: { url: `data:image/jpeg;base64,${b64}` }
-          });
-        }
-
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 9000);
-        const endpoint = key.startsWith("gsk_") ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-
-        const response = await fetch(endpoint, {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            "Authorization": `Bearer ${key}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://frosted-studying.app",
-            "X-Title": "Frosted Studying"
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: contentParts }
-            ],
-            temperature: 0.1,
-            response_format: { type: "json_object" }
-          })
+      // Attach up to 4 keyframes per vision request for optimal latency and accuracy
+      const selectedFrames = frameBase64List.slice(0, 4);
+      for (const b64 of selectedFrames) {
+        contentParts.push({
+          type: "image_url",
+          image_url: { url: `data:image/jpeg;base64,${b64}` }
         });
-        clearTimeout(timeout);
+      }
 
-        if (response.ok) {
-          const data: any = await response.json();
-          const content = data?.choices?.[0]?.message?.content;
-          if (content) {
-            const cleaned = content.replace(/```json/gi, "").replace(/```/g, "").trim();
-            const parsed = JSON.parse(cleaned);
-            if (parsed.safe === false) {
+      for (const model of modelsToTry) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 9000);
+
+          const response = await fetch(endpoint, {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              "Authorization": `Bearer ${key}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer": "https://frosted-studying.app",
+              "X-Title": "Frosted Studying"
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: contentParts }
+              ],
+              temperature: 0.1,
+              response_format: { type: "json_object" }
+            })
+          });
+          clearTimeout(timeout);
+
+          if (response.ok) {
+            const data: any = await response.json();
+            const content = data?.choices?.[0]?.message?.content;
+            if (content) {
+              const cleaned = content.replace(/```json/gi, "").replace(/```/g, "").trim();
+              const parsed = JSON.parse(cleaned);
+              if (parsed.safe === false) {
+                return {
+                  safe: false,
+                  reason: parsed.reason || "Inappropriate visual scene or nudity detected in video frames.",
+                  category: parsed.category || "nsfw",
+                  model,
+                  moderator: `OpenRouter Video Vision Engine (${model})`,
+                };
+              }
               return {
-                safe: false,
-                reason: parsed.reason || "Inappropriate visual scene or nudity detected in video frames.",
-                category: parsed.category || "nsfw",
+                safe: true,
                 model,
                 moderator: `OpenRouter Video Vision Engine (${model})`,
               };
             }
-            return {
-              safe: true,
-              model,
-              moderator: `OpenRouter Video Vision Engine (${model})`,
-            };
           }
+        } catch (err) {
+          continue;
         }
-      } catch (err) {}
+      }
     }
 
     // Fallback: Check each frame through the image vision model
@@ -2728,7 +2789,7 @@ Respond strictly in valid JSON format:
       }
     }
 
-    return { safe: true, model, moderator: `OpenRouter Video Vision Engine (${model})` };
+    return { safe: true, model: defaultModel, moderator: `OpenRouter Video Vision Engine (${defaultModel})` };
   }
 
   // 🛡️ Video Timeline Compound Synthesis (Synthesizes Frames, Audio Transcript, Subtitles)
@@ -3388,34 +3449,51 @@ Respond strictly in valid JSON format:
   app.get("/api/moderation/models", (req, res) => {
     res.json({
       status: "active",
-      provider: "OpenRouter Multi-Modal Engine",
+      provider: "OpenRouter & Omni Multi-Modal Engine",
       hasKey: Boolean(OPENROUTER_API_KEY),
       models: {
+        omni: {
+          perceptron: MODERATION_GROQ_MODELS.omni.perceptron,
+          nemotron: MODERATION_GROQ_MODELS.omni.nemotron,
+          gemini: MODERATION_GROQ_MODELS.omni.gemini,
+          name: MODERATION_GROQ_MODELS.omni.name,
+          purpose: "All-in-one native text, image, video & audio input reasoning",
+          modality: "omni",
+        },
         image: {
           primary: MODERATION_GROQ_MODELS.image.primary,
+          deepseek: MODERATION_GROQ_MODELS.image.deepseekVision,
+          glm: MODERATION_GROQ_MODELS.image.glmVision,
+          gemini: MODERATION_GROQ_MODELS.image.geminiVision,
           fallback: MODERATION_GROQ_MODELS.image.fallback,
           name: MODERATION_GROQ_MODELS.image.name,
-          purpose: "Multi-modal vision inspection (nudity, violence, NSFW, visual slurs)",
+          purpose: "High-throughput visual & OCR verification (Gemma 4, DeepSeek V4.1 Flash, GLM 5.3 Flash)",
           modality: "image",
         },
         audio: {
           transcription: MODERATION_GROQ_MODELS.audio.transcription,
+          deepSpeech: MODERATION_GROQ_MODELS.audio.deepSpeech,
+          audioStream: MODERATION_GROQ_MODELS.audio.audioStream,
           guard: MODERATION_GROQ_MODELS.audio.guard,
           spectrogramVision: MODERATION_GROQ_MODELS.audio.spectrogramVision,
           name: MODERATION_GROQ_MODELS.audio.name,
-          purpose: "Whisper speech transcription + Llama Guard 3 text filtering + acoustic spectrogram check",
+          purpose: "Whisper Large V3 Turbo + MAI-Transcribe 2 (inaudible/faint speech) + Llama Guard 3",
           modality: "audio",
         },
         video: {
+          omniReasoning: MODERATION_GROQ_MODELS.video.omniReasoning,
+          omniNano: MODERATION_GROQ_MODELS.video.omniNano,
           frameVision: MODERATION_GROQ_MODELS.video.frameVision,
           audioTranscription: MODERATION_GROQ_MODELS.video.audioTranscription,
           synthesis: MODERATION_GROQ_MODELS.video.synthesis,
           name: MODERATION_GROQ_MODELS.video.name,
-          purpose: "Keyframe vision analysis + Whisper audio stream analysis + timeline synthesis",
+          purpose: "Perceptron Mk1.5 & Nemotron Omni + Gemma 4 visual frame sequence + Whisper audio compound",
           modality: "video",
         },
         text: {
           primary: MODERATION_GROQ_MODELS.text.primary,
+          deepseek: MODERATION_GROQ_MODELS.text.deepseek,
+          glm: MODERATION_GROQ_MODELS.text.glm,
           fallback: MODERATION_GROQ_MODELS.text.fallback,
           name: MODERATION_GROQ_MODELS.text.name,
           purpose: "Real-time message text, username, and title moderation",
@@ -3779,10 +3857,14 @@ Respond strictly in valid JSON format:
     "llama-3.1-8b-instant": "meta-llama/llama-3.1-8b-instruct:free",
     "mixtral-8x7b-32768": "mistralai/mistral-small-24b-instruct-2501:free",
     "gemma2-9b-it": "google/gemma-2-9b-it:free",
-    "deepseek-r1-distill-llama-70b": "deepseek/deepseek-r1:free",
+    "deepseek-r1-distill-llama-70b": "meta-llama/llama-3.3-70b-instruct:free",
+    "deepseek/deepseek-r1:free": "meta-llama/llama-3.3-70b-instruct:free",
+    "deepseek/deepseek-r1": "meta-llama/llama-3.3-70b-instruct:free",
+    "deepseek/deepseek-chat:free": "meta-llama/llama-3.3-70b-instruct:free",
+    "deepseek/deepseek-chat": "meta-llama/llama-3.3-70b-instruct:free",
     "qwen-2.5-32b": "qwen/qwen-2.5-coder-32b-instruct:free",
     "qwen-2.5-coder-32b": "qwen/qwen-2.5-coder-32b-instruct:free",
-    "openai/gpt-oss-120b": "deepseek/deepseek-chat:free",
+    "openai/gpt-oss-120b": "meta-llama/llama-3.3-70b-instruct:free",
     "openai/gpt-oss-20b": "meta-llama/llama-3.1-8b-instruct:free",
     "groq/compound": "meta-llama/llama-3.3-70b-instruct:free",
     "groq/compound-mini": "meta-llama/llama-3.1-8b-instruct:free",
@@ -3790,35 +3872,35 @@ Respond strictly in valid JSON format:
   };
 
   const FALLBACK_OPENROUTER_MODELS = [
-    "deepseek/deepseek-r1:free",
-    "deepseek/deepseek-chat:free",
     "meta-llama/llama-3.3-70b-instruct:free",
     "meta-llama/llama-3.1-8b-instruct:free",
     "qwen/qwen-2.5-coder-32b-instruct:free",
     "google/gemini-2.0-flash-exp:free",
     "mistralai/mistral-small-24b-instruct-2501:free",
     "microsoft/phi-4:free",
-    "deepseek/deepseek-r1",
-    "deepseek/deepseek-chat",
-    "meta-llama/llama-3.3-70b-instruct",
-    "openai/gpt-4o-mini",
+    "google/gemini-2.0-flash-thinking-exp:free",
+    "google/gemma-2-9b-it:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "meta-llama/llama-3.2-1b-instruct:free",
     "openrouter/auto",
   ];
 
   function getFriendlyModelName(id: string): string {
+    if (id === "meta-llama/llama-3.3-70b-instruct:free" || id === "meta-llama/llama-3.3-70b-instruct") return "Llama 3.3 (70B) Free";
+    if (id === "meta-llama/llama-3.1-8b-instruct:free" || id === "meta-llama/llama-3.1-8b-instruct") return "Llama 3.1 (8B) Free";
+    if (id === "qwen/qwen-2.5-coder-32b-instruct:free" || id === "qwen/qwen-2.5-coder-32b") return "Qwen Coder (32B) Free";
+    if (id === "google/gemini-2.0-flash-exp:free" || id === "google/gemini-2.0-flash") return "Gemini 2.0 Flash Free";
+    if (id === "mistralai/mistral-small-24b-instruct-2501:free") return "Mistral Small (24B) Free";
+    if (id === "microsoft/phi-4:free") return "Phi-4 (14B) Free";
+    if (id === "google/gemini-2.0-flash-thinking-exp:free") return "Gemini 2.0 Thinking Free";
+    if (id === "google/gemma-2-9b-it:free") return "Gemma 2 (9B) Free";
     if (id === "deepseek/deepseek-r1:free" || id === "deepseek/deepseek-r1") return "DeepSeek R1";
     if (id === "deepseek/deepseek-chat:free" || id === "deepseek/deepseek-chat") return "DeepSeek V3";
-    if (id === "meta-llama/llama-3.3-70b-instruct:free" || id === "meta-llama/llama-3.3-70b-instruct") return "Llama 3.3 (70B)";
-    if (id === "meta-llama/llama-3.1-8b-instruct:free" || id === "meta-llama/llama-3.1-8b-instruct") return "Llama 3.1 (8B)";
-    if (id === "qwen/qwen-2.5-coder-32b-instruct:free" || id === "qwen/qwen-2.5-coder-32b") return "Qwen Coder (32B)";
-    if (id === "google/gemini-2.0-flash-exp:free" || id === "google/gemini-2.0-flash") return "Gemini 2.0 Flash";
-    if (id === "mistralai/mistral-small-24b-instruct-2501:free") return "Mistral Small (24B)";
-    if (id === "microsoft/phi-4:free") return "Phi-4 (14B)";
     if (id === "openai/gpt-4o-mini") return "GPT-4o Mini";
     if (id === "openrouter/auto") return "OpenRouter Auto";
 
     return id
-      .replace(/:free$/i, "")
+      .replace(/:free$/i, " (Free)")
       .replace(/^openai\//i, "GPT ")
       .replace(/^meta-llama\//i, "Llama ")
       .replace(/^deepseek\//i, "DeepSeek ")
@@ -3854,7 +3936,16 @@ Respond strictly in valid JSON format:
       if (res.ok) {
         const json: any = await res.json();
         if (Array.isArray(json?.data)) {
-          const valid = json.data
+          // Filter for valid text generation models, strictly prioritizing truly free models (:free suffix or $0 price)
+          const freeModels = json.data
+            .filter((m: any) => {
+              const id = m?.id || "";
+              const isFree = id.endsWith(":free") || m?.pricing?.prompt === "0" || m?.pricing?.prompt === 0;
+              return typeof id === "string" && isFree && !id.includes("whisper") && !id.includes("tts") && !id.includes("embed");
+            })
+            .map((m: any) => m.id);
+
+          const allValid = json.data
             .map((m: any) => m.id)
             .filter((id: string) => 
               typeof id === "string" &&
@@ -3862,56 +3953,57 @@ Respond strictly in valid JSON format:
               !id.includes("tts") &&
               !id.includes("embed")
             );
-          if (valid.length > 0) {
-            // Merge with fallback list to ensure full flagship catalog is available
-            const combinedIds = Array.from(new Set([...FALLBACK_OPENROUTER_MODELS, ...valid]));
-            
-            // Sort to prioritize flagship/free models
-            combinedIds.sort((a: string, b: string) => {
-              const score = (id: string) => {
-                if (id.includes("deepseek-r1")) return 14;
-                if (id.includes("deepseek-chat") || id.includes("deepseek-v3")) return 13;
-                if (id.includes("llama-3.3-70b")) return 12;
-                if (id.includes("coder")) return 11;
-                if (id.includes("gemini-2.0")) return 10;
-                if (id.includes("gpt-4o-mini")) return 9;
-                if (id.includes("llama-3.1-8b")) return 8;
-                if (id.includes(":free")) return 7;
-                return 1;
-              };
-              return score(b) - score(a);
-            });
 
-            cachedOpenRouterIds = combinedIds.slice(0, 35);
-            lastOpenRouterFetchTime = now;
-            cachedOpenRouterModelsList = cachedOpenRouterIds.map((id: string) => {
-              let provider = "OpenRouter";
-              if (id.includes("openai")) provider = "OpenAI via OpenRouter";
-              else if (id.includes("llama") || id.includes("meta")) provider = "Meta via OpenRouter";
-              else if (id.includes("qwen") || id.includes("alibaba")) provider = "Alibaba via OpenRouter";
-              else if (id.includes("deepseek")) provider = "DeepSeek via OpenRouter";
-              else if (id.includes("mistral")) provider = "Mistral via OpenRouter";
-              else if (id.includes("google") || id.includes("gemini")) provider = "Google via OpenRouter";
-              else if (id.includes("microsoft") || id.includes("phi")) provider = "Microsoft via OpenRouter";
+          const combinedIds = Array.from(new Set([
+            ...FALLBACK_OPENROUTER_MODELS,
+            ...freeModels,
+            ...allValid
+          ]));
+          
+          // Sort to prioritize free and flagship models
+          combinedIds.sort((a: string, b: string) => {
+            const score = (id: string) => {
+              if (id === "meta-llama/llama-3.3-70b-instruct:free") return 20;
+              if (id === "meta-llama/llama-3.1-8b-instruct:free") return 19;
+              if (id === "qwen/qwen-2.5-coder-32b-instruct:free") return 18;
+              if (id === "google/gemini-2.0-flash-exp:free") return 17;
+              if (id === "mistralai/mistral-small-24b-instruct-2501:free") return 16;
+              if (id === "microsoft/phi-4:free") return 15;
+              if (id.endsWith(":free")) return 10;
+              if (id.includes("llama-3.3-70b")) return 8;
+              if (id.includes("coder")) return 7;
+              if (id.includes("gemini-2.0")) return 6;
+              return 1;
+            };
+            return score(b) - score(a);
+          });
 
-              let badge = "OpenRouter";
-              if (id.includes("r1")) badge = "Reasoning";
-              else if (id.includes("chat") || id.includes("120b")) badge = "Flagship";
-              else if (id.includes("8b") || id.includes("flash") || id.includes("20b")) badge = "Ultra Fast";
-              else if (id.includes("coder")) badge = "Coder";
-              else if (id.includes("70b")) badge = "Powerhouse";
-              else if (id.includes(":free")) badge = "Free";
+          cachedOpenRouterIds = combinedIds.slice(0, 35);
+          lastOpenRouterFetchTime = now;
+          cachedOpenRouterModelsList = cachedOpenRouterIds.map((id: string) => {
+            let provider = "OpenRouter";
+            if (id.includes("llama") || id.includes("meta")) provider = "Meta via OpenRouter";
+            else if (id.includes("qwen") || id.includes("alibaba")) provider = "Alibaba via OpenRouter";
+            else if (id.includes("mistral")) provider = "Mistral via OpenRouter";
+            else if (id.includes("google") || id.includes("gemini")) provider = "Google via OpenRouter";
+            else if (id.includes("microsoft") || id.includes("phi")) provider = "Microsoft via OpenRouter";
+            else if (id.includes("deepseek")) provider = "DeepSeek via OpenRouter";
+            else if (id.includes("openai")) provider = "OpenAI via OpenRouter";
 
-              return {
-                id,
-                name: getFriendlyModelName(id),
-                provider,
-                badge,
-                description: `Fast multimodal LLM inference via OpenRouter (${id}).`,
-              };
-            });
-            return cachedOpenRouterIds;
-          }
+            let badge = id.includes(":free") ? "Free Forever" : "OpenRouter";
+            if (id.includes("3.3-70b")) badge = "Free Powerhouse";
+            else if (id.includes("coder")) badge = "Free Coder";
+            else if (id.includes("3.1-8b") || id.includes("flash")) badge = "Free Fast";
+
+            return {
+              id,
+              name: getFriendlyModelName(id),
+              provider,
+              badge,
+              description: `100% Free high-speed LLM inference via OpenRouter (${id}).`,
+            };
+          });
+          return cachedOpenRouterIds;
         }
       }
     } catch (e) {}
@@ -3988,7 +4080,7 @@ Respond strictly in valid JSON format:
     const serverKey = sanitizeApiKey(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
     const openrouterKey = cleanCustomKey || serverKey;
 
-    const mappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "deepseek/deepseek-chat:free";
+    const mappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "meta-llama/llama-3.3-70b-instruct:free";
 
     // 1. Primary: OpenRouter Engine
     if (openrouterKey) {
@@ -4030,6 +4122,7 @@ Respond strictly in valid JSON format:
               model: cand,
               messages: openrouterMessages,
               temperature: Math.min(1.0, Math.max(0.1, temperature)),
+              max_tokens: 2048,
               stream: false,
             }),
             signal: controller.signal,
@@ -4045,7 +4138,7 @@ Respond strictly in valid JSON format:
             }
           } else {
             const errText = await res.text().catch(() => "");
-            console.warn(`[OpenRouter Completion] ${cand} failed (${res.status}): ${errText.slice(0, 120)}`);
+            console.warn(`[OpenRouter Completion] ${cand} returned (${res.status}): ${errText.slice(0, 140)}`);
           }
         } catch (routerErr) {
           // try next candidate
@@ -4207,7 +4300,7 @@ Platform context:
         const isGroqKey = openrouterKey.startsWith("gsk_");
         const targetEndpoint = isGroqKey ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
         const liveModels = await resolveActiveOpenRouterModels(openrouterKey);
-        const mappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "deepseek/deepseek-chat:free";
+        const mappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "meta-llama/llama-3.3-70b-instruct:free";
         const candidateModels = Array.from(new Set([
           mappedModel,
           model,
@@ -4232,6 +4325,7 @@ Platform context:
                 model: candModel,
                 messages: openrouterMessages,
                 temperature: Math.min(1.0, Math.max(0.1, temperature)),
+                max_tokens: 2048,
                 stream: Boolean(isStream),
               }),
               signal: controller.signal,
@@ -4240,7 +4334,7 @@ Platform context:
 
             if (!upstreamRes.ok) {
               const errBody = await upstreamRes.text().catch(() => "");
-              console.warn(`OpenRouter model ${candModel} returned ${upstreamRes.status}:`, errBody.slice(0, 150));
+              console.warn(`OpenRouter model ${candModel} returned ${upstreamRes.status}:`, errBody.slice(0, 160));
               continue;
             }
 
