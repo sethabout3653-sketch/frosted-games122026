@@ -4103,30 +4103,109 @@ Respond strictly in valid JSON format:
     try {
       const { text, mediaUrl, mediaTitle, mediaType } = req.body || {};
 
-      // 1. Primary and Exclusive AI Moderation via Gemini 2.5 Flash & Gemini 3 Flash
-      const geminiRes = await moderateWithGemini({
-        text: text || undefined,
-        mediaUrl: mediaUrl || undefined,
-        filename: mediaTitle || undefined,
-        mimeType: mediaType || undefined,
-      });
+      // 1. Check message text (if present) against our local rule checker AND OpenRouter Text Guard
+      if (text && typeof text === "string" && text.trim().length > 0) {
+        const textCheck = checkTextModeration(text);
+        if (!textCheck.safe) {
+          return res.json({
+            safe: false,
+            reason: textCheck.reason || "Your message violates safety guidelines.",
+            category: textCheck.category,
+            model: "regex-guard",
+            moderator: "Rule Guard",
+            modality: "text",
+            moderationNote: textCheck.reason || "Your message violates safety guidelines."
+          });
+        }
 
-      if (!geminiRes.safe) {
-        return res.json({
-          safe: false,
-          reason: geminiRes.reason || "Content blocked by Gemini AI moderation for inappropriate material.",
-          category: geminiRes.category || "inappropriate_content",
-          model: geminiRes.model || "gemini-2.5-flash",
-          moderator: geminiRes.moderator || "Google Gemini Moderation Engine",
-          modality: mediaType || "text",
-          moderationNote: geminiRes.reason || "Content blocked by Gemini AI moderation.",
-        });
+        const openRouterTextCheck = await callGroqTextModeration(text);
+        if (!openRouterTextCheck.safe) {
+          return res.json({
+            safe: false,
+            reason: openRouterTextCheck.reason || "Blocked by AI safety guard.",
+            category: openRouterTextCheck.category || "prohibited content",
+            model: openRouterTextCheck.model || "openrouter/free",
+            moderator: openRouterTextCheck.moderator || "OpenRouter Content Guard",
+            modality: "text",
+            moderationNote: openRouterTextCheck.reason || "Blocked by AI safety guard."
+          });
+        }
       }
 
+      // 2. Check media attachment (if present) against our specialized OpenRouter media inspection pipelines
+      if (mediaUrl && typeof mediaUrl === "string") {
+        const local = await getLocalMediaFile(mediaUrl);
+        if (local) {
+          try {
+            const mType = (mediaType || "").toLowerCase();
+            const lowerUrl = mediaUrl.toLowerCase();
+            const ext = path.extname(lowerUrl.split("?")[0]);
+
+            const isGif = mType.includes("gif") || ext === ".gif";
+            const isVideo = mType.startsWith("video/") || [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".flv", ".wmv", ".3gp", ".ts"].includes(ext);
+            const isAudio = mType.startsWith("audio/") || [".mp3", ".wav", ".m4a", ".ogg", ".aac", ".flac", ".opus", ".weba", ".wma"].includes(ext);
+            const isImage = mType.startsWith("image/") || [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".svg", ".tiff", ".heic"].includes(ext);
+
+            if (isGif) {
+              const gifRes = await inspectGifAnimation(local.filePath);
+              if (!gifRes.safe) {
+                return res.json({
+                  safe: false,
+                  reason: gifRes.reason || "GIF contains inappropriate frames.",
+                  model: gifRes.model || "openrouter/free",
+                  moderator: gifRes.moderator || "OpenRouter GIF Guard",
+                  modality: "image",
+                  moderationNote: gifRes.reason || "GIF contains inappropriate frames."
+                });
+              }
+            } else if (isVideo) {
+              const vidRes = await inspectVideoCompound(local.filePath);
+              if (!vidRes.safe) {
+                return res.json({
+                  safe: false,
+                  reason: vidRes.reason || "Video contains inappropriate scenes.",
+                  model: vidRes.model || "openrouter/free",
+                  moderator: vidRes.moderator || "OpenRouter Video Guard",
+                  modality: "video",
+                  moderationNote: vidRes.reason || "Video contains inappropriate scenes."
+                });
+              }
+            } else if (isAudio) {
+              const audRes = await transcribeAndInspectAudio(local.filePath);
+              if (!audRes.safe) {
+                return res.json({
+                  safe: false,
+                  reason: audRes.reason || "Audio speech contains inappropriate content.",
+                  model: audRes.model || "openrouter/free",
+                  moderator: audRes.moderator || "OpenRouter Audio Guard",
+                  modality: "audio",
+                  moderationNote: audRes.reason || "Audio speech contains inappropriate content."
+                });
+              }
+            } else if (isImage) {
+              const imgRes = await inspectImageWithVision(local.filePath);
+              if (!imgRes.safe) {
+                return res.json({
+                  safe: false,
+                  reason: imgRes.reason || "Image contains inappropriate graphics.",
+                  model: imgRes.model || "openrouter/free",
+                  moderator: imgRes.moderator || "OpenRouter Image Guard",
+                  modality: "image",
+                  moderationNote: imgRes.reason || "Image contains inappropriate graphics."
+                });
+              }
+            }
+          } finally {
+            local.cleanup();
+          }
+        }
+      }
+
+      // If text and media passed all OpenRouter checks, return success!
       return res.json({
         safe: true,
-        model: geminiRes.model || "gemini-2.5-flash",
-        moderator: geminiRes.moderator || "Google Gemini Moderation Engine",
+        model: "openrouter/free",
+        moderator: "OpenRouter Active Guard",
         modality: mediaType || "text"
       });
     } catch (err: any) {
