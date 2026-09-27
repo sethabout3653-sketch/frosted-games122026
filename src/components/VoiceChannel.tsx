@@ -3143,6 +3143,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           const pColor = getUserColorSync(p.photoURL, p.username);
           const isCameraShowing = !!p.isVideoOn;
 
+          const pc = peersRef.current[p.uid];
+          const isConnected = pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected");
+
           return (
             <div
               key={`${p.uid || "remote"}-${compact ? "compact" : "grid"}-${idx}`}
@@ -3156,6 +3159,17 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                   : "0 4px 14px rgba(2, 6, 23, 0.7)",
               }}
             >
+              {/* Connecting Overlay Notice */}
+              {!isConnected && (
+                <div className="absolute inset-0 bg-[#060c24]/90 backdrop-blur-md flex flex-col items-center justify-center p-3 z-30 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2 bg-indigo-950/90 border border-indigo-500/40 px-3 py-1.5 rounded-xl shadow-xl">
+                    <Loader2 size={13} className="animate-spin text-indigo-400 flex-shrink-0" />
+                    <span className="text-[11px] font-semibold text-indigo-200 tracking-tight">
+                      this user is connecting just wait a few seconds
+                    </span>
+                  </div>
+                </div>
+              )}
               {/* Audio Status Badge */}
               {(p.isMuted || isSpeaking) && (
                 <div className="absolute top-2 left-2 bg-[#030617]/95 px-2 py-0.5 rounded-lg border border-indigo-900/60 flex items-center gap-1.5 z-20 animate-in fade-in duration-150">
