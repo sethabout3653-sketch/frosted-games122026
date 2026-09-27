@@ -10,7 +10,20 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
-      server: {
+    build: {
+      rollupOptions: {
+        onwarn(warning, defaultHandler) {
+          if (
+            warning.code === 'MODULE_LEVEL_DIRECTIVE' ||
+            (warning.message && warning.message.includes('"use client"'))
+          ) {
+            return;
+          }
+          defaultHandler(warning);
+        },
+      },
+    },
+    server: {
     port: 3000,
     strictPort: true,
     host: true,

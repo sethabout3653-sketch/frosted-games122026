@@ -277,10 +277,6 @@ export default function ActiveCallModal() {
             <div>
               <h3 className="text-sm font-bold text-white tracking-tight flex items-center gap-1.5">
                 <span>{activeCall.partnerName}</span>
-                <span className="text-[10px] font-semibold text-emerald-400 border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <ShieldCheck size={11} className="text-emerald-400" />
-                  <span>Port 443 • DTLS-SRTP Encrypted</span>
-                </span>
               </h3>
               <p className="text-[11px] text-neutral-400 font-mono">{callDuration}</p>
             </div>

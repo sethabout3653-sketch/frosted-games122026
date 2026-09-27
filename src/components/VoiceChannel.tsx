@@ -1033,10 +1033,15 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           const aStream = new MediaStream([event.track]);
           remoteAudioStreamsRef.current[partnerUid] = aStream;
 
-          const audioEl = remoteAudioRefs.current[partnerUid];
-          if (audioEl) {
-            attachAudioToElement(audioEl, aStream, 0.9);
+          let audioEl = remoteAudioRefs.current[partnerUid];
+          if (!audioEl) {
+            audioEl = document.createElement("audio");
+            audioEl.autoplay = true;
+            (audioEl as any).playsInline = true;
+            document.body.appendChild(audioEl);
+            remoteAudioRefs.current[partnerUid] = audioEl;
           }
+          attachAudioToElement(audioEl, aStream, 0.9);
 
           event.track.onunmute = () => {
             const el = remoteAudioRefs.current[partnerUid];
@@ -1171,9 +1176,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   );
 
   const initiateCall = useCallback(
-    async (partnerUid: string, micStream: MediaStream, force = false) => {
-      // Clean Polite Peer rule: lower UID initiates unless force fallback is enabled
-      if (!force && profile.uid >= partnerUid) return;
+    async (partnerUid: string, micStream: MediaStream) => {
+      // Strict Polite Peer rule: lower UID always initiates
+      if (profile.uid >= partnerUid) return;
 
       try {
         const pc = createPeerConnection(partnerUid, micStream);
@@ -1238,14 +1243,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           if (isDead) {
             pc = createPeerConnection(partnerUid, micStream);
           } else if (pc.signalingState !== "stable") {
-            const isPolite = profile.uid < partnerUid;
+            const isPolite = profile.uid > partnerUid;
             if (!isPolite && pc.signalingState === "have-local-offer") {
               return;
-            }
-            try {
-              await pc.setLocalDescription({ type: "rollback" });
-            } catch (e) {
-              pc = createPeerConnection(partnerUid, micStream);
             }
           }
 
@@ -1647,33 +1647,28 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             users.forEach((u) => {
               if (u.uid !== profile.uid) {
                 const pc = peersRef.current[u.uid];
-                const isDead =
-                  !pc ||
-                  pc.connectionState === "closed" ||
-                  pc.connectionState === "failed" ||
-                  pc.iceConnectionState === "failed";
+                const isConnected = pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected");
+                const isDead = !pc || pc.connectionState === "closed" || pc.connectionState === "failed" || pc.iceConnectionState === "failed";
 
                 const lastAttempt = lastCallAttemptRef.current[u.uid] || 0;
                 const failCount = callFailCountRef.current[u.uid] || 0;
-                const backoffTime = failCount > 3 ? 5000 : 100;
-
-                const isStalled = pc && (pc.connectionState === "new" || pc.connectionState === "connecting") && (now - lastAttempt > 3500);
-                const isDisconnected = pc && (pc.connectionState === "disconnected" || pc.iceConnectionState === "disconnected") && (now - lastAttempt > 2000);
-                if (isStalled || isDisconnected) {
-                  try { pc.close(); } catch (e) {}
-                  delete peersRef.current[u.uid];
-                }
+                const backoffTime = failCount > 3 ? 6000 : 3000;
 
                 const isOfferer = profile.uid < u.uid;
-                const shouldInitiate =
-                  (isOfferer && (lastAttempt === 0 || now - lastAttempt > backoffTime)) ||
-                  (!isOfferer && isDead && (lastAttempt === 0 || now - lastAttempt > 5000));
 
-                if (shouldInitiate && (isDead || isStalled || isDisconnected) && localStreamRef.current) {
-                  lastCallAttemptRef.current[u.uid] = now;
-                  initiateCall(u.uid, localStreamRef.current, !isOfferer);
-                } else if (pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected")) {
+                if (isConnected) {
                   syncPeerTracks(u.uid, pc);
+                } else if (isDead && (lastAttempt === 0 || now - lastAttempt > backoffTime)) {
+                  if (isOfferer && localStreamRef.current) {
+                    lastCallAttemptRef.current[u.uid] = now;
+                    initiateCall(u.uid, localStreamRef.current);
+                  } else if (!isOfferer && (lastAttempt === 0 || now - lastAttempt > 5000)) {
+                    lastCallAttemptRef.current[u.uid] = now;
+                    sendSignal(u.uid, "user_joined", JSON.stringify({
+                      username: profile.username,
+                      photoURL: profile.photoURL,
+                    }));
+                  }
                 }
               }
             });
@@ -2613,9 +2608,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
               <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse flex-shrink-0" />
               <span className="text-[11px] font-bold text-indigo-400 tracking-wide truncate">
                 Voice Connected
-              </span>
-              <span className="text-[10px] text-emerald-400 font-semibold truncate flex items-center gap-1">
-                • Port 443 Encrypted
               </span>
             </div>
             {onExpand && (
