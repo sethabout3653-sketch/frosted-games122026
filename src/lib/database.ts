@@ -720,7 +720,7 @@ export const storageEngine = {
 
         xhr.onerror = () => reject(new Error("Upload network error"));
         xhr.ontimeout = () => reject(new Error("Upload timed out"));
-        xhr.timeout = 45000;
+        xhr.timeout = 120000;
 
         xhr.open("POST", "/api/upload");
         xhr.send(formData);

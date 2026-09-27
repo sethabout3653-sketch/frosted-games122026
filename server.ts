@@ -2258,6 +2258,279 @@ const PORT = Number(process.env.PORT) || 3000;
     return null;
   }
 
+  // 🛡️ Gemini 3.8 Flash Multimodal AI Moderation Engine
+  const GEMINI_MODERATION_INSTRUCTION = `You are a strict automated AI content moderation engine for a real-time social chat application.
+Your mission is to enforce strict safety policies against inappropriate media, text, audio, video, and animated GIFs.
+
+STRICTLY BLOCK (set safe: false) if the content contains ANY of the following:
+1. NSFW / Sexually Explicit / Nudity: Pornography, full or partial nudity, explicit sexual acts, sexually suggestive or erotic poses, twerking, crotch or butt thrusting, sexualized dancing, or revealing erotic content in text, images, GIFs, or videos.
+2. Inappropriate / Erotic Sounds in Audio/Video: Moaning, groaning, sexual panting, erotic noises, orgasmic sounds, sexual whispering, or suggestive sexual vocalizations.
+3. Slurs & Hate Speech: Any racial, ethnic, homophobic, transphobic, religious, or ableist slurs or hate speech in text, audio, image captions, or video speech.
+4. Violent Threats & Harassment: Real-world death threats, threats of physical assault, SWATTING threats, doxxing, or self-harm encouragement.
+
+COMMUNITY POLICY (ALLOWED):
+- Casual swearing / mild profanity (e.g. 'shit', 'fuck', 'bitch', 'ass', 'damn', 'hell', 'piss', 'crap') IS FULLY PERMITTED, provided it is NOT paired with slurs, threats, or NSFW/sexual content.
+
+You MUST respond strictly in valid JSON format matching this schema:
+{
+  "safe": boolean,
+  "category": "clean" | "nsfw" | "slur" | "inappropriate_sound" | "inappropriate_media" | "threat",
+  "reason": "A clear, respectful 1-sentence warning for the user explaining why their content was blocked"
+}`;
+
+  async function moderateWithGemini(opts: {
+    text?: string;
+    filePath?: string;
+    mimeType?: string;
+    mediaUrl?: string;
+    filename?: string;
+  }): Promise<{ safe: boolean; category?: string; reason?: string; moderator?: string; model?: string }> {
+    try {
+      // 0. Instant Cache Lookup (0ms latency for repeated messages or media)
+      const cacheKey = `mod_${opts.text || ""}_${opts.filename || ""}_${opts.mediaUrl || ""}_${opts.filePath || ""}`;
+      const cached = getCachedModeration(cacheKey);
+      if (cached) return { safe: cached.safe, reason: cached.reason, category: cached.category };
+
+      // 1. Instant Rule Check on Text & Filename (0ms latency for known slurs, threats, NSFW terms)
+      if (opts.text) {
+        const textCheck = checkTextModeration(opts.text);
+        if (!textCheck.safe) {
+          const res = { safe: false, category: textCheck.category, reason: textCheck.reason, moderator: "Rule Guard", model: "regex-rule" };
+          setCachedModeration(cacheKey, res);
+          return res;
+        }
+      }
+      if (opts.filename) {
+        const fnCheck = checkTextModeration(opts.filename);
+        if (!fnCheck.safe) {
+          const res = { safe: false, category: fnCheck.category, reason: fnCheck.reason, moderator: "Filename Guard", model: "regex-rule" };
+          setCachedModeration(cacheKey, res);
+          return res;
+        }
+      }
+
+      const geminiKey = process.env.GEMINI_API_KEY || (process.env.AI_API_KEY?.startsWith("AIza") ? process.env.AI_API_KEY : "");
+      if (!geminiKey) {
+        return { safe: true };
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey: geminiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const parts: any[] = [];
+
+      if (opts.text && opts.text.trim()) {
+        parts.push({ text: `Analyze this chat text / prompt for safety: "${opts.text.trim()}"` });
+      }
+
+      let tempFileCleanup: (() => void) | null = null;
+      let targetPath = opts.filePath;
+      let mime = opts.mimeType || "application/octet-stream";
+
+      if (!targetPath && opts.mediaUrl) {
+        const local = await getLocalMediaFile(opts.mediaUrl);
+        if (local) {
+          targetPath = local.filePath;
+          tempFileCleanup = local.cleanup;
+        }
+      }
+
+      const hasMedia = !!(targetPath && fs.existsSync(targetPath));
+
+      if (hasMedia && targetPath) {
+        try {
+          const detected = detectFileMimeType(targetPath) || mime || "";
+          const lowerMime = detected.toLowerCase();
+          const ext = path.extname(targetPath.split("?")[0]).toLowerCase();
+
+          // A. Animated GIF (checks frames and content for free)
+          if (lowerMime.includes("gif") || ext === ".gif") {
+            const gifRes = await inspectGifAnimation(targetPath);
+            if (tempFileCleanup) tempFileCleanup();
+            const decision = {
+              safe: gifRes.safe,
+              reason: gifRes.reason,
+              category: gifRes.safe ? "clean" : "nsfw",
+              moderator: gifRes.moderator || "GIF Vision Guard",
+              model: gifRes.model || "openrouter/free"
+            };
+            setCachedModeration(cacheKey, decision);
+            return decision;
+          }
+
+          // B. Video (Frames & Speech Transcription timeline synthesis)
+          const isVideo = lowerMime.startsWith("video/") || [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".flv", ".wmv", ".3gp", ".ts"].includes(ext);
+          if (isVideo) {
+            const vidRes = await inspectVideoCompound(targetPath);
+            if (tempFileCleanup) tempFileCleanup();
+            const decision = {
+              safe: vidRes.safe,
+              reason: vidRes.reason,
+              category: vidRes.safe ? "clean" : "nsfw",
+              moderator: vidRes.moderator || "Video Timeline Guard",
+              model: vidRes.model || "openrouter/free"
+            };
+            setCachedModeration(cacheKey, decision);
+            return decision;
+          }
+
+          // C. Audio (Speech transcribing and analyzing)
+          const isAudio = lowerMime.startsWith("audio/") || [".mp3", ".wav", ".m4a", ".ogg", ".aac", ".flac", ".opus", ".weba", ".wma"].includes(ext);
+          if (isAudio) {
+            const audRes = await transcribeAndInspectAudio(targetPath);
+            if (tempFileCleanup) tempFileCleanup();
+            const decision = {
+              safe: audRes.safe,
+              reason: audRes.reason,
+              category: audRes.safe ? "clean" : "nsfw",
+              moderator: audRes.moderator || "Acoustic Speech Guard",
+              model: audRes.model || "openrouter/free"
+            };
+            setCachedModeration(cacheKey, decision);
+            return decision;
+          }
+
+          // D. Image (Vision and OCR scaling checks)
+          const isImage = lowerMime.startsWith("image/") || [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".svg", ".tiff", ".heic"].includes(ext);
+          if (isImage) {
+            const imgRes = await inspectImageWithVision(targetPath);
+            if (tempFileCleanup) tempFileCleanup();
+            const decision = {
+              safe: imgRes.safe,
+              reason: imgRes.reason,
+              category: imgRes.safe ? "clean" : "nsfw",
+              moderator: imgRes.moderator || "Vision Image Guard",
+              model: imgRes.model || "openrouter/free"
+            };
+            setCachedModeration(cacheKey, decision);
+            return decision;
+          }
+        } catch (mediaCheckErr) {
+          console.warn("Specialized media moderation failed, falling back to inline data:", mediaCheckErr);
+        }
+
+        try {
+          const stat = fs.statSync(targetPath);
+          const maxBytes = 1 * 1024 * 1024; // 1MB max inline slice for rapid multi-modal analysis
+          let fileBuffer: Buffer;
+          if (stat.size > maxBytes) {
+            const fd = fs.openSync(targetPath, "r");
+            fileBuffer = Buffer.alloc(maxBytes);
+            fs.readSync(fd, fileBuffer, 0, maxBytes, 0);
+            fs.closeSync(fd);
+          } else {
+            fileBuffer = fs.readFileSync(targetPath);
+          }
+
+          const detected = detectFileMimeType(targetPath);
+          if (detected) mime = detected;
+
+          parts.push({
+            inlineData: {
+              mimeType: mime,
+              data: fileBuffer.toString("base64"),
+            },
+          });
+          parts.push({
+            text: `Perform strict multi-modal moderation on this attached ${mime} media file (${opts.filename || path.basename(targetPath)}). Inspect for NSFW content, nudity, twerking/sexual dancing, slurs, moaning/erotic sounds, or violent threats.`
+          });
+        } catch (fileErr) {
+          console.warn("Gemini file read error:", fileErr);
+        }
+      }
+
+      if (parts.length === 0) {
+        if (tempFileCleanup) tempFileCleanup();
+        return { safe: true };
+      }
+
+      // Allowed Models: Gemini 2.5 Flash & Gemini 3 Flash
+      const ALLOWED_MODERATION_MODELS = [
+        "gemini-2.5-flash",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+      ];
+
+      let response: any = null;
+      let usedModel = ALLOWED_MODERATION_MODELS[0];
+      const modelTimeoutMs = hasMedia ? 3500 : 1800; // Fast 1.8s timeout for text, 3.5s for media
+
+      for (const candidateModel of ALLOWED_MODERATION_MODELS) {
+        try {
+          const apiCall = ai.models.generateContent({
+            model: candidateModel,
+            contents: { parts },
+            config: {
+              systemInstruction: GEMINI_MODERATION_INSTRUCTION,
+              responseMimeType: "application/json",
+              temperature: 0.0,
+            },
+          });
+
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Gemini moderation timeout")), modelTimeoutMs)
+          );
+
+          response = await Promise.race([apiCall, timeoutPromise]);
+
+          if (response && response.text) {
+            usedModel = candidateModel;
+            break;
+          }
+        } catch (mErr) {
+          continue;
+        }
+      }
+
+      if (tempFileCleanup) tempFileCleanup();
+
+      if (!response) {
+        return { safe: true };
+      }
+
+      const textOut = response.text || "";
+      const cleaned = textOut.replace(/```json/gi, "").replace(/```/g, "").trim();
+      if (!cleaned) return { safe: true };
+
+      const parsed = JSON.parse(cleaned);
+
+      if (parsed.safe === false) {
+        const res = {
+          safe: false,
+          category: parsed.category || "inappropriate_content",
+          reason: parsed.reason || "Content blocked by Gemini AI moderation for inappropriate material.",
+          moderator: `Google Gemini Moderation Engine (${usedModel})`,
+          model: usedModel,
+        };
+        setCachedModeration(cacheKey, res);
+        return res;
+      }
+
+      const res = {
+        safe: true,
+        moderator: `Google Gemini Moderation Engine (${usedModel})`,
+        model: usedModel,
+      };
+      setCachedModeration(cacheKey, res);
+      return res;
+    } catch (err: any) {
+      console.warn("moderateWithGemini exception:", err?.message || err);
+      if (opts.text) {
+        const check = checkTextModeration(opts.text);
+        if (!check.safe) {
+          return { safe: false, category: check.category, reason: check.reason, moderator: "Rule Guard", model: "regex-rule" };
+        }
+      }
+      return { safe: true };
+    }
+  }
+
   // 🛡️ Pre-moderation Check on Uploaded Files
   async function performFileModeration(
     filePath: string,
@@ -2273,6 +2546,17 @@ const PORT = Number(process.env.PORT) || 3000;
       const cacheKey = `file_${originalFilename}_${size}_${mimeType}`;
       const cached = getCachedModeration(cacheKey);
       if (cached) return { safe: cached.safe, reason: cached.reason };
+
+      // 1. Primary AI Moderation via Gemini 3.8 Flash
+      const geminiCheck = await moderateWithGemini({
+        filePath,
+        filename: originalFilename,
+        mimeType,
+      });
+      if (!geminiCheck.safe) {
+        setCachedModeration(cacheKey, geminiCheck);
+        return geminiCheck;
+      }
 
       // 1. Check filename against slurs, curse words, and sexual terms
       if (originalFilename) {
@@ -2539,12 +2823,13 @@ const PORT = Number(process.env.PORT) || 3000;
   ): Promise<{ safe: boolean; reason?: string; category?: string; model?: string; moderator?: string; extractedText?: string }> {
     const key = OPENROUTER_API_KEY;
     const modelsToTry = [
-      MODERATION_GROQ_MODELS.image.primary, // google/gemma-4
+      "openrouter/free", // Dynamic automatic free router (100% free multimodal vision)
+      "google/gemini-2.0-flash-exp:free", // Google's free vision model
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", // NVIDIA's free multimodal omni model
+      MODERATION_GROQ_MODELS.image.geminiVision, // google/gemini-2.0-flash-exp:free
+      MODERATION_GROQ_MODELS.image.nemotronVision, // nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
       MODERATION_GROQ_MODELS.image.deepseekVision, // deepseek/deepseek-v4.1-flash
       MODERATION_GROQ_MODELS.image.glmVision, // glm-5.3-flash
-      MODERATION_GROQ_MODELS.image.geminiVision, // google/gemini-2.0-flash-exp:free
-      MODERATION_GROQ_MODELS.image.perceptronVision, // perceptron/perceptron-mk1.5
-      MODERATION_GROQ_MODELS.image.nemotronVision, // nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
       MODERATION_GROQ_MODELS.image.fallback, // meta-llama/llama-3.2-11b-vision-instruct:free
     ].filter(Boolean);
 
@@ -2782,6 +3067,8 @@ Respond strictly in valid JSON format:
 }`;
 
     const modelsToTry = [
+      "openrouter/free", // Dynamic automatic free router (100% free text reasoning)
+      "meta-llama/llama-3.1-8b-instruct:free", // Meta's free text model
       MODERATION_GROQ_MODELS.text.primary, // meta-llama/llama-guard-3-8b
       MODERATION_GROQ_MODELS.text.deepseek, // deepseek/deepseek-v4.1-flash
       MODERATION_GROQ_MODELS.text.glm, // glm-5.3-flash
@@ -2860,10 +3147,10 @@ Respond strictly in valid JSON format:
     const defaultModel = MODERATION_GROQ_MODELS.video.omniReasoning;
 
     const modelsToTry = [
-      MODERATION_GROQ_MODELS.video.omniReasoning, // perceptron/perceptron-mk1.5
+      "openrouter/free", // Dynamic automatic free router (100% free multimodal video frame reasoning)
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", // NVIDIA's free multimodal omni model
+      "google/gemini-2.0-flash-exp:free", // Google's free vision model
       MODERATION_GROQ_MODELS.video.omniNano, // nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
-      MODERATION_GROQ_MODELS.video.frameVision, // google/gemma-4
-      MODERATION_GROQ_MODELS.video.frameVisionAlt, // deepseek/deepseek-v4.1-flash
       MODERATION_GROQ_MODELS.video.glmVision, // glm-5.3-flash
       MODERATION_GROQ_MODELS.video.geminiVision, // google/gemini-2.0-flash-exp:free
     ].filter(Boolean);
@@ -3816,146 +4103,31 @@ Respond strictly in valid JSON format:
     try {
       const { text, mediaUrl, mediaTitle, mediaType } = req.body || {};
 
-      // 1. Check message text against regex and OpenRouter Llama Guard
-      if (text && typeof text === "string" && text.trim().length > 0) {
-        const textCheck = checkTextModeration(text);
-        if (!textCheck.safe) {
-          return res.json({
-            safe: false,
-            reason: textCheck.reason || "Your message contains words that aren't allowed in chat.",
-            category: textCheck.category,
-            model: "regex-guard",
-            moderator: "Deterministic Pattern Guard",
-            modality: "text",
-            moderationNote: textCheck.reason || "Your message contains words that aren't allowed in chat. Please edit it and try again."
-          });
-        }
+      // 1. Primary and Exclusive AI Moderation via Gemini 2.5 Flash & Gemini 3 Flash
+      const geminiRes = await moderateWithGemini({
+        text: text || undefined,
+        mediaUrl: mediaUrl || undefined,
+        filename: mediaTitle || undefined,
+        mimeType: mediaType || undefined,
+      });
 
-        try {
-          const aiCheck = await callGroqTextModeration(text, "Chat message text");
-          if (aiCheck && aiCheck.safe === false) {
-            return res.json({
-              safe: false,
-              reason: aiCheck.reason || "Your message contains words or content that aren't allowed in chat.",
-              category: aiCheck.category || "prohibited content",
-              model: aiCheck.model || MODERATION_GROQ_MODELS.text.primary,
-              moderator: aiCheck.moderator || "OpenRouter Llama Guard",
-              modality: "text",
-              moderationNote: aiCheck.reason || "Your message contains words or content that aren't allowed in chat."
-            });
-          }
-        } catch (e) {}
+      if (!geminiRes.safe) {
+        return res.json({
+          safe: false,
+          reason: geminiRes.reason || "Content blocked by Gemini AI moderation for inappropriate material.",
+          category: geminiRes.category || "inappropriate_content",
+          model: geminiRes.model || "gemini-2.5-flash",
+          moderator: geminiRes.moderator || "Google Gemini Moderation Engine",
+          modality: mediaType || "text",
+          moderationNote: geminiRes.reason || "Content blocked by Gemini AI moderation.",
+        });
       }
 
-      // 2. Check media title
-      if (mediaTitle && typeof mediaTitle === "string" && mediaTitle.trim().length > 0) {
-        const titleCheck = checkTextModeration(mediaTitle);
-        if (!titleCheck.safe) {
-          return res.json({
-            safe: false,
-            reason: titleCheck.reason || "The file name contains words that aren't allowed in chat.",
-            category: titleCheck.category,
-            model: "regex-guard",
-            moderator: "Deterministic Filename Guard",
-            modality: "text",
-            moderationNote: titleCheck.reason || "The file name contains words that aren't allowed in chat."
-          });
-        }
-      }
-
-      // 3. Check media file content with specialized separate Groq models
-      if (mediaUrl && typeof mediaUrl === "string") {
-        const urlCheck = checkTextModeration(decodeURIComponent(mediaUrl));
-        if (!urlCheck.safe) {
-          return res.json({
-            safe: false,
-            reason: urlCheck.reason || "The media link contains words that aren't allowed.",
-            category: urlCheck.category,
-            model: "regex-guard",
-            moderator: "URL Safety Guard",
-            modality: "text",
-            moderationNote: urlCheck.reason || "The media link contains words that aren't allowed."
-          });
-        }
-
-        const local = await getLocalMediaFile(mediaUrl);
-        if (local) {
-          try {
-            const mType = (mediaType || "").toLowerCase();
-            const lowerUrl = mediaUrl.toLowerCase();
-            const ext = path.extname(lowerUrl.split("?")[0]);
-
-            const isGif = mType.includes("gif") || ext === ".gif";
-            const isVideo = mType.startsWith("video/") || [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".flv", ".wmv", ".3gp", ".ts"].includes(ext);
-            const isAudio = mType.startsWith("audio/") || [".mp3", ".wav", ".m4a", ".ogg", ".aac", ".flac", ".opus", ".weba", ".wma"].includes(ext);
-            const isImage = mType.startsWith("image/") || [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".svg", ".tiff", ".heic"].includes(ext);
-
-            if (isGif) {
-              const gifRes = await inspectGifAnimation(local.filePath);
-              if (!gifRes.safe) {
-                return res.json({ 
-                  safe: false, 
-                  reason: gifRes.reason || "This GIF contains content that isn't allowed in chat.",
-                  model: gifRes.model || MODERATION_GROQ_MODELS.image.primary,
-                  moderator: gifRes.moderator || "OpenRouter Vision Engine",
-                  modality: "image",
-                  moderationNote: gifRes.reason || "This GIF contains content that isn't allowed in chat."
-                });
-              }
-            } else if (isVideo) {
-              const vidRes = await inspectVideoCompound(local.filePath);
-              if (!vidRes.safe) {
-                return res.json({ 
-                  safe: false, 
-                  reason: vidRes.reason || "This video contains content that isn't allowed in chat.",
-                  transcript: vidRes.transcript,
-                  model: vidRes.model || MODERATION_GROQ_MODELS.video.frameVision,
-                  moderator: vidRes.moderator || "OpenRouter Video Compound Pipeline",
-                  modality: "video",
-                  moderationNote: vidRes.reason || "This video contains content that isn't allowed in chat."
-                });
-              }
-            } else if (isAudio) {
-              const audRes = await transcribeAndInspectAudio(local.filePath);
-              if (!audRes.safe) {
-                return res.json({ 
-                  safe: false, 
-                  reason: audRes.reason || "This audio contains language that isn't allowed in chat.",
-                  transcript: audRes.transcript,
-                  model: audRes.model || MODERATION_GROQ_MODELS.audio.transcription,
-                  moderator: audRes.moderator || "OpenRouter Audio Engine",
-                  modality: "audio",
-                  moderationNote: audRes.reason || "This audio contains language that isn't allowed in chat."
-                });
-              }
-            } else if (isImage) {
-              const imgRes = await inspectImageWithVision(local.filePath);
-              if (!imgRes.safe) {
-                return res.json({ 
-                  safe: false, 
-                  reason: imgRes.reason || "This image contains content that isn't allowed in chat.",
-                  model: imgRes.model || MODERATION_GROQ_MODELS.image.primary,
-                  moderator: imgRes.moderator || "OpenRouter Vision Engine",
-                  modality: "image",
-                  moderationNote: imgRes.reason || "This image contains content that isn't allowed in chat."
-                });
-              }
-            }
-          } finally {
-            local.cleanup();
-          }
-        }
-      }
-
-      return res.json({ 
-        safe: true, 
-        moderator: "OpenRouter Content Moderation Suite",
-        models: {
-          image: MODERATION_GROQ_MODELS.image.primary,
-          audio: MODERATION_GROQ_MODELS.audio.transcription,
-          video: MODERATION_GROQ_MODELS.video.frameVision,
-          text: MODERATION_GROQ_MODELS.text.primary,
-        }
+      return res.json({
+        safe: true,
+        model: geminiRes.model || "gemini-2.5-flash",
+        moderator: geminiRes.moderator || "Google Gemini Moderation Engine",
+        modality: mediaType || "text"
       });
     } catch (err: any) {
       console.warn("Moderation route error:", err);

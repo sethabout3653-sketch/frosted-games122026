@@ -869,17 +869,38 @@ export default function AIAssistant() {
     }));
   };
 
-  // Sync live available models from server
+  // Sync live available models from server without duplicating keys
   useEffect(() => {
     fetch("/api/ai/models")
       .then((res) => res.json())
       .then((data) => {
         if (data && Array.isArray(data.models) && data.models.length > 0) {
-          const merged = [
-            AVAILABLE_MODELS[0],
-            ...data.models.filter((m: any) => m.id !== "gemini-3.8-flash")
-          ];
-          setAvailableModels(merged);
+          const mergedList: AIModelOption[] = [];
+          const seenIds = new Set<string>();
+
+          // 1. Add static base models
+          AVAILABLE_MODELS.forEach((m) => {
+            if (!seenIds.has(m.id)) {
+              seenIds.add(m.id);
+              mergedList.push(m);
+            }
+          });
+
+          // 2. Add dynamic models from API (skipping duplicate IDs)
+          data.models.forEach((m: any) => {
+            if (m && m.id && m.id !== "gemini-3.8-flash" && !seenIds.has(m.id)) {
+              seenIds.add(m.id);
+              mergedList.push({
+                id: m.id,
+                name: m.name || m.id,
+                provider: m.provider || "AI Model Provider",
+                description: m.description || "",
+                badge: m.badge,
+              });
+            }
+          });
+
+          setAvailableModels(mergedList);
         }
       })
       .catch(() => {});

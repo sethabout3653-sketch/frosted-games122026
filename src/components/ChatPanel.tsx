@@ -4,6 +4,7 @@ import {
   db,
   collection,
   query,
+  where,
   orderBy,
   limit,
   getDocs,
@@ -1068,6 +1069,7 @@ export default function ChatPanel({
     }
     const q = query(
       collection(db, "messages"),
+      where("channelId", "==", activeChannel),
       orderBy("timestamp", "desc"),
       limit(messageLimit)
     );
@@ -1209,7 +1211,7 @@ export default function ChatPanel({
       unsubscribe();
       unsubWsMsg();
     };
-  }, [messageLimit]);
+  }, [messageLimit, activeChannel]);
 
   const handleScroll = () => {
     if (!chatContainerRef.current) return;
@@ -1415,7 +1417,7 @@ export default function ChatPanel({
     const currentSize = attachmentSize;
     if (!currentText && !currentAttachment) return;
 
-    // Content moderation and word filter check
+    // 1. Instant synchronous client-side rule moderation check (0ms latency)
     if (currentText) {
       const textCheck = checkTextModeration(currentText);
       if (!textCheck.safe) {
@@ -1430,11 +1432,31 @@ export default function ChatPanel({
       currentAttachment = `${currentAttachment}${sep}name=${encodeURIComponent(currentName)}&type=${encodeURIComponent(currentType || "")}&size=${currentSize || 0}`;
     }
 
+    // 2. Pre-verify message with AI Moderation API BEFORE clearing text or adding optimistic message to screen
+    try {
+      const modRes = await fetch("/api/moderate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: currentText || undefined,
+          mediaUrl: currentAttachment || undefined,
+          mediaTitle: currentName || undefined,
+          mediaType: currentType || undefined,
+        }),
+      });
+      if (modRes.ok) {
+        const modData = await modRes.json();
+        if (modData && modData.safe === false) {
+          showModerationAlert("Message Blocked", modData.reason || "Your message violates community safety guidelines.");
+          return;
+        }
+      }
+    } catch (modErr) {}
+
     const msgId = "doc_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
-    // const tempId = "temp_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
     const now = Date.now();
 
-    // Optimistically show message immediately on sender's screen (0ms latency)
+    // 3. Render optimistic message ONLY after passing moderation
     const optimisticMsg: ChatMessage = {
       id: msgId,
       channelId: activeChannel,
@@ -1500,7 +1522,6 @@ export default function ChatPanel({
 
       await setDoc(doc(db, "messages", msgId), msgData);
     } catch (error) {
-      // Revert optimistic message if writing failed
       setMessages((prev) => prev.filter((m) => m.id !== msgId));
       handleFirestoreError(error, OperationType.CREATE, "messages");
     }
@@ -1509,10 +1530,30 @@ export default function ChatPanel({
   const handleSendGif = async (gifUrl: string, gifTitle?: string) => {
     if (!gifUrl) return;
 
+    // 1. Moderate GIF BEFORE adding to chat or closing picker
+    try {
+      const modRes = await fetch("/api/moderate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mediaUrl: gifUrl,
+          mediaTitle: gifTitle || "GIF",
+          mediaType: "image/gif",
+        }),
+      });
+      if (modRes.ok) {
+        const modData = await modRes.json();
+        if (modData && modData.safe === false) {
+          showModerationAlert("GIF Blocked", modData.reason || "This GIF violates community safety guidelines.");
+          return;
+        }
+      }
+    } catch (modErr) {}
+
     const msgId = "doc_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
     const now = Date.now();
 
-    // Optimistically show GIF immediately (0ms latency)
+    // 2. Render optimistic GIF ONLY after passing moderation
     const optimisticMsg: ChatMessage = {
       id: msgId,
       channelId: activeChannel,
@@ -1533,6 +1574,7 @@ export default function ChatPanel({
     window.setTimeout(() => scrollToBottom("smooth"), 10);
 
     try {
+
       const msgData: Record<string, any> = {
         channelId: activeChannel,
         uid: profile.uid,
@@ -2410,7 +2452,7 @@ export default function ChatPanel({
           )}
 
           {/* Floating Jump to Latest button */}
-          {showScrollBottomBtn && (
+          {showScrollBottomBtn && filteredMessages.length > 0 && (
             <div className="sticky bottom-2 flex justify-center z-30 pointer-events-none pb-2">
               <button
                 onClick={() => {

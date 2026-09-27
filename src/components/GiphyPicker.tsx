@@ -115,15 +115,15 @@ export const GiphyPicker: React.FC<GiphyPickerProps> = ({
     try {
       let result;
       if (!query || query === "Trending") {
-        // Enforce PG rating for all trending GIFs
-        result = await gf.trending({ limit: 30, rating: "pg" });
+        // Retrieve R-rated trending GIFs for mature themes
+        result = await gf.trending({ limit: 30, rating: "r" });
       } else {
-        // Enforce PG rating for all search queries
+        // Retrieve R-rated search queries for mature themes
         result = await gf.search(query, {
           limit: 30,
           sort: "relevant",
           lang: "en",
-          rating: "pg",
+          rating: "r",
         });
       }
 
@@ -220,10 +220,6 @@ export const GiphyPicker: React.FC<GiphyPickerProps> = ({
           </span>
           <span className="text-xs font-bold text-white">
             Choose a GIF
-          </span>
-          <span className="px-1.5 py-0.5 rounded bg-emerald-950/90 border border-emerald-600/70 text-emerald-300 font-semibold text-[9px] tracking-wider uppercase flex items-center gap-1 shadow-sm">
-            <ShieldCheck size={10} className="text-emerald-400" />
-            PG RATED
           </span>
           <span className="text-[10px] text-indigo-300/50 hidden sm:inline">
             Powered by GIPHY
