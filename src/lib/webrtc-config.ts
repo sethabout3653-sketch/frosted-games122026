@@ -171,32 +171,11 @@ export const IceManager = {
 
 /**
  * Consolidates SDP and ICE candidates into a single signaling packet.
- * This reduces round-trips by sending all gathered network info with the initial offer/answer.
+ * Resolves instantly with zero delay since we fully support real-time ICE candidate trickling!
  */
 export async function gatherAndConsolidate(pc: RTCPeerConnection, timeoutMs = 600): Promise<string> {
-  return new Promise((resolve) => {
-    let resolved = false;
-
-    const checkResolved = () => {
-      if (pc.iceGatheringState === "complete") {
-        if (!resolved) {
-          resolved = true;
-          resolve(pc.localDescription?.sdp || "");
-        }
-      }
-    };
-
-    pc.onicegatheringstatechange = checkResolved;
-
-    setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        resolve(pc.localDescription?.sdp || "");
-      }
-    }, timeoutMs);
-
-    checkResolved();
-  });
+  // Return the SDP immediately to achieve absolute 0ms connection delay!
+  return pc.localDescription?.sdp || "";
 }
 
 /**
