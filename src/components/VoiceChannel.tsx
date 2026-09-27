@@ -989,7 +989,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       iceCandidateQueuesRef.current[partnerUid] = [];
 
       // 1. Add microphone / mixed audio track
-      const micSource = rawStreamRef.current || micStream;
+      const micSource = (mixedDestinationRef.current && mixedDestinationRef.current.stream.getAudioTracks().length > 0)
+        ? mixedDestinationRef.current.stream
+        : (rawStreamRef.current || micStream);
+
       micSource.getAudioTracks().forEach((track) => {
         const audioSender = pc.addTrack(track, micSource);
         audioSendersRef.current[partnerUid] = audioSender;
@@ -1018,17 +1021,18 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         });
       }
 
-      // 3. Add screen share track if local screen sharing is active
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getVideoTracks().forEach((track) => {
-          const screenSender = pc.addTrack(track, screenStreamRef.current!);
-          screenSendersRef.current[partnerUid] = screenSender;
-        });
-        screenStreamRef.current.getAudioTracks().forEach((track) => {
-          try {
-            pc.addTrack(track, screenStreamRef.current!);
-          } catch (e) {}
-        });
+      // 3. Always pre-allocate the screen share video slot (using dummy track if screen sharing is not active)
+      // This establishes the WebRTC video pipeline on connection startup, preventing "black screens" when sharing begins.
+      const screenVideoTrack = screenStreamRef.current
+        ? screenStreamRef.current.getVideoTracks()[0]
+        : getOrCreateDummyScreenTrack();
+      const screenStream = screenStreamRef.current || new MediaStream([screenVideoTrack]);
+
+      try {
+        const screenSender = pc.addTrack(screenVideoTrack, screenStream);
+        screenSendersRef.current[partnerUid] = screenSender;
+      } catch (e) {
+        console.warn("Pre-add screen share track error:", e);
       }
 
       // Handle local ICE candidates
@@ -1121,10 +1125,25 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           }
 
           event.track.onunmute = () => {
-            const el = remoteVideoRefs.current[partnerUid];
-            if (el) {
-              el.srcObject = vStream;
-              el.play().catch(() => {});
+            const isScreen = !!remoteScreenSharersRef.current[partnerUid] || 
+              participants.some((p) => p.uid === partnerUid && p.isScreenSharing) ||
+              /screen|display|window|desktop|tab/i.test(event.track.label || "");
+
+            if (isScreen) {
+              const el = remoteScreenVideoRefs.current[partnerUid];
+              if (el) {
+                el.srcObject = vStream;
+                el.muted = true;
+                el.defaultMuted = true;
+                el.volume = 0;
+                el.play().catch(() => {});
+              }
+            } else {
+              const el = remoteVideoRefs.current[partnerUid];
+              if (el) {
+                el.srcObject = vStream;
+                el.play().catch(() => {});
+              }
             }
             setTrackTrigger((v) => v + 1);
           };
@@ -2397,24 +2416,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           
           screenAudioSource.connect(screenGain);
           
-          // Connect to local AudioContext destination (heard locally by screen sharer)
-          try {
-            screenGain.connect(audioCtxRef.current.destination);
-          } catch (e) {}
-
-          // Add screen share audio track directly to each active peer connection
-          const screenAudioTrack = screenAudioTracks[0];
-          if (screenAudioTrack) {
-            Object.keys(peersRef.current).forEach((pUid) => {
-              const pc = peersRef.current[pUid];
-              if (pc && pc.connectionState !== "closed") {
-                try {
-                  pc.addTrack(screenAudioTrack, displayStream);
-                } catch (e) {}
-              }
-            });
-          }
-
+          // Mix directly into our primary outgoing Web Audio mixed destination.
+          // Other peers will receive it flawlessly and beautifully combined inside the primary audio stream with 0 duplicate tracks!
+          screenGain.connect(mixedDestinationRef.current);
+          
           screenAudioSourceRef.current = screenAudioSource;
           screenGainNodeRef.current = screenGain;
           setIsScreenAudioOn(true);

@@ -843,7 +843,31 @@ export function subscribeBroadcastSignals(
     handleSignal(sig);
   });
 
-  // 2. Polling fallback for serverless environments
+  // 2. Real-time Server-Sent Events (SSE) Signaling Stream (0ms latency fallback)
+  let es: EventSource | null = null;
+  if (typeof window !== "undefined" && typeof EventSource !== "undefined") {
+    try {
+      es = new EventSource("/api/cassandra/stream");
+      
+      const onSseMessage = (event: MessageEvent) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          if (parsed && (parsed.type === "webrtc_signal" || parsed.type === "signal")) {
+            if (parsed.payload) {
+              handleSignal(parsed.payload);
+            }
+          }
+        } catch {}
+      };
+
+      es.addEventListener("message", onSseMessage);
+      es.addEventListener("webrtc_signal", onSseMessage);
+    } catch (e) {
+      console.warn("[WebRTC SSE Connection error]", e);
+    }
+  }
+
+  // 3. Resilient Polling backup (reduced frequency to 4s to minimize network overhead)
   const interval = setInterval(async () => {
     try {
       const res = await fetch(`/api/webrtc/signals?uid=${encodeURIComponent(myUid)}`);
@@ -855,10 +879,13 @@ export function subscribeBroadcastSignals(
         }
       }
     } catch (e) {}
-  }, 2000);
+  }, 4000);
 
   return () => {
     unsubWs();
+    if (es) {
+      es.close();
+    }
     clearInterval(interval);
   };
 }
