@@ -878,55 +878,64 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       }
     }
 
-    // 2. Camera video track
+    // 2. Camera and Screen Share video tracks
     const videoTransceivers = transceivers.filter((t) => t.receiver.track?.kind === "video");
-    if (videoTransceivers.length >= 1) {
-      const camTrack = videoTransceivers[0].receiver.track;
-      if (camTrack) {
-        camTrack.enabled = true;
-        let cStream = remoteCameraStreamsRef.current[partnerUid];
-        if (!cStream || !cStream.getVideoTracks().some((t) => t.id === camTrack.id)) {
-          cStream = new MediaStream([camTrack]);
-          remoteCameraStreamsRef.current[partnerUid] = cStream;
-          remoteStreamsRef.current[partnerUid] = cStream;
+    const isScreenSharer = !!remoteScreenSharersRef.current[partnerUid] || 
+      participants.some((p) => p.uid === partnerUid && p.isScreenSharing);
+
+    let camTrack: MediaStreamTrack | null = null;
+    let scrTrack: MediaStreamTrack | null = null;
+
+    if (videoTransceivers.length >= 2) {
+      camTrack = videoTransceivers[0].receiver.track;
+      scrTrack = videoTransceivers[1].receiver.track;
+    } else if (videoTransceivers.length === 1) {
+      const singleTrack = videoTransceivers[0].receiver.track;
+      if (singleTrack) {
+        const isScreenLabel = /screen|display|window|desktop|tab/i.test(singleTrack.label || "");
+        if (isScreenSharer || isScreenLabel) {
+          scrTrack = singleTrack;
+        } else {
+          camTrack = singleTrack;
         }
-        
-        const camEl = remoteVideoRefs.current[partnerUid];
-        if (camEl) {
-          if (camEl.srcObject !== cStream) {
-            camEl.srcObject = cStream;
-          }
-          camEl.play().catch(() => {});
-        }
-        setRemoteVideoLoaded((prev) => ({ ...prev, [partnerUid]: true }));
-        camTrack.onunmute = () => {
-          const el = remoteVideoRefs.current[partnerUid];
-          const stream = remoteCameraStreamsRef.current[partnerUid] || remoteStreamsRef.current[partnerUid];
-          if (el && stream) {
-            if (el.srcObject !== stream) {
-              el.srcObject = stream;
-            }
-            el.play().catch(() => {});
-          }
-          setRemoteVideoLoaded((prev) => ({ ...prev, [partnerUid]: true }));
-          setTrackTrigger((v) => v + 1);
-        };
       }
     }
 
-    // 3. Screen share video track
-    let scrTrack: MediaStreamTrack | null = null;
-    if (transceivers.length >= 3 && transceivers[2].receiver.track?.kind === "video") {
-      scrTrack = transceivers[2].receiver.track;
-    } else if (videoTransceivers.length >= 2) {
-      scrTrack = videoTransceivers[1].receiver.track;
+    if (camTrack) {
+      camTrack.enabled = true;
+      let cStream = remoteCameraStreamsRef.current[partnerUid];
+      if (!cStream || !cStream.getVideoTracks().some((t) => t.id === camTrack!.id)) {
+        cStream = new MediaStream([camTrack]);
+        remoteCameraStreamsRef.current[partnerUid] = cStream;
+        remoteStreamsRef.current[partnerUid] = cStream;
+      }
+      
+      const camEl = remoteVideoRefs.current[partnerUid];
+      if (camEl) {
+        if (camEl.srcObject !== cStream) {
+          camEl.srcObject = cStream;
+        }
+        camEl.play().catch(() => {});
+      }
+      setRemoteVideoLoaded((prev) => ({ ...prev, [partnerUid]: true }));
+      camTrack.onunmute = () => {
+        const el = remoteVideoRefs.current[partnerUid];
+        const stream = remoteCameraStreamsRef.current[partnerUid] || remoteStreamsRef.current[partnerUid];
+        if (el && stream) {
+          if (el.srcObject !== stream) {
+            el.srcObject = stream;
+          }
+          el.play().catch(() => {});
+        }
+        setRemoteVideoLoaded((prev) => ({ ...prev, [partnerUid]: true }));
+        setTrackTrigger((v) => v + 1);
+      };
     }
 
     if (scrTrack) {
       scrTrack.enabled = true;
       let scrStream = remoteScreenStreamsRef.current[partnerUid];
       if (!scrStream || !scrStream.getVideoTracks().some((t) => t.id === scrTrack!.id)) {
-        // Create a completely new MediaStream to ensure the <video> element detects the change
         scrStream = new MediaStream([scrTrack]);
         remoteScreenStreamsRef.current[partnerUid] = scrStream;
       }
@@ -1075,16 +1084,35 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         } else if (event.track.kind === "video") {
           event.track.enabled = true;
           const vStream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
-          remoteStreamsRef.current[partnerUid] = vStream;
-          remoteCameraStreamsRef.current[partnerUid] = vStream;
-          setRemoteVideoLoaded((prev) => ({ ...prev, [partnerUid]: true }));
+          
+          const isScreenSharer = !!remoteScreenSharersRef.current[partnerUid] || 
+            participants.some((p) => p.uid === partnerUid && p.isScreenSharing);
+          const isScreenLabel = /screen|display|window|desktop|tab/i.test(event.track.label || "");
 
-          const vEl = remoteVideoRefs.current[partnerUid];
-          if (vEl) {
-            if (vEl.srcObject !== vStream) {
-              vEl.srcObject = vStream;
+          if (isScreenSharer || isScreenLabel) {
+            remoteScreenStreamsRef.current[partnerUid] = vStream;
+            const screenEl = remoteScreenVideoRefs.current[partnerUid];
+            if (screenEl) {
+              if (screenEl.srcObject !== vStream) {
+                screenEl.srcObject = vStream;
+              }
+              screenEl.muted = true;
+              screenEl.defaultMuted = true;
+              screenEl.volume = 0;
+              screenEl.play().catch(() => {});
             }
-            vEl.play().catch(() => {});
+          } else {
+            remoteStreamsRef.current[partnerUid] = vStream;
+            remoteCameraStreamsRef.current[partnerUid] = vStream;
+            setRemoteVideoLoaded((prev) => ({ ...prev, [partnerUid]: true }));
+
+            const vEl = remoteVideoRefs.current[partnerUid];
+            if (vEl) {
+              if (vEl.srcObject !== vStream) {
+                vEl.srcObject = vStream;
+              }
+              vEl.play().catch(() => {});
+            }
           }
 
           event.track.onunmute = () => {
