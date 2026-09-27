@@ -1444,22 +1444,54 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentAct || !myProf?.uid || !pc) return;
 
     try {
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
-          frameRate: { ideal: 30, max: 30 },
-        },
-        audio: {
-          suppressLocalAudioPlayback: false,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: false,
-          systemAudio: "include",
-          selfBrowserSurface: "exclude",
-          surfaceSwitching: "include",
-        } as any,
-      });
+      let displayStream: MediaStream;
+      try {
+        // High-fidelity studio stereo capture at 60 FPS
+        displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            frameRate: { ideal: 60, max: 60 },
+          },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: { ideal: 2 },
+            sampleRate: { ideal: 48000 },
+            suppressLocalAudioPlayback: false,
+            systemAudio: "include",
+            selfBrowserSurface: "exclude",
+            surfaceSwitching: "include",
+          } as any,
+        });
+      } catch (errAudio1) {
+        try {
+          // Fallback 1: Standard echo-cancelled audio at 60 FPS
+          displayStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: 1280, max: 1920 },
+              height: { ideal: 720, max: 1080 },
+              frameRate: { ideal: 60, max: 60 },
+            },
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: false,
+            } as any,
+          });
+        } catch (errAudio2) {
+          // Fallback 2: Video only at 60 FPS
+          displayStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: 1280, max: 1920 },
+              height: { ideal: 720, max: 1080 },
+              frameRate: { ideal: 60, max: 60 },
+            },
+            audio: false,
+          });
+        }
+      }
 
       screenStreamRef.current = displayStream;
       setScreenStream(displayStream);
@@ -1467,6 +1499,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const screenVideoTrack = displayStream.getVideoTracks()[0];
       const screenAudioTrack = displayStream.getAudioTracks()[0];
+
+      if (screenVideoTrack) {
+        screenVideoTrack.enabled = true;
+        if ("contentHint" in screenVideoTrack) {
+          try {
+            (screenVideoTrack as any).contentHint = "motion";
+          } catch (e) {}
+        }
+      }
 
       const senders = pc.getSenders();
       const videoSender = senders.find((s) => s.track && s.track.kind === "video");
@@ -1476,9 +1517,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const params = videoSender.getParameters();
           if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-          params.encodings[0].maxBitrate = 5000000;
+          params.encodings[0].maxBitrate = 8000000; // 8 Mbps high-bandwidth, lag-free gameplay stream
           params.encodings[0].priority = "high";
           params.encodings[0].networkPriority = "high";
+          params.encodings[0].maxFramerate = 60; // Force 60 FPS encode parameters
           await videoSender.setParameters(params).catch(() => {});
         } catch {}
       } else {

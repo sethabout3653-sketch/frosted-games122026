@@ -2303,14 +2303,14 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       try {
         displayStream = await navigator.mediaDevices.getDisplayMedia({
           video: {
-            frameRate: { ideal: 24, max: 30 },
-            width: { ideal: 1280, max: 1280 },
-            height: { ideal: 720, max: 720 },
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            frameRate: { ideal: 60, max: 60 },
           },
           audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
             channelCount: { ideal: 2 },
             sampleRate: { ideal: 48000 },
             ...({
@@ -2328,13 +2328,13 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         try {
           displayStream = await navigator.mediaDevices.getDisplayMedia({
             video: {
-              frameRate: { ideal: 24, max: 30 },
-              width: { ideal: 1280, max: 1280 },
-              height: { ideal: 720, max: 720 },
+              width: { ideal: 1280, max: 1920 },
+              height: { ideal: 720, max: 1080 },
+              frameRate: { ideal: 60, max: 60 },
             },
             audio: {
-              echoCancellation: false,
-              noiseSuppression: false,
+              echoCancellation: true,
+              noiseSuppression: true,
               autoGainControl: false,
             }
           });
@@ -2344,9 +2344,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           }
           displayStream = await navigator.mediaDevices.getDisplayMedia({
             video: {
-              frameRate: { ideal: 24, max: 30 },
-              width: { ideal: 1280, max: 1280 },
-              height: { ideal: 720, max: 720 },
+              width: { ideal: 1280, max: 1920 },
+              height: { ideal: 720, max: 1080 },
+              frameRate: { ideal: 60, max: 60 },
             },
             audio: false,
           });
