@@ -71,6 +71,17 @@ export async function initSQLite() {
         timestamp INTEGER
       )
     `);
+
+    await cli.execute(`
+      CREATE TABLE IF NOT EXISTS rtc_signals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_id TEXT,
+        sender_id TEXT NOT NULL,
+        receiver_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        timestamp INTEGER NOT NULL
+      )
+    `);
     isInitialized = true;
   } catch (err) {
     console.warn("[SQLite] Init warning:", err);

@@ -85,6 +85,10 @@ export class WebSocketClient {
     this.myUid = uid;
     if (this.isConnected()) {
       this.sendRaw({
+        type: "register",
+        peerId: uid,
+      });
+      this.sendRaw({
         type: "register_uid",
         uid,
       });
@@ -143,6 +147,7 @@ export class WebSocketClient {
 
         // Register user UID if set
         if (this.myUid) {
+          this.sendRaw({ type: "register", peerId: this.myUid });
           this.sendRaw({ type: "register_uid", uid: this.myUid });
         }
 
@@ -285,9 +290,13 @@ export class WebSocketClient {
       return;
     }
 
-    // Handle real-time WebRTC peer-to-peer signals
-    if (msg.type === "webrtc_signal" && msg.payload) {
-      const sig = msg.payload;
+    // Handle real-time WebRTC peer-to-peer signals (supports both 'signal' and 'webrtc_signal')
+    if ((msg.type === "webrtc_signal" || msg.type === "signal") && (msg.payload || msg.sdp || msg.candidate)) {
+      const rawPayload = msg.payload !== undefined ? msg.payload : msg;
+      const sig = typeof rawPayload === "object" ? { ...rawPayload } : { sdp: rawPayload };
+      if (!sig.uid && (msg.senderId || msg.sender_id)) sig.uid = msg.senderId || msg.sender_id;
+      if (!sig.targetUid && (msg.targetId || msg.target_id)) sig.targetUid = msg.targetId || msg.target_id;
+
       const myTabId = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("frosted_tab_id") : null;
 
       // Ignore signals from THIS exact tab
@@ -362,6 +371,15 @@ export class WebSocketClient {
    * Broadcast or direct-route a WebRTC signal for instant 0ms voice/video/screenshare negotiation
    */
   public sendSignal(payload: any) {
+    const senderId = payload.uid || this.myUid;
+    const targetId = payload.targetUid || "all";
+    this.sendRaw({
+      type: "signal",
+      senderId,
+      targetId,
+      payload,
+      timestamp: Date.now(),
+    });
     return this.sendRaw({
       type: "webrtc_signal",
       payload,

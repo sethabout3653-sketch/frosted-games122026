@@ -710,6 +710,10 @@ const PORT = Number(process.env.PORT) || 3000;
             }
           }
 
+          if (pgSql.toUpperCase().includes("INSERT INTO RTC_SIGNALS")) {
+            // standard insert into rtc_signals
+          }
+
           try {
             await pool.query(pgSql, params);
           } catch (err) {
@@ -964,6 +968,7 @@ const PORT = Number(process.env.PORT) || 3000;
   }
 
   const wsClients = new Set<ExtendedWebSocket>();
+  export const rtcClients = new Map<string, ExtendedWebSocket>();
   export const wss = new WebSocketServer({ noServer: true });
 
   export const broadcastWebSocketChange = (
@@ -1011,21 +1016,42 @@ const PORT = Number(process.env.PORT) || 3000;
   ) => {
     if (!signal) return;
     
-    const payload = JSON.stringify({
+    const targetUid = String(signal.targetUid || signal.targetId || signal.receiver_id || "").trim();
+    const senderUid = String(signal.uid || signal.senderId || signal.sender_id || "").trim();
+    const timestamp = Number(signal.timestamp) || Date.now();
+    const cleanPayload = signal.payload !== undefined ? signal.payload : signal;
+
+    const webrtcPayload = JSON.stringify({
       type: "webrtc_signal",
-      payload: signal,
-      timestamp: Date.now(),
+      payload: {
+        ...cleanPayload,
+        id: signal.id || `sig_${timestamp}_${Math.random().toString(36).substring(2, 8)}`,
+        uid: senderUid,
+        targetUid,
+        timestamp,
+      },
+      timestamp,
     });
 
-    const targetUid = (signal.targetUid || "").trim();
-    const senderUid = (signal.uid || "").trim();
+    const signalPayload = JSON.stringify({
+      type: "signal",
+      senderId: senderUid,
+      targetId: targetUid,
+      payload: cleanPayload,
+      timestamp,
+    });
 
     wsClients.forEach((client) => {
       if (client === excludeWs) return;
       if (client.readyState === WebSocket.OPEN) {
         // 1. Broadcast if target is "all" or omitted
         if (!targetUid || targetUid === "all") {
-          try { client.send(payload); } catch (e) { wsClients.delete(client); }
+          try {
+            client.send(webrtcPayload);
+            client.send(signalPayload);
+          } catch (e) {
+            wsClients.delete(client);
+          }
           return;
         }
 
@@ -1040,11 +1066,12 @@ const PORT = Number(process.env.PORT) || 3000;
           clientUid === targetUid ||
           clientUid.startsWith(targetUid + "_tab_") ||
           targetUid.startsWith(clientUid + "_tab_") ||
-          (baseTarget === baseClient);
+          (baseTarget && baseClient && baseTarget === baseClient);
 
         if (isMatch) {
           try {
-            client.send(payload);
+            client.send(webrtcPayload);
+            client.send(signalPayload);
           } catch (e) {
             wsClients.delete(client);
           }
@@ -1074,9 +1101,50 @@ const PORT = Number(process.env.PORT) || 3000;
           return;
         }
 
-        // 2. User UID Registration
-        if (msg.type === "register_uid" && msg.uid) {
-          ws.uid = msg.uid;
+        // 2. User UID / Peer Registration (supports both 'register' and 'register_uid')
+        if ((msg.type === "register" || msg.type === "register_uid") && (msg.peerId || msg.uid)) {
+          const peerId = String(msg.peerId || msg.uid).trim();
+          ws.uid = peerId;
+          rtcClients.set(peerId, ws);
+          const basePeer = peerId.split("_tab_")[0];
+          if (basePeer) rtcClients.set(basePeer, ws);
+
+          // Deliver any recently saved signals from the database for this peer (last 25 seconds)
+          getDb().then(async (db) => {
+            try {
+              const cutoff = Date.now() - 25000;
+              const rows = await db.all(
+                "SELECT * FROM rtc_signals WHERE (receiver_id = ? OR receiver_id = ? OR receiver_id = 'all') AND timestamp > ? ORDER BY timestamp ASC",
+                [peerId, basePeer, cutoff]
+              );
+              if (rows && rows.length > 0) {
+                for (const row of rows) {
+                  if (row.sender_id === peerId) continue;
+                  let parsedPayload: any;
+                  try { parsedPayload = JSON.parse(row.payload); } catch { parsedPayload = row.payload; }
+
+                  ws.send(JSON.stringify({
+                    type: "signal",
+                    senderId: row.sender_id,
+                    targetId: row.receiver_id,
+                    payload: parsedPayload,
+                    timestamp: row.timestamp,
+                  }));
+
+                  ws.send(JSON.stringify({
+                    type: "webrtc_signal",
+                    payload: {
+                      ...(typeof parsedPayload === "object" ? parsedPayload : { sdp: parsedPayload }),
+                      uid: row.sender_id,
+                      targetUid: row.receiver_id,
+                      timestamp: row.timestamp,
+                    },
+                    timestamp: row.timestamp,
+                  }));
+                }
+              }
+            } catch (e) {}
+          }).catch(() => {});
           return;
         }
 
@@ -1194,35 +1262,78 @@ const PORT = Number(process.env.PORT) || 3000;
           return;
         }
 
-        // 5. Instant WebRTC Signaling over WebSocket
-        if (msg.type === "webrtc_signal" && msg.payload) {
-          const payload = typeof msg.payload === "object" ? msg.payload : {};
+        // 5. Instant WebRTC Signaling over WebSocket with Server Database Persistence
+        if ((msg.type === "signal" || msg.type === "webrtc_signal") && (msg.payload || msg.sdp || msg.candidate)) {
+          const rawPayload = msg.payload !== undefined ? msg.payload : msg;
+          const senderId = String(msg.senderId || msg.sender_id || (rawPayload && rawPayload.uid) || msg.uid || ws.uid || "").trim();
+          const targetId = String(msg.targetId || msg.target_id || msg.targetUid || (rawPayload && rawPayload.targetUid) || "all").trim();
+          const roomId = String(msg.roomId || msg.room_id || "general").trim();
+          const timestamp = Number(msg.timestamp || (rawPayload && rawPayload.timestamp)) || Date.now();
+          const sigId = String(msg.id || (rawPayload && rawPayload.id) || `sig_${timestamp}_${Math.random().toString(36).substring(2, 8)}`);
+
+          const cleanPayload = typeof rawPayload === "object" ? rawPayload : { sdp: rawPayload };
+          const payloadJson = JSON.stringify(cleanPayload);
+
           const sigObj = {
-            ...payload,
-            id: payload.id || ("sig_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8)),
-            timestamp: payload.timestamp || Date.now(),
+            ...cleanPayload,
+            id: sigId,
+            uid: senderId,
+            targetUid: targetId,
+            timestamp,
           };
 
-          // Direct instant delivery to peer(s)
+          // Step 1: Explicitly write WebRTC data to database for persistence (PostgreSQL / SQLite)
+          getDb().then(async (db) => {
+            try {
+              // 1. Save to rtc_signals table
+              await db.run(
+                "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
+                [roomId, senderId, targetId, payloadJson, timestamp]
+              );
+
+              // 2. Save to webrtc_signals table
+              await db.run(
+                "INSERT INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
+                [sigId, targetId, senderId, payloadJson, timestamp]
+              );
+
+              // 3. Prune signals older than 45 seconds to keep database fast
+              const pruneCutoff = Date.now() - 45000;
+              await db.run("DELETE FROM rtc_signals WHERE timestamp < ?", [pruneCutoff]);
+              await db.run("DELETE FROM webrtc_signals WHERE timestamp < ?", [pruneCutoff]);
+            } catch (dbErr) {
+              console.warn("[DB Signal Persistence Error]", dbErr);
+            }
+          }).catch(() => {});
+
+          // Step 2: Forward over WebSocket to the target peer(s)
           broadcastWebSocketSignal(sigObj, ws);
 
-          // Mirror to SSE stream
+          // Step 3: Mirror to SSE stream & Cross-instance cluster
           broadcastWebRTCSignal(sigObj);
-
-          // Broadcast WebRTC signals cross-instance to other nodes
           publishCrossInstanceEvent({
             type: "webrtc_signal",
             payload: sigObj,
           });
 
-          // Persistent fallback storage for robust connection success
-          getDb().then((db) => {
-            db.run(
-              "INSERT INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
-              [sigObj.id, sigObj.targetUid || "all", sigObj.uid, JSON.stringify(sigObj), sigObj.timestamp]
-            );
-          }).catch(() => {});
+          return;
+        }
 
+        // 5.5 Save Application Data (e.g. chat messages during call)
+        if (msg.type === "save_chat") {
+          const roomId = msg.roomId || "general";
+          const senderId = msg.senderId || ws.uid || "anonymous";
+          const text = msg.text || msg.message || "";
+          const ts = Date.now();
+          getDb().then(async (db) => {
+            try {
+              const msgId = "msg_" + ts + "_" + Math.random().toString(36).substring(2, 7);
+              await db.run(
+                "INSERT INTO records (collection, id, data, timestamp) VALUES (?, ?, ?, ?)",
+                ["messages", msgId, JSON.stringify({ id: msgId, text, uid: senderId, roomId, timestamp: ts }), ts]
+              );
+            } catch (e) {}
+          }).catch(() => {});
           return;
         }
 
@@ -1259,10 +1370,24 @@ const PORT = Number(process.env.PORT) || 3000;
     });
 
     ws.on("close", () => {
+      if (ws.uid) {
+        rtcClients.delete(ws.uid);
+        const base = ws.uid.split("_tab_")[0];
+        if (base && rtcClients.get(base) === ws) {
+          rtcClients.delete(base);
+        }
+      }
       wsClients.delete(ws);
     });
 
     ws.on("error", () => {
+      if (ws.uid) {
+        rtcClients.delete(ws.uid);
+        const base = ws.uid.split("_tab_")[0];
+        if (base && rtcClients.get(base) === ws) {
+          rtcClients.delete(base);
+        }
+      }
       wsClients.delete(ws);
     });
   });
@@ -1407,25 +1532,44 @@ const PORT = Number(process.env.PORT) || 3000;
   app.post("/api/webrtc/signal", async (req, res) => {
     try {
       const body = req.body || {};
-      if (!body.uid || !body.targetUid || !body.type) {
+      const uid = body.uid || body.senderId || body.sender_id;
+      const targetUid = body.targetUid || body.targetId || body.receiver_id || "all";
+      const type = body.type;
+
+      if (!uid || !type) {
         return res.status(400).json({ error: "Missing required signal fields" });
       }
 
       const sigObj = {
         ...body,
+        uid,
+        targetUid,
         id: body.id || ("sig_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8)),
         timestamp: body.timestamp || Date.now(),
       };
 
+      const payloadJson = JSON.stringify(sigObj);
       const db = await getDb();
+
+      // 1. Save to rtc_signals table
+      await db.run(
+        "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
+        [body.roomId || "general", uid, targetUid, payloadJson, sigObj.timestamp]
+      );
+
+      // 2. Save to webrtc_signals table
       await db.run(
         "INSERT INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, timestamp = EXCLUDED.timestamp",
-        [sigObj.id, sigObj.targetUid, sigObj.uid, JSON.stringify(sigObj), sigObj.timestamp]
+        [sigObj.id, targetUid, uid, payloadJson, sigObj.timestamp]
       );
       
       // Cleanup old signals
-      const cutoff = Date.now() - 30000;
+      const cutoff = Date.now() - 45000;
       await db.run("DELETE FROM webrtc_signals WHERE timestamp < ?", [cutoff]);
+      await db.run("DELETE FROM rtc_signals WHERE timestamp < ?", [cutoff]);
+
+      // Broadcast immediately via WebSocket to online peers
+      broadcastWebSocketSignal(sigObj);
 
       // Broadcast immediately via SSE
       broadcastWebRTCSignal(sigObj);
@@ -1439,7 +1583,7 @@ const PORT = Number(process.env.PORT) || 3000;
   app.get("/api/webrtc/signals", async (req, res) => {
     try {
       const targetUid = (req.query.uid as string || "").trim();
-      const since = parseInt(req.query.since as string, 10) || (Date.now() - 15000);
+      const since = parseInt(req.query.since as string, 10) || (Date.now() - 25000);
       if (!targetUid) {
         return res.json({ signals: [] });
       }
@@ -1459,6 +1603,22 @@ const PORT = Number(process.env.PORT) || 3000;
           return null;
         }
       }).filter(Boolean);
+
+      // Also fetch from rtc_signals table
+      try {
+        const rtcRows = await db.all(
+          "SELECT payload, sender_id, receiver_id, timestamp FROM rtc_signals WHERE (receiver_id = ? OR receiver_id = 'all' OR receiver_id LIKE ? OR receiver_id LIKE ?) AND timestamp > ?",
+          [targetUid, `${baseUid}%`, `%${baseUid}`, since]
+        );
+        rtcRows.forEach((r: any) => {
+          try {
+            const p = JSON.parse(r.payload);
+            if (!signals.some((s: any) => s.id === p.id)) {
+              signals.push(p);
+            }
+          } catch {}
+        });
+      } catch (e) {}
 
       res.json({ signals, timestamp: Date.now() });
     } catch (e) {

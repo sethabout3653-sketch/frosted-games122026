@@ -19,3 +19,12 @@ export const webrtcSignals = pgTable('webrtc_signals', {
   payload: text('payload').notNull(),
   timestamp: bigint('timestamp', { mode: 'number' }).notNull(),
 });
+
+export const rtcSignals = pgTable('rtc_signals', {
+  id: text('id').primaryKey(),
+  roomId: text('room_id'),
+  senderId: text('sender_id').notNull(),
+  receiverId: text('receiver_id').notNull(),
+  payload: text('payload').notNull(),
+  timestamp: bigint('timestamp', { mode: 'number' }).notNull(),
+});

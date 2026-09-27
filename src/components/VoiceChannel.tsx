@@ -1172,9 +1172,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   );
 
   const initiateCall = useCallback(
-    async (partnerUid: string, micStream: MediaStream) => {
-      // Clean Polite Peer rule: ONLY lower UID initiates the Offer to eliminate 100% of offer collisions
-      if (profile.uid >= partnerUid) return;
+    async (partnerUid: string, micStream: MediaStream, force = false) => {
+      // Clean Polite Peer rule: lower UID initiates unless force fallback is enabled
+      if (!force && profile.uid >= partnerUid) return;
 
       try {
         const pc = createPeerConnection(partnerUid, micStream);
@@ -1252,8 +1252,26 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
           if (pc.signalingState === "stable" || pc.signalingState === "have-local-offer") {
             try {
-              const offerParsed = JSON.parse(signal.sdp);
-              const offerDescription = new RTCSessionDescription(offerParsed);
+              let offerParsed: any;
+              if (typeof signal.sdp === "string") {
+                try {
+                  offerParsed = JSON.parse(signal.sdp);
+                } catch {
+                  offerParsed = { type: "offer", sdp: signal.sdp };
+                }
+              } else if (signal.sdp && typeof signal.sdp === "object") {
+                offerParsed = signal.sdp;
+              } else if ((signal as any).payload && (signal as any).payload.sdp) {
+                offerParsed = (signal as any).payload.sdp;
+              } else {
+                offerParsed = { type: "offer", sdp: signal.sdp };
+              }
+
+              const sdpString = offerParsed.sdp || (typeof offerParsed === "string" ? offerParsed : "");
+              const offerDescription = new RTCSessionDescription({
+                type: offerParsed.type || "offer",
+                sdp: sdpString,
+              });
               await pc.setRemoteDescription(offerDescription);
               await processCandidateQueue(partnerUid, pc);
 
@@ -1277,8 +1295,26 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           const pc = peersRef.current[partnerUid];
           if (pc && pc.signalingState === "have-local-offer") {
             try {
-              const answerParsed = JSON.parse(signal.sdp);
-              const answerDescription = new RTCSessionDescription(answerParsed);
+              let answerParsed: any;
+              if (typeof signal.sdp === "string") {
+                try {
+                  answerParsed = JSON.parse(signal.sdp);
+                } catch {
+                  answerParsed = { type: "answer", sdp: signal.sdp };
+                }
+              } else if (signal.sdp && typeof signal.sdp === "object") {
+                answerParsed = signal.sdp;
+              } else if ((signal as any).payload && (signal as any).payload.sdp) {
+                answerParsed = (signal as any).payload.sdp;
+              } else {
+                answerParsed = { type: "answer", sdp: signal.sdp };
+              }
+
+              const sdpString = answerParsed.sdp || (typeof answerParsed === "string" ? answerParsed : "");
+              const answerDescription = new RTCSessionDescription({
+                type: answerParsed.type || "answer",
+                sdp: sdpString,
+              });
               await pc.setRemoteDescription(answerDescription);
               await processCandidateQueue(partnerUid, pc);
             } catch (e) {
@@ -1293,6 +1329,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
               candidateData = typeof rawCand === "string" ? JSON.parse(rawCand) : rawCand;
             } catch (e) {}
             if (candidateData) {
+              if (candidateData.candidate && typeof candidateData.candidate === "object") {
+                candidateData = candidateData.candidate;
+              }
               const pc = peersRef.current[partnerUid];
               if (pc && pc.remoteDescription && pc.remoteDescription.type && pc.signalingState !== "closed") {
                 try {
@@ -1640,12 +1679,12 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
                 const isOfferer = profile.uid < u.uid;
                 const shouldInitiate =
-                  isOfferer &&
-                  (lastAttempt === 0 || now - lastAttempt > backoffTime);
+                  (isOfferer && (lastAttempt === 0 || now - lastAttempt > backoffTime)) ||
+                  (!isOfferer && isDead && (lastAttempt === 0 || now - lastAttempt > 5000));
 
                 if (shouldInitiate && (isDead || isStalled || isDisconnected) && localStreamRef.current) {
                   lastCallAttemptRef.current[u.uid] = now;
-                  initiateCall(u.uid, localStreamRef.current);
+                  initiateCall(u.uid, localStreamRef.current, !isOfferer);
                 } else if (pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected")) {
                   syncPeerTracks(u.uid, pc);
                 }
