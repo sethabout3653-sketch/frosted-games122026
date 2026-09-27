@@ -788,7 +788,9 @@ export default function ChatPanel({
           if (!uid || !uname) return;
 
           const ts = toTimestampMs(data.timestamp || data.lastSeen || now);
-          const isAlive = (ts > 0 && Math.abs(now - ts) <= 60000) || uid === profile?.uid;
+          const isSelf = uid === profile?.uid;
+          if (isSelf && !getVoiceState().inVoice) return;
+          const isAlive = (ts > 0 && Math.abs(now - ts) <= 12000 && data.inVoice !== false) || (isSelf && getVoiceState().inVoice);
           if (!isAlive) return;
 
           const voiceObj = {
@@ -1773,6 +1775,11 @@ export default function ChatPanel({
     const candidates: MemberUser[] = [...memberUsers];
 
     voiceUsersMap.forEach((vu) => {
+      if (vu.uid === profile.uid && !getVoiceState().inVoice) return;
+      if (vu.inVoice === false) return;
+      const vuTs = toTimestampMs(vu.timestamp || vu.lastSeen);
+      if (vu.uid !== profile.uid && (vuTs === 0 || now - vuTs > 12000)) return;
+
       candidates.push({
         uid: vu.uid,
         username: vu.username,
@@ -1808,9 +1815,10 @@ export default function ChatPanel({
       const isMe = u.uid === profile.uid;
       const lastSeenMs = toTimestampMs(u.lastSeen);
       const vInfo = voiceUsersMap.get(u.uid);
+      const vInfoAlive = Boolean(vInfo && vInfo.inVoice !== false && (now - toTimestampMs(vInfo.timestamp || vInfo.lastSeen) <= 12000));
       const isVoiceActive = isMe
-        ? Boolean(getVoiceState().inVoice || vInfo)
-        : Boolean(vInfo || (u.inVoice && u.status !== "left"));
+        ? Boolean(getVoiceState().inVoice)
+        : Boolean(vInfoAlive || (u.inVoice && u.status !== "left" && (now - lastSeenMs <= 12000)));
 
       // Heartbeat window: 60s for all active participants to prevent flickering
       const timeDiff = Math.abs(now - lastSeenMs);

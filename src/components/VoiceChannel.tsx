@@ -971,10 +971,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         delete peersRef.current[partnerUid];
       }
 
-      const fails = callFailCountRef.current[partnerUid] || 0;
       const config: RTCConfiguration = {
         ...ICE_SERVERS,
-        iceTransportPolicy: fails >= 1 ? "relay" : "all" as RTCIceTransportPolicy,
+        iceTransportPolicy: "all",
       };
       const pc = new RTCPeerConnection(config);
       peersRef.current[partnerUid] = pc;
@@ -1581,7 +1580,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             }
             let ts = toTimestampMs(u.timestamp || (u as any).lastSeen);
             if (ts <= 0) ts = now;
-            if (Math.abs(now - ts) <= 180000) {
+            if (Math.abs(now - ts) <= 12000 && (u as any).inVoice !== false) {
               const existing = userMap.get(uUid);
               const isSelf = uUid === profile.uid;
               if (!existing || isSelf || ts > (existing.timestamp || 0)) {
@@ -1601,7 +1600,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             if (pData.inVoice) {
               let ts = toTimestampMs(pData.lastSeen || pData.timestamp);
               if (ts <= 0) ts = now;
-              if (Math.abs(now - ts) <= 180000) {
+              if (Math.abs(now - ts) <= 12000) {
                 const existing = userMap.get(uUid);
                 const isSelf = uUid === profile.uid;
                 if (!existing || isSelf || ts > (existing.timestamp || 0)) {
@@ -1641,20 +1640,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             });
           }
 
-          setParticipants((prev) => {
-            // Merge with "optimistic" users from previous state if they are very recent (< 15s old)
-            // Key by UID for absolute uniqueness.
-            const mergedMap = new Map(userMap);
-            prev.forEach(p => {
-              if (p.uid && !mergedMap.has(p.uid)) {
-                const ts = toTimestampMs(p.timestamp);
-                if (now - ts < 15000) {
-                  mergedMap.set(p.uid, p);
-                }
-              }
-            });
-
-            const users = Array.from(mergedMap.values());
+          setParticipants(() => {
+            const users = Array.from(userMap.values());
             
             // Re-run WebRTC health checks and sync logic for the merged list
             users.forEach((u) => {
@@ -1856,6 +1843,11 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         isScreenSharing: false,
         isScreenAudioOn: false,
       });
+
+      try {
+        wsClient.sendChange("delete", "voice_users", profile.uid);
+        wsClient.sendChange("update", "presence", profile.uid, { inVoice: false, isMuted: false });
+      } catch (e) {}
 
       deleteDoc(doc(db, "voice_users", profile.uid)).catch(() => {});
       updateDoc(doc(db, "presence", profile.uid), {
@@ -2489,6 +2481,11 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
     });
 
     // 2. Immediately delete voice_users document and mark presence as left voice
+    try {
+      wsClient.sendChange("delete", "voice_users", profile.uid);
+      wsClient.sendChange("update", "presence", profile.uid, { inVoice: false, isMuted: false });
+    } catch (e) {}
+
     deleteDoc(doc(db, "voice_users", profile.uid)).catch(() => {});
     updateDoc(doc(db, "presence", profile.uid), {
       inVoice: false,

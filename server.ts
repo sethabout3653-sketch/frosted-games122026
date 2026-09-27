@@ -591,6 +591,16 @@ const PORT = Number(process.env.PORT) || 3000;
           timestamp BIGINT
         )
       `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS rtc_signals (
+          id SERIAL PRIMARY KEY,
+          room_id VARCHAR(255),
+          sender_id VARCHAR(255) NOT NULL,
+          receiver_id VARCHAR(255) NOT NULL,
+          payload TEXT NOT NULL,
+          timestamp BIGINT NOT NULL
+        )
+      `);
       console.log("[PG Bootstrap] Database tables initialized successfully.");
     } catch (err) {
       console.error("[PG Bootstrap] Error initializing tables:", err);
@@ -703,9 +713,9 @@ const PORT = Number(process.env.PORT) || 3000;
             }
           }
 
-          if (pgSql.toUpperCase().includes("INSERT INTO WEBRTC_SIGNALS")) {
+          if (pgSql.toUpperCase().includes("WEBRTC_SIGNALS") && pgSql.toUpperCase().includes("INSERT")) {
             if (!pgSql.toUpperCase().includes("ON CONFLICT")) {
-              pgSql = pgSql.replace(/INSERT INTO webrtc_signals/gi, "INSERT INTO webrtc_signals");
+              pgSql = pgSql.replace(/INSERT (OR REPLACE |OR IGNORE )?INTO webrtc_signals/gi, "INSERT INTO webrtc_signals");
               pgSql += " ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, timestamp = EXCLUDED.timestamp";
             }
           }
@@ -721,11 +731,17 @@ const PORT = Number(process.env.PORT) || 3000;
           }
         } else {
           // SQLite native run
+          let sqliteSql = sql;
+          if (sqliteSql.toUpperCase().includes("WEBRTC_SIGNALS") && sqliteSql.toUpperCase().includes("INSERT")) {
+            if (!sqliteSql.toUpperCase().includes("OR REPLACE") && !sqliteSql.toUpperCase().includes("OR IGNORE") && !sqliteSql.toUpperCase().includes("ON CONFLICT")) {
+              sqliteSql = sqliteSql.replace(/INSERT INTO webrtc_signals/gi, "INSERT OR REPLACE INTO webrtc_signals");
+            }
+          }
           try {
             const cli = getLibSQLClient();
-            await cli.execute({ sql, args: params });
+            await cli.execute({ sql: sqliteSql, args: params });
           } catch (err) {
-            console.error("[SQLite DB Query Error] run:", sql, err);
+            console.error("[SQLite DB Query Error] run:", sqliteSql, err);
           }
         }
 
@@ -1293,7 +1309,7 @@ const PORT = Number(process.env.PORT) || 3000;
 
               // 2. Save to webrtc_signals table
               await db.run(
-                "INSERT INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
                 [sigId, targetId, senderId, payloadJson, timestamp]
               );
 
@@ -1548,33 +1564,34 @@ const PORT = Number(process.env.PORT) || 3000;
         timestamp: body.timestamp || Date.now(),
       };
 
-      const payloadJson = JSON.stringify(sigObj);
-      const db = await getDb();
-
-      // 1. Save to rtc_signals table
-      await db.run(
-        "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
-        [body.roomId || "general", uid, targetUid, payloadJson, sigObj.timestamp]
-      );
-
-      // 2. Save to webrtc_signals table
-      await db.run(
-        "INSERT INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, timestamp = EXCLUDED.timestamp",
-        [sigObj.id, targetUid, uid, payloadJson, sigObj.timestamp]
-      );
-      
-      // Cleanup old signals
-      const cutoff = Date.now() - 45000;
-      await db.run("DELETE FROM webrtc_signals WHERE timestamp < ?", [cutoff]);
-      await db.run("DELETE FROM rtc_signals WHERE timestamp < ?", [cutoff]);
-
-      // Broadcast immediately via WebSocket to online peers
+      // 1. Broadcast IMMEDIATELY to online WebSocket & SSE peers (0ms latency, completely unblocked)
       broadcastWebSocketSignal(sigObj);
-
-      // Broadcast immediately via SSE
       broadcastWebRTCSignal(sigObj);
+      publishCrossInstanceEvent({
+        type: "webrtc_signal",
+        payload: sigObj,
+      });
 
+      // 2. Respond immediately
       res.json({ success: true, id: sigObj.id });
+
+      // 3. Asynchronously persist to database in background
+      const payloadJson = JSON.stringify(sigObj);
+      getDb().then(async (db) => {
+        try {
+          await db.run(
+            "INSERT INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, timestamp = EXCLUDED.timestamp",
+            [sigObj.id, targetUid, uid, payloadJson, sigObj.timestamp]
+          );
+          await db.run(
+            "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
+            [body.roomId || "general", uid, targetUid, payloadJson, sigObj.timestamp]
+          );
+          const cutoff = Date.now() - 45000;
+          await db.run("DELETE FROM webrtc_signals WHERE timestamp < ?", [cutoff]);
+          await db.run("DELETE FROM rtc_signals WHERE timestamp < ?", [cutoff]);
+        } catch (dbErr) {}
+      }).catch(() => {});
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

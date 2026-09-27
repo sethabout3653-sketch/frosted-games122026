@@ -195,7 +195,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const uname = (data?.username || "").trim();
           if (!isAllowedUsername(uname, data?.uid, myProfile?.uid)) return;
           const ts = toTimestampMs(data?.timestamp || data?.lastSeen);
-          if (ts > 0 && Math.abs(now - ts) <= 180000) {
+          if (ts > 0 && Math.abs(now - ts) <= 12000 && data.inVoice !== false) {
             count++;
           }
         });
@@ -204,7 +204,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       () => {}
     );
     return () => unsub();
-  }, []);
+  }, [myProfile?.uid]);
 
   // Keep localStreamRef synced
   useEffect(() => {
@@ -320,10 +320,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       currentCallIdRef.current = callId;
       pendingIceCandidatesRef.current = [];
 
-      const failCount = directCallFailCountRef.current[partnerUid] || 0;
-      const config = {
+      const config: RTCConfiguration = {
         ...ICE_SERVERS,
-        iceTransportPolicy: failCount >= 1 ? "relay" : "all" as RTCIceTransportPolicy,
+        iceTransportPolicy: "all",
       };
       const pc = new RTCPeerConnection(config);
       peerConnectionRef.current = pc;
@@ -470,7 +469,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Listen for direct call signals targeting this user
   useEffect(() => {
-    const prof = getSavedProfile();
+    const prof = myProfile || getSavedProfile();
     if (!prof?.uid) return;
 
     const unsubSignals = subscribeBroadcastSignals(prof.uid, async (sig) => {
@@ -746,7 +745,19 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 });
               }
 
-              const offerDesc = new RTCSessionDescription(JSON.parse(sig.sdp));
+              let offerParsed: any = sig.sdp;
+              if (typeof offerParsed === "string") {
+                try {
+                  offerParsed = JSON.parse(offerParsed);
+                } catch {
+                  offerParsed = { type: "offer", sdp: sig.sdp };
+                }
+              }
+              const offerSdpStr = offerParsed?.sdp || (typeof offerParsed === "string" ? offerParsed : "");
+              const offerDesc = new RTCSessionDescription({
+                type: offerParsed?.type || "offer",
+                sdp: offerSdpStr,
+              });
               await pc.setRemoteDescription(offerDesc);
 
               // Drain any queued ICE candidates
@@ -794,7 +805,19 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const pc = peerConnectionRef.current;
           if (pc && sig.sdp) {
             try {
-              const answerDesc = new RTCSessionDescription(JSON.parse(sig.sdp));
+              let answerParsed: any = sig.sdp;
+              if (typeof answerParsed === "string") {
+                try {
+                  answerParsed = JSON.parse(answerParsed);
+                } catch {
+                  answerParsed = { type: "answer", sdp: sig.sdp };
+                }
+              }
+              const answerSdpStr = answerParsed?.sdp || (typeof answerParsed === "string" ? answerParsed : "");
+              const answerDesc = new RTCSessionDescription({
+                type: answerParsed?.type || "answer",
+                sdp: answerSdpStr,
+              });
               await pc.setRemoteDescription(answerDesc);
               await drainIceCandidates(pc);
             } catch (err) {
@@ -808,12 +831,24 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const pc = peerConnectionRef.current;
           if (sig.candidate) {
             try {
-              const candidate = JSON.parse(sig.candidate);
-              if (pc && pc.remoteDescription && pc.remoteDescription.type) {
-                await pc.addIceCandidate(new RTCIceCandidate(candidate));
-              } else {
-                // Queue until remote description is set
-                pendingIceCandidatesRef.current.push(candidate);
+              let candidate: any = sig.candidate;
+              if (typeof candidate === "string") {
+                try {
+                  candidate = JSON.parse(candidate);
+                } catch {}
+              }
+              if (candidate && candidate.candidate && typeof candidate.candidate === "object") {
+                candidate = candidate.candidate;
+              }
+              if (candidate) {
+                if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+                  try {
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                  } catch (e) {}
+                } else {
+                  // Queue until remote description is set
+                  pendingIceCandidatesRef.current.push(candidate);
+                }
               }
             } catch (err) {
               console.error("Error handling ice candidate:", err);
@@ -943,7 +978,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => unsubSignals();
-  }, [cleanupCall, createDirectPeerConnection, drainIceCandidates]);
+  }, [cleanupCall, createDirectPeerConnection, drainIceCandidates, myProfile?.uid]);
 
   // Action: Start 1-on-1 Direct Call
   const startDirectCall = useCallback(

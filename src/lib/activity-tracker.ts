@@ -249,8 +249,9 @@ export function broadcastPresenceUpdate(activity?: UserActivity) {
     wsClient.sendChange("set", "presence", profile.uid, presencePayload);
   } catch (e) {}
 
-  // 2. Throttle persistent database writes to avoid hammering
-  if (now - lastBroadcastTs > 1500) {
+  // 2. Throttle persistent database writes to avoid hammering (except when leaving voice, which is immediate)
+  const isLeavingVoice = !currentVoiceState.inVoice;
+  if (isLeavingVoice || now - lastBroadcastTs > 1500) {
     lastBroadcastTs = now;
     if (pendingBroadcastTimer) clearTimeout(pendingBroadcastTimer);
     try {

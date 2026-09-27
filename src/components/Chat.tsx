@@ -21,6 +21,7 @@ import FriendsPanel from "./FriendsPanel";
 import { ChatProfile, ChatMessage } from "../types";
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
 import { saveUserProfile, setVoiceState } from "../lib/activity-tracker";
+import { wsClient } from "../lib/websocket-client";
 import { getOrCreateUserTag } from "../lib/friends";
 import { SOUND_ASSETS } from "../lib/ringtone-synthesizer";
 import {
@@ -197,9 +198,10 @@ export default function Chat({
           return;
         }
         const ts = toTimestampMs(data.timestamp || data.lastSeen);
-        if (ts > 0 && Math.abs(now - ts) <= 180000) {
+        const isSelf = uUid === profile?.uid;
+        if (isSelf && !isInVoiceSession) return;
+        if (ts > 0 && Math.abs(now - ts) <= 12000 && data.inVoice !== false) {
           const existing = userMap.get(uUid);
-          const isSelf = uUid === profile?.uid;
           if (!existing || isSelf || ts > (existing.timestamp || 0)) {
             userMap.set(uUid, { ...data, uid: isSelf ? profile?.uid : uUid, timestamp: ts });
           }
@@ -214,11 +216,13 @@ export default function Chat({
         if (!uUid || !uname || !isAllowedUsername(uname, uUid, profile?.uid)) {
           return;
         }
+        const isSelf = uUid === profile?.uid;
+        if (isSelf && !isInVoiceSession) return;
+
         if (data.inVoice) {
           const ts = toTimestampMs(data.lastSeen || data.timestamp);
-          if (ts > 0 && Math.abs(now - ts) <= 180000) {
+          if (ts > 0 && Math.abs(now - ts) <= 12000) {
             const existing = userMap.get(uUid);
-            const isSelf = uUid === profile?.uid;
             if (!existing || isSelf || ts > (existing.timestamp || 0)) {
               userMap.set(uUid, {
                 uid: isSelf ? profile?.uid : uUid,
@@ -235,18 +239,7 @@ export default function Chat({
         }
       });
 
-      setRawVoiceUsers((prev) => {
-        const mergedMap = new Map(userMap);
-        prev.forEach((p) => {
-          if (p.uid && !mergedMap.has(p.uid)) {
-            const ts = toTimestampMs(p.timestamp);
-            if (now - ts < 15000) {
-              mergedMap.set(p.uid, p);
-            }
-          }
-        });
-        return Array.from(mergedMap.values());
-      });
+      setRawVoiceUsers(Array.from(userMap.values()));
     };
 
     const unsubVoiceUsers = onSnapshot(
@@ -867,10 +860,18 @@ export default function Chat({
             inVoice: false,
             isMuted: false,
             isVideoOn: false,
+            isVideoLoading: false,
             isScreenSharing: false,
+            isScreenAudioOn: false,
           });
 
-          // 2. Cleanup database records
+          // 2. Broadcast deletion over WebSocket immediately (0ms)
+          try {
+            wsClient.sendChange("delete", "voice_users", profile.uid);
+            wsClient.sendChange("update", "presence", profile.uid, { inVoice: false, isMuted: false });
+          } catch (e) {}
+
+          // 3. Cleanup database records
           deleteDoc(doc(db, "voice_users", profile.uid)).catch(() => {});
           updateDoc(doc(db, "presence", profile.uid), {
             inVoice: false,
