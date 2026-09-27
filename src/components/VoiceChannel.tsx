@@ -1021,18 +1021,14 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         });
       }
 
-      // 3. Always pre-allocate the screen share video slot (using dummy track if screen sharing is not active)
-      // This establishes the WebRTC video pipeline on connection startup, preventing "black screens" when sharing begins.
-      const screenVideoTrack = screenStreamRef.current
-        ? screenStreamRef.current.getVideoTracks()[0]
-        : getOrCreateDummyScreenTrack();
-      const screenStream = screenStreamRef.current || new MediaStream([screenVideoTrack]);
-
-      try {
-        const screenSender = pc.addTrack(screenVideoTrack, screenStream);
-        screenSendersRef.current[partnerUid] = screenSender;
-      } catch (e) {
-        console.warn("Pre-add screen share track error:", e);
+      // 3. Add screen share track if local screen sharing is active
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getVideoTracks().forEach((track) => {
+          try {
+            const screenSender = pc.addTrack(track, screenStreamRef.current!);
+            screenSendersRef.current[partnerUid] = screenSender;
+          } catch (e) {}
+        });
       }
 
       // Handle local ICE candidates
@@ -2240,8 +2236,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       lastSeen: Date.now(),
     }).catch(() => {});
 
-    // 2. Swap back to dummy screen track across all peers
-    const dummyTrack = getOrCreateDummyScreenTrack();
+    // 2. Remove screen share track across all peers and trigger clean renegotiation
     await Promise.all(
       Object.keys(peersRef.current).map(async (pUid) => {
         const pc = peersRef.current[pUid];
@@ -2257,13 +2252,25 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                 sender = videoSenders[1];
               }
             }
-            if (sender) {
-              screenSendersRef.current[pUid] = sender;
-            }
           }
           if (sender) {
             try {
-              await sender.replaceTrack(dummyTrack);
+              pc.removeTrack(sender);
+            } catch (e) {}
+            delete screenSendersRef.current[pUid];
+          }
+
+          // Trigger renegotiation so the receiver cleanly closes the track
+          if (pc.signalingState === "stable") {
+            try {
+              const offer = await pc.createOffer();
+              const optOffer = optimizeAudioSdp(offer.sdp || "");
+              await pc.setLocalDescription({ type: "offer", sdp: optOffer });
+              const consolidatedSdp = await gatherAndConsolidate(pc, 300);
+              sendSignal(pUid, "offer", JSON.stringify({
+                type: "offer",
+                sdp: consolidatedSdp,
+              }));
             } catch (e) {}
           }
           sendSignal(pUid, "screenshare_stopped", "");
@@ -2438,45 +2445,46 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         localScreenVideoRef.current.play().catch(() => {});
       }
 
-      // Replace screen dummy track with real screen track across all active peers
+      // Attach screen track across all active peers
       await Promise.all(
         Object.keys(peersRef.current).map(async (pUid) => {
           const pc = peersRef.current[pUid];
           if (pc && pc.connectionState !== "closed") {
             let screenSender = screenSendersRef.current[pUid];
-            if (!screenSender && pc) {
-              const transceivers = pc.getTransceivers();
-              if (transceivers.length >= 3) {
-                screenSender = transceivers[2].sender;
-              } else {
-                const videoSenders = pc.getSenders().filter((s) => s.track?.kind === "video");
-                if (videoSenders.length >= 2) {
-                  screenSender = videoSenders[1];
-                }
+            
+            if (screenSender) {
+              try {
+                await screenSender.replaceTrack(screenVideoTrack);
+              } catch (replaceErr) {
+                try {
+                  pc.removeTrack(screenSender);
+                  const newSender = pc.addTrack(screenVideoTrack, displayStream);
+                  screenSendersRef.current[pUid] = newSender;
+                  screenSender = newSender;
+                } catch (addErr) {}
               }
-              if (screenSender) {
-                screenSendersRef.current[pUid] = screenSender;
+            } else {
+              try {
+                const newSender = pc.addTrack(screenVideoTrack, displayStream);
+                screenSendersRef.current[pUid] = newSender;
+                screenSender = newSender;
+              } catch (e) {
+                console.warn("Error adding screen track to peer:", e);
               }
             }
 
             if (screenSender) {
-              await screenSender.replaceTrack(screenVideoTrack).catch(() => {});
               try {
                 const params = screenSender.getParameters();
                 if (!params.encodings || params.encodings.length === 0) {
                   params.encodings = [{}];
                 }
-                params.encodings[0].maxBitrate = 6000000;
+                params.encodings[0].maxBitrate = 8000000; // Match call's high performance 8 Mbps stream
                 params.encodings[0].priority = "high";
                 params.encodings[0].networkPriority = "high";
                 params.encodings[0].maxFramerate = 60;
                 (params as any).degradationPreference = "balanced";
                 await screenSender.setParameters(params).catch(() => {});
-              } catch (e) {}
-            } else {
-              try {
-                const newSender = pc.addTrack(screenVideoTrack, displayStream);
-                screenSendersRef.current[pUid] = newSender;
               } catch (e) {}
             }
 
