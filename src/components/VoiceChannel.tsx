@@ -1580,7 +1580,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             }
             let ts = toTimestampMs(u.timestamp || (u as any).lastSeen);
             if (ts <= 0) ts = now;
-            if (Math.abs(now - ts) <= 12000 && (u as any).inVoice !== false) {
+            if (Math.abs(now - ts) <= 60000 && (u as any).inVoice !== false) {
               const existing = userMap.get(uUid);
               const isSelf = uUid === profile.uid;
               if (!existing || isSelf || ts > (existing.timestamp || 0)) {
@@ -1600,7 +1600,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             if (pData.inVoice) {
               let ts = toTimestampMs(pData.lastSeen || pData.timestamp);
               if (ts <= 0) ts = now;
-              if (Math.abs(now - ts) <= 12000) {
+              if (Math.abs(now - ts) <= 60000) {
                 const existing = userMap.get(uUid);
                 const isSelf = uUid === profile.uid;
                 if (!existing || isSelf || ts > (existing.timestamp || 0)) {
@@ -2044,6 +2044,24 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                   params.encodings[0].networkPriority = "high";
                   await videoSender.setParameters(params).catch(() => {});
                 } catch (e) {}
+              } else {
+                try {
+                  const newSender = pc.addTrack(realVideoTrack, videoStream);
+                  cameraSendersRef.current[pUid] = newSender;
+                } catch (e) {}
+              }
+
+              if (pc.signalingState === "stable") {
+                try {
+                  const offer = await pc.createOffer();
+                  const optOffer = optimizeAudioSdp(offer.sdp || "");
+                  await pc.setLocalDescription({ type: "offer", sdp: optOffer });
+                  const consolidatedSdp = await gatherAndConsolidate(pc, 300);
+                  sendSignal(pUid, "offer", JSON.stringify({
+                    type: "offer",
+                    sdp: consolidatedSdp,
+                  }));
+                } catch (renegErr) {}
               }
               sendSignal(pUid, "camera_started", "");
             }
@@ -2404,7 +2422,11 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                 const offer = await pc.createOffer();
                 const optOffer = optimizeAudioSdp(offer.sdp || "");
                 await pc.setLocalDescription({ type: "offer", sdp: optOffer });
-                sendSignal(pUid, "offer", optOffer);
+                const consolidatedSdp = await gatherAndConsolidate(pc, 300);
+                sendSignal(pUid, "offer", JSON.stringify({
+                  type: "offer",
+                  sdp: consolidatedSdp,
+                }));
               } catch (renegErr) {}
             }
 

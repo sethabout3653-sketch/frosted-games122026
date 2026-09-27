@@ -17,7 +17,7 @@ import {
   getSavedRingtone,
   SOUND_ASSETS,
 } from "../lib/ringtone-synthesizer";
-import { collection, onSnapshot, query, db, toTimestampMs } from "../supabase-adapter";
+import { collection, onSnapshot, query, db, toTimestampMs, doc, getDoc } from "../supabase-adapter";
 
 
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
@@ -988,6 +988,35 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         alert("Guest accounts do not have access to phone, video, or voice calls.");
         return;
       }
+
+      // Check if target user is currently in General Voice
+      try {
+        const vSnap = await getDoc(doc(db, "voice_users", targetUser.uid));
+        const pSnap = await getDoc(doc(db, "presence", targetUser.uid));
+        const now = Date.now();
+        let targetInVoice = false;
+
+        if (vSnap.exists()) {
+          const data = vSnap.data();
+          const ts = toTimestampMs(data.timestamp || data.lastSeen);
+          if (data.inVoice !== false && ts > 0 && Math.abs(now - ts) <= 60000) {
+            targetInVoice = true;
+          }
+        }
+        if (!targetInVoice && pSnap.exists()) {
+          const data = pSnap.data();
+          const ts = toTimestampMs(data.lastSeen || data.timestamp);
+          if (data.inVoice && ts > 0 && Math.abs(now - ts) <= 60000) {
+            targetInVoice = true;
+          }
+        }
+
+        if (targetInVoice) {
+          alert(`${targetUser.username} is in general voice rn wait`);
+          return;
+        }
+      } catch (e) {}
+
       cleanupCall();
       unlockMobileAudio();
       try {

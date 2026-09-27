@@ -790,7 +790,7 @@ export default function ChatPanel({
           const ts = toTimestampMs(data.timestamp || data.lastSeen || now);
           const isSelf = uid === profile?.uid;
           if (isSelf && !getVoiceState().inVoice) return;
-          const isAlive = (ts > 0 && Math.abs(now - ts) <= 12000 && data.inVoice !== false) || (isSelf && getVoiceState().inVoice);
+          const isAlive = (ts > 0 && Math.abs(now - ts) <= 60000 && data.inVoice !== false) || (isSelf && getVoiceState().inVoice);
           if (!isAlive) return;
 
           const voiceObj = {

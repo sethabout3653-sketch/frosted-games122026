@@ -200,7 +200,7 @@ export default function Chat({
         const ts = toTimestampMs(data.timestamp || data.lastSeen);
         const isSelf = uUid === profile?.uid;
         if (isSelf && !isInVoiceSession) return;
-        if (ts > 0 && Math.abs(now - ts) <= 12000 && data.inVoice !== false) {
+        if (ts > 0 && Math.abs(now - ts) <= 60000 && data.inVoice !== false) {
           const existing = userMap.get(uUid);
           if (!existing || isSelf || ts > (existing.timestamp || 0)) {
             userMap.set(uUid, { ...data, uid: isSelf ? profile?.uid : uUid, timestamp: ts });
@@ -221,7 +221,7 @@ export default function Chat({
 
         if (data.inVoice) {
           const ts = toTimestampMs(data.lastSeen || data.timestamp);
-          if (ts > 0 && Math.abs(now - ts) <= 12000) {
+          if (ts > 0 && Math.abs(now - ts) <= 60000) {
             const existing = userMap.get(uUid);
             if (!existing || isSelf || ts > (existing.timestamp || 0)) {
               userMap.set(uUid, {
