@@ -38,6 +38,12 @@ export async function initSQLite() {
   if (isInitialized) return;
   try {
     const cli = getLibSQLClient();
+    try {
+      await cli.execute("PRAGMA journal_mode = WAL;");
+      await cli.execute("PRAGMA synchronous = NORMAL;");
+      await cli.execute("PRAGMA busy_timeout = 5000;");
+    } catch (e) {}
+
     await cli.execute(`
       CREATE TABLE IF NOT EXISTS records (
         collection TEXT NOT NULL,
@@ -82,6 +88,12 @@ export async function initSQLite() {
         timestamp INTEGER NOT NULL
       )
     `);
+
+    try {
+      await cli.execute("CREATE INDEX IF NOT EXISTS idx_webrtc_target_ts ON webrtc_signals(target_uid, timestamp);");
+      await cli.execute("CREATE INDEX IF NOT EXISTS idx_records_col_ts ON records(collection, timestamp);");
+    } catch (e) {}
+
     isInitialized = true;
   } catch (err) {
     console.warn("[SQLite] Init warning:", err);

@@ -1353,6 +1353,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           setParticipants((prev) =>
             prev.map((p) => (p.uid === partnerUid ? { ...p, isScreenSharing: true, isScreenAudioOn: !!signalData.hasAudio } : p))
           );
+          const pcShare = peersRef.current[partnerUid];
+          if (pcShare) syncPeerTracks(partnerUid, pcShare);
           setTrackTrigger((v) => v + 1);
         } else if (signal.type === "screenshare_stopped") {
           delete remoteScreenSharersRef.current[partnerUid];
@@ -1376,6 +1378,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             prev.map((p) => (p.uid === partnerUid ? { ...p, isVideoOn: true, isVideoLoading: false } : p))
           );
           setRemoteVideoLoaded((prev) => ({ ...prev, [partnerUid]: true }));
+          const pcCam = peersRef.current[partnerUid];
+          if (pcCam) syncPeerTracks(partnerUid, pcCam);
           setTrackTrigger((v) => v + 1);
         } else if (signal.type === "camera_stopped") {
           setParticipants((prev) =>
@@ -1971,26 +1975,33 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           lastSeen: Date.now(),
         }).catch(() => {});
 
-  // Request 1080p/60 when the camera supports it; fall back without blocking voice.
+  // Request mobile/desktop camera stream with multi-level constraint fallbacks
   let videoStream: MediaStream;
   try {
-  videoStream = await navigator.mediaDevices.getUserMedia({
-  video: {
-  width: { ideal: 1920, max: 1920 },
-  height: { ideal: 1080, max: 1080 },
-  frameRate: { ideal: 60, max: 60 },
-  },
-  audio: false,
-  });
+    videoStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    });
   } catch {
-  videoStream = await navigator.mediaDevices.getUserMedia({
-  video: {
-  width: { ideal: 1280, max: 1280 },
-  height: { ideal: 720, max: 720 },
-  frameRate: { ideal: 30, max: 30 },
-  },
-  audio: false,
-  });
+    try {
+      videoStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+        },
+        audio: false,
+      });
+    } catch {
+      videoStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      });
+    }
   }
 
         if (!isMountedRef.current) {
@@ -2255,6 +2266,13 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   // Start Screen Share with Audio Support
   const startScreenShare = async () => {
     if (isScreenShareLoading) return;
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      alert("Screen sharing is supported on PC / desktop browsers.");
+      setIsScreenShareLoading(false);
+      return;
+    }
+
     setIsScreenShareLoading(true);
 
     try {
