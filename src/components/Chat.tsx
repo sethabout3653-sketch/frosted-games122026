@@ -678,7 +678,11 @@ export default function Chat({
                       {voiceUsers.map((vUser, vIdx) => (
                         <div
                           key={`${vUser.uid || "vuser"}-${vIdx}`}
-                          className="flex items-center justify-between py-1 px-1.5 rounded text-xs text-neutral-300 hover:bg-[#080d28] transition-colors"
+                          onClick={() => {
+                            setActiveTab("voice");
+                            setIsInVoiceSession(true);
+                          }}
+                          className="flex items-center justify-between py-1 px-1.5 rounded text-xs text-neutral-300 hover:bg-[#080d28] transition-colors cursor-pointer"
                         >
                           <div className="flex items-center gap-2 truncate">
                             {vUser.photoURL ? (

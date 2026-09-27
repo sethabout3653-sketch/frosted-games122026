@@ -49,7 +49,18 @@ import { SmartVoiceDetector } from "../utils/audioVAD";
 import { extractDominantColor, getFallbackColor, parseHexToRgb } from "../utils/colorExtractor";
 import { getCurrentActivity, onActivityChanged, setVoiceState } from "../lib/activity-tracker";
 import ActivityBadge from "./ActivityBadge";
-import { ICE_SERVERS, acquireRobustMediaStream, IceManager, gatherAndConsolidate } from "../lib/webrtc-config";
+import {
+  ICE_SERVERS,
+  acquireRobustMediaStream,
+  IceManager,
+  gatherAndConsolidate,
+  optimizeAudioSdp,
+  attachAudioToElement,
+  unlockMobileAudio,
+  requestScreenWakeLock,
+  releaseScreenWakeLock,
+  getSharedAudioContext,
+} from "../lib/webrtc-config";
 import { wsClient } from "../lib/websocket-client";
 
 interface VoiceChannelProps {
@@ -69,62 +80,6 @@ interface Participant extends ChatProfile {
   channelId?: string;
 }
 
-// Optimized Opus audio SDP for crystal clear voice and low CPU / network footprint:
-// - 96000 bps maximum studio-quality voice bitrate
-// - Full stereo channel audio with studio soundstage
-// - maxplaybackrate=48000 for full 48kHz frequency response
-// - minptime=20 (standard WebRTC packetization to eliminate buffer underruns on Chromebooks)
-// - useinbandfec=1 for forward error correction
-// - usedtx=1 (DTX: discontinuous transmission when silent to save CPU/bandwidth)
-// - cbr=0 (variable bitrate adaptation)
-function optimizeAudioSdp(sdp: string): string {
-  const lines = sdp.split("\r\n");
-  let opusPayloadType: string | null = null;
-  for (const line of lines) {
-    const match = line.match(/^a=rtpmap:(\d+)\s+opus\/48000\/2/i);
-    if (match) {
-      opusPayloadType = match[1];
-      break;
-    }
-  }
-
-  const av1Pt: string[] = [];
-  const vp9Pt: string[] = [];
-  const h264Pt: string[] = [];
-  const vp8Pt: string[] = [];
-
-  for (const line of lines) {
-    const av1Match = line.match(/^a=rtpmap:(\d+)\s+AV1\//i);
-    if (av1Match) av1Pt.push(av1Match[1]);
-    const vp9Match = line.match(/^a=rtpmap:(\d+)\s+VP9\//i);
-    if (vp9Match) vp9Pt.push(vp9Match[1]);
-    const h264Match = line.match(/^a=rtpmap:(\d+)\s+H264\//i);
-    if (h264Match) h264Pt.push(h264Match[1]);
-    const vp8Match = line.match(/^a=rtpmap:(\d+)\s+VP8\//i);
-    if (vp8Match) vp8Pt.push(vp8Match[1]);
-  }
-
-  return lines
-    .map((line) => {
-      if (
-        (opusPayloadType && line.startsWith(`a=fmtp:${opusPayloadType}`)) ||
-        (line.startsWith("a=fmtp:") && line.toLowerCase().includes("opus"))
-      ) {
-        const base = line.split(";")[0];
-        return `${base};maxaveragebitrate=64000;stereo=0;sprop-stereo=0;maxplaybackrate=48000;minptime=20;useinbandfec=1;usedtx=1;cbr=0`;
-      }
-      if (line.startsWith("m=video")) {
-        const parts = line.split(" ");
-        const prefix = parts.slice(0, 3);
-        const existingPts = parts.slice(3);
-        const prioritized = [...av1Pt, ...vp9Pt, ...h264Pt, ...vp8Pt];
-        const others = existingPts.filter(pt => !prioritized.includes(pt));
-        return [...prefix, ...prioritized, ...others].join(" ");
-      }
-      return line;
-    })
-    .join("\r\n");
-}
 
 export default function VoiceChannel({
   profile,
@@ -152,35 +107,6 @@ export default function VoiceChannel({
   const [audioLevel, setAudioLevel] = useState<number>(0);
   const [isLocalSpeaking, setIsLocalSpeaking] = useState<boolean>(false);
   const [remoteSpeaking, setRemoteSpeaking] = useState<{ [uid: string]: boolean }>({});
-  const [dominantSpeaker, setDominantSpeaker] = useState<string | null>(null);
-
-  // SFU-Like Selective Forwarding: 
-  // In large groups (>4), we pause video for non-speakers to mimic SFU architecture and save massive bandwidth.
-  useEffect(() => {
-    const speakers = Object.entries(remoteSpeaking)
-      .filter(([_, isSpeaking]) => isSpeaking)
-      .map(([uid]) => uid);
-    
-    if (speakers.length > 0) {
-      setDominantSpeaker(speakers[0]);
-    }
-
-    if (participants.length > 4) {
-      Object.keys(peersRef.current).forEach((pUid) => {
-        const pc = peersRef.current[pUid];
-        if (!pc) return;
-        
-        pc.getTransceivers().forEach((t) => {
-          if (t.receiver.track?.kind === "video") {
-            // Only keep video enabled for the dominant speaker or screen sharers
-            const isScreen = remoteScreenSharersRef.current[pUid];
-            const isDominant = pUid === dominantSpeaker;
-            t.receiver.track.enabled = isDominant || isScreen || speakers.includes(pUid);
-          }
-        });
-      });
-    }
-  }, [remoteSpeaking, participants.length, dominantSpeaker]);
   const localVadRef = useRef<SmartVoiceDetector>(new SmartVoiceDetector());
   const remoteVadMapRef = useRef<{ [uid: string]: SmartVoiceDetector }>({});
 
@@ -1037,6 +963,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
     (partnerUid: string, micStream: MediaStream): RTCPeerConnection => {
       if (peersRef.current[partnerUid]) {
         try {
+          peersRef.current[partnerUid].onicecandidate = null;
+          peersRef.current[partnerUid].ontrack = null;
+          peersRef.current[partnerUid].onconnectionstatechange = null;
           peersRef.current[partnerUid].close();
         } catch (e) {}
         delete peersRef.current[partnerUid];
@@ -1052,14 +981,13 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       iceCandidateQueuesRef.current[partnerUid] = [];
 
       // 1. Add microphone / mixed audio track
-      // Preference: use raw stream for cleaner WebRTC transmission (less jitter/latency)
       const micSource = rawStreamRef.current || micStream;
       micSource.getAudioTracks().forEach((track) => {
         const audioSender = pc.addTrack(track, micSource);
         audioSendersRef.current[partnerUid] = audioSender;
       });
 
-      // Maximize audio sender encoding bitrate to match Direct Call quality
+      // Maximize audio sender encoding bitrate to studio quality
       const audioSender = audioSendersRef.current[partnerUid] || pc.getSenders().find((s) => s.track?.kind === "audio");
       if (audioSender && audioSender.setParameters) {
         try {
@@ -1074,57 +1002,27 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         } catch (e) {}
       }
 
-      // 2. Add camera track (transceiver 1) with dedicated camera stream
-      const realVideoTrack = videoStreamRef.current?.getVideoTracks()[0];
-      const cameraTrack = realVideoTrack && realVideoTrack.readyState === "live"
-        ? realVideoTrack
-        : getOrCreateDummyVideoTrack();
-      const cameraStream = videoStreamRef.current || new MediaStream([cameraTrack]);
-      const cameraSender = pc.addTrack(cameraTrack, cameraStream);
-      cameraSendersRef.current[partnerUid] = cameraSender;
-
-      if (cameraSender && cameraSender.setParameters) {
-        try {
-          const params = cameraSender.getParameters();
-          if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-          params.encodings[0].maxBitrate = 800000;
-          params.encodings[0].priority = "high";
-          cameraSender.setParameters(params).catch(() => {});
-        } catch (e) {}
+      // 2. Add camera track if local video is active
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getVideoTracks().forEach((track) => {
+          const cameraSender = pc.addTrack(track, videoStreamRef.current!);
+          cameraSendersRef.current[partnerUid] = cameraSender;
+        });
       }
 
-      // 3. Add screen share track (transceiver 2) with dedicated screen stream
-      const realScreenTrack = screenStreamRef.current?.getVideoTracks()[0];
-      const screenTrack = realScreenTrack && realScreenTrack.readyState === "live"
-        ? realScreenTrack
-        : getOrCreateDummyScreenTrack();
-      const screenStream = screenStreamRef.current || new MediaStream([screenTrack]);
-      const screenSender = pc.addTrack(screenTrack, screenStream);
-      screenSendersRef.current[partnerUid] = screenSender;
-
-      if (screenSender && screenSender.setParameters) {
-        try {
-          const params = screenSender.getParameters();
-          if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-          params.encodings[0].maxBitrate = 1200000;
-          params.encodings[0].priority = "high";
-          screenSender.setParameters(params).catch(() => {});
-        } catch (e) {}
+      // 3. Add screen share track if local screen sharing is active
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getVideoTracks().forEach((track) => {
+          const screenSender = pc.addTrack(track, screenStreamRef.current!);
+          screenSendersRef.current[partnerUid] = screenSender;
+        });
       }
-
-      // Ensure transceivers are configured to bidirectional sendrecv
-      pc.getTransceivers().forEach((t) => {
-        try {
-          t.direction = "sendrecv";
-        } catch (e) {}
-      });
 
       // Handle local ICE candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           const cached = IceManager.getCachedCandidates(partnerUid);
           IceManager.saveCandidates(partnerUid, [...cached, event.candidate]);
-          // Still trickle for robustness, but consolidate for speed
           sendSignal(partnerUid, "candidate", JSON.stringify(event.candidate));
         }
       };
@@ -1133,61 +1031,66 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       pc.ontrack = (event) => {
         if (event.track.kind === "audio") {
           event.track.enabled = true;
-          let aStream = remoteAudioStreamsRef.current[partnerUid];
-          if (!aStream || !aStream.getAudioTracks().some((track) => track.id === event.track.id)) {
-            aStream = new MediaStream([event.track]);
-            remoteAudioStreamsRef.current[partnerUid] = aStream;
-          }
+          const aStream = new MediaStream([event.track]);
+          remoteAudioStreamsRef.current[partnerUid] = aStream;
 
           const audioEl = remoteAudioRefs.current[partnerUid];
           if (audioEl) {
-            if (audioEl.srcObject !== aStream) {
-              audioEl.srcObject = aStream;
-            }
-            audioEl.play().catch(() => {});
+            attachAudioToElement(audioEl, aStream, 0.9);
           }
 
           event.track.onunmute = () => {
             const el = remoteAudioRefs.current[partnerUid];
-            if (el && aStream) {
-              if (el.srcObject !== aStream) {
-                el.srcObject = aStream;
-              }
-              el.play().catch(() => {});
+            if (el) {
+              attachAudioToElement(el, aStream, 0.9);
             }
           };
 
           event.track.onended = () => {
-            if (remoteAudioStreamsRef.current[partnerUid]) {
-              const s = remoteAudioStreamsRef.current[partnerUid];
-              const remaining = s.getAudioTracks().filter(t => t.id !== event.track.id);
-              if (remaining.length === 0) {
-                delete remoteAudioStreamsRef.current[partnerUid];
-              } else {
-                remoteAudioStreamsRef.current[partnerUid] = new MediaStream(remaining);
-              }
-            }
-            setTrackTrigger(v => v + 1);
+            delete remoteAudioStreamsRef.current[partnerUid];
+            setTrackTrigger((v) => v + 1);
           };
 
-          // Attach remote audio track to analyser for accurate speaking detection
-          if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
-            try {
-              if (remoteAnalysersRef.current[partnerUid]) {
+          // Attach remote audio track to analyser for speaking detection
+          try {
+            const ctx = getSharedAudioContext();
+            if (remoteAnalysersRef.current[partnerUid]) {
+              try {
                 remoteAnalysersRef.current[partnerUid].source.disconnect();
-              }
-              const rSource = audioCtxRef.current.createMediaStreamSource(new MediaStream([event.track]));
-              const rAnalyser = audioCtxRef.current.createAnalyser();
-              rAnalyser.fftSize = 128;
-              rAnalyser.smoothingTimeConstant = 0.2;
-              rSource.connect(rAnalyser);
-              remoteAnalysersRef.current[partnerUid] = { analyser: rAnalyser, source: rSource };
-            } catch (e) {
-              console.warn("Could not create remote audio analyser:", e);
+              } catch {}
             }
+            const rSource = ctx.createMediaStreamSource(aStream);
+            const rAnalyser = ctx.createAnalyser();
+            rAnalyser.fftSize = 128;
+            rAnalyser.smoothingTimeConstant = 0.2;
+            rSource.connect(rAnalyser);
+            remoteAnalysersRef.current[partnerUid] = { analyser: rAnalyser, source: rSource };
+          } catch (e) {
+            console.warn("Could not create remote audio analyser:", e);
           }
         } else if (event.track.kind === "video") {
-          syncPeerTracks(partnerUid, pc);
+          event.track.enabled = true;
+          const vStream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
+          remoteStreamsRef.current[partnerUid] = vStream;
+          remoteCameraStreamsRef.current[partnerUid] = vStream;
+          setRemoteVideoLoaded((prev) => ({ ...prev, [partnerUid]: true }));
+
+          const vEl = remoteVideoRefs.current[partnerUid];
+          if (vEl) {
+            if (vEl.srcObject !== vStream) {
+              vEl.srcObject = vStream;
+            }
+            vEl.play().catch(() => {});
+          }
+
+          event.track.onunmute = () => {
+            const el = remoteVideoRefs.current[partnerUid];
+            if (el) {
+              el.srcObject = vStream;
+              el.play().catch(() => {});
+            }
+            setTrackTrigger((v) => v + 1);
+          };
         }
 
         setTrackTrigger((v) => v + 1);
@@ -1195,7 +1098,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
-        console.log(`Group call peer ${partnerUid} Connection State: ${state}`);
         if (state === "connected") {
           callFailCountRef.current[partnerUid] = 0;
         } else if (state === "failed") {
@@ -1205,31 +1107,22 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
       pc.oniceconnectionstatechange = () => {
         const iceState = pc.iceConnectionState;
-        console.log(`Group call peer ${partnerUid} ICE state: ${iceState}`);
-
         if (iceState === "failed" || iceState === "disconnected") {
           const fails = callFailCountRef.current[partnerUid] || 0;
           if (fails < 3) {
             callFailCountRef.current[partnerUid] = fails + 1;
-            console.warn(`ICE state with ${partnerUid} went to ${iceState}. Attempting WebRTC ICE Restart (Attempt ${fails + 1})...`);
-
-            // Standard polite/impolite role split: peer with lower UID triggers the offer to avoid collisions
             const isInitiator = profile.uid < partnerUid;
-            if (isInitiator) {
+            if (isInitiator && localStreamRef.current) {
               try {
                 if (typeof pc.restartIce === "function") {
                   pc.restartIce();
                 }
                 pc.createOffer({ iceRestart: true }).then((offer) => {
-                  const highQualityOffer = new RTCSessionDescription({
-                    type: offer.type,
-                    sdp: optimizeAudioSdp(offer.sdp || ""),
+                  const optOfferSdp = optimizeAudioSdp(offer.sdp || "");
+                  return pc.setLocalDescription({ type: offer.type, sdp: optOfferSdp }).then(() => {
+                    sendSignal(partnerUid, "offer", JSON.stringify({ type: offer.type, sdp: optOfferSdp }));
                   });
-                  return pc.setLocalDescription(highQualityOffer).then(() => {
-                    sendSignal(partnerUid, "offer", JSON.stringify(highQualityOffer));
-                  });
-                }).catch((err) => {
-                  console.warn("ICE restart offer failed, recreating peer connection:", err);
+                }).catch(() => {
                   if (localStreamRef.current) {
                     initiateCall(partnerUid, localStreamRef.current);
                   }
@@ -1240,7 +1133,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                 }
               }
             }
-            return; // Exit early, do not clear peer connection yet!
+            return;
           }
         }
 
@@ -1257,10 +1150,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           delete screenSendersRef.current[partnerUid];
           delete audioSendersRef.current[partnerUid];
           if (remoteScreenStreamsRef.current[partnerUid]) {
-            const s = remoteScreenStreamsRef.current[partnerUid];
-            s.getTracks().forEach((t) => {
-              try { s.removeTrack(t); } catch {}
-            });
             delete remoteScreenStreamsRef.current[partnerUid];
           }
           if (remoteAnalysersRef.current[partnerUid]) {
@@ -1279,14 +1168,17 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
       return pc;
     },
-    [getOrCreateDummyVideoTrack, getOrCreateDummyScreenTrack, sendSignal]
+    [profile.uid, sendSignal]
   );
 
   const initiateCall = useCallback(
     async (partnerUid: string, micStream: MediaStream) => {
+      // Clean Polite Peer rule: ONLY lower UID initiates the Offer to eliminate 100% of offer collisions
+      if (profile.uid >= partnerUid) return;
+
       try {
         const pc = createPeerConnection(partnerUid, micStream);
-        
+
         // 1. Reuse cached candidates to bypass gathering delay
         const cached = IceManager.getCachedCandidates(partnerUid);
         for (const cand of cached) {
@@ -1297,26 +1189,30 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           offerToReceiveAudio: true,
           offerToReceiveVideo: true,
         });
-        
+
         const highQualityOfferSdp = optimizeAudioSdp(offer.sdp || "");
         await pc.setLocalDescription({ type: offer.type, sdp: highQualityOfferSdp });
-        
-        // 2. Consolidate: Wait briefly for candidates to be bundled in the SDP
-        const consolidatedSdp = await gatherAndConsolidate(pc, 400);
-        
+
+        // 2. Consolidate candidates into initial packet for 1-RTT connection setup
+        const consolidatedSdp = await gatherAndConsolidate(pc, 300);
+
         sendSignal(partnerUid, "offer", JSON.stringify({
           type: "offer",
-          sdp: consolidatedSdp
+          sdp: consolidatedSdp,
         }));
       } catch (err) {
         console.warn("Error initiating call to", partnerUid, err);
       }
     },
-    [createPeerConnection, sendSignal]
+    [createPeerConnection, profile.uid, sendSignal]
   );
 
   const handleSignal = useCallback(
     async (signal: VoiceSignal, micStream: MediaStream) => {
+      if (!signal || !signal.type || !signal.uid) return;
+      const partnerUid = signal.uid;
+      if (partnerUid === profile.uid) return;
+
       const sigKey = signal.type === "candidate"
         ? `${signal.uid}_cand_${(signal.sdp || (signal as any).candidate || "").slice(0, 80)}_${signal.id || ""}`
         : (signal.id || `${signal.uid}_${signal.type}_${signal.timestamp || ""}`);
@@ -1330,10 +1226,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         if (first) processedSignalsRef.current.delete(first);
       }
 
-      if (signal.timestamp && signal.timestamp < sessionStartTimeRef.current - 15000) {
+      if (signal.timestamp && signal.timestamp < sessionStartTimeRef.current - 20000) {
         return;
       }
-      const partnerUid = signal.uid;
 
       try {
         if (signal.type === "offer") {
@@ -1357,7 +1252,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
           if (pc.signalingState === "stable" || pc.signalingState === "have-local-offer") {
             try {
-              const offerDescription = new RTCSessionDescription(JSON.parse(signal.sdp));
+              const offerParsed = JSON.parse(signal.sdp);
+              const offerDescription = new RTCSessionDescription(offerParsed);
               await pc.setRemoteDescription(offerDescription);
               await processCandidateQueue(partnerUid, pc);
 
@@ -1365,31 +1261,28 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                 const answer = await pc.createAnswer();
                 const optimizedAnswerSdp = optimizeAudioSdp(answer.sdp || "");
                 await pc.setLocalDescription({ type: answer.type, sdp: optimizedAnswerSdp });
-                
-                // Consolidate candidates into the answer SDP for 1-RTT connection
+
                 const consolidatedSdp = await gatherAndConsolidate(pc, 300);
-                
+
                 sendSignal(partnerUid, "answer", JSON.stringify({
                   type: "answer",
-                  sdp: consolidatedSdp
+                  sdp: consolidatedSdp,
                 }));
               }
-
-              syncPeerTracks(partnerUid, pc);
             } catch (e) {
-              // Gracefully ignore state transitions
+              console.warn("Error processing offer:", e);
             }
           }
         } else if (signal.type === "answer") {
           const pc = peersRef.current[partnerUid];
           if (pc && pc.signalingState === "have-local-offer") {
             try {
-              const answerDescription = new RTCSessionDescription(JSON.parse(signal.sdp));
+              const answerParsed = JSON.parse(signal.sdp);
+              const answerDescription = new RTCSessionDescription(answerParsed);
               await pc.setRemoteDescription(answerDescription);
               await processCandidateQueue(partnerUid, pc);
-              syncPeerTracks(partnerUid, pc);
             } catch (e) {
-              // Gracefully ignore stale/duplicate answer
+              console.warn("Error processing answer:", e);
             }
           }
         } else if (signal.type === "candidate") {
@@ -1422,30 +1315,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           setParticipants((prev) =>
             prev.map((p) => (p.uid === partnerUid ? { ...p, isScreenSharing: true, isScreenAudioOn: !!signalData.hasAudio } : p))
           );
-          const pc = peersRef.current[partnerUid];
-          if (pc) {
-            const videoTransceivers = pc.getTransceivers().filter((t) => t.receiver.track?.kind === "video");
-            let scrTrack: MediaStreamTrack | null = null;
-            if (pc.getTransceivers().length >= 3 && pc.getTransceivers()[2].receiver.track?.kind === "video") {
-              scrTrack = pc.getTransceivers()[2].receiver.track;
-            } else if (videoTransceivers.length >= 2) {
-              scrTrack = videoTransceivers[1].receiver.track;
-            }
-            if (scrTrack) {
-              scrTrack.enabled = true;
-              const freshStream = new MediaStream([scrTrack]);
-              remoteScreenStreamsRef.current[partnerUid] = freshStream;
-              const screenEl = remoteScreenVideoRefs.current[partnerUid];
-              if (screenEl) {
-                screenEl.srcObject = freshStream;
-                screenEl.muted = true;
-                screenEl.defaultMuted = true;
-                screenEl.volume = 0;
-                screenEl.play().catch(() => {});
-              }
-            }
-            syncPeerTracks(partnerUid, pc);
-          }
           setTrackTrigger((v) => v + 1);
         } else if (signal.type === "screenshare_stopped") {
           delete remoteScreenSharersRef.current[partnerUid];
@@ -1469,10 +1338,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             prev.map((p) => (p.uid === partnerUid ? { ...p, isVideoOn: true, isVideoLoading: false } : p))
           );
           setRemoteVideoLoaded((prev) => ({ ...prev, [partnerUid]: true }));
-          const pc = peersRef.current[partnerUid];
-          if (pc) {
-            syncPeerTracks(partnerUid, pc);
-          }
           setTrackTrigger((v) => v + 1);
         } else if (signal.type === "camera_stopped") {
           setParticipants((prev) =>
@@ -1494,63 +1359,59 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           }
           setTrackTrigger((v) => v + 1);
         } else if (signal.type === "user_joined") {
-          // Optimistically add participant to state for instant UI reflection
           try {
             const data = JSON.parse(signal.sdp || "{}");
             if (data.username) {
-              setParticipants(prev => {
-                if (prev.some(p => p.uid === partnerUid)) return prev;
-                return [...prev, {
-                  uid: partnerUid,
-                  username: data.username,
-                  photoURL: data.photoURL || "",
-                  timestamp: Date.now(),
-                  inVoice: true,
-                  channelId: "general"
-                }];
+              setParticipants((prev) => {
+                if (prev.some((p) => p.uid === partnerUid)) return prev;
+                return [
+                  ...prev,
+                  {
+                    uid: partnerUid,
+                    username: data.username,
+                    photoURL: data.photoURL || "",
+                    timestamp: Date.now(),
+                    inVoice: true,
+                    channelId: "general",
+                  },
+                ];
               });
             }
           } catch (e) {}
 
-          // Immediately send ACK so the new joiner knows this client is active in the channel
           sendSignal(partnerUid, "user_joined_ack", JSON.stringify({
             username: profile.username,
-            photoURL: profile.photoURL
+            photoURL: profile.photoURL,
           }));
-          const pc = peersRef.current[partnerUid];
-          const isDead = !pc || pc.connectionState === "closed" || pc.connectionState === "failed";
-          if (isDead && localStreamRef.current) {
-            lastCallAttemptRef.current[partnerUid] = Date.now();
+
+          // Strict Polite Peer rule: ONLY lower UID initiates the Offer
+          if (profile.uid < partnerUid && localStreamRef.current) {
             initiateCall(partnerUid, localStreamRef.current);
-          } else if (pc) {
-            syncPeerTracks(partnerUid, pc);
           }
         } else if ((signal.type as any) === "user_joined_ack") {
-          // Optimistically add participant to state
           try {
             const data = JSON.parse(signal.sdp || "{}");
             if (data.username) {
-              setParticipants(prev => {
-                if (prev.some(p => p.uid === partnerUid)) return prev;
-                return [...prev, {
-                  uid: partnerUid,
-                  username: data.username,
-                  photoURL: data.photoURL || "",
-                  timestamp: Date.now(),
-                  inVoice: true,
-                  channelId: "general"
-                }];
+              setParticipants((prev) => {
+                if (prev.some((p) => p.uid === partnerUid)) return prev;
+                return [
+                  ...prev,
+                  {
+                    uid: partnerUid,
+                    username: data.username,
+                    photoURL: data.photoURL || "",
+                    timestamp: Date.now(),
+                    inVoice: true,
+                    channelId: "general",
+                  },
+                ];
               });
             }
           } catch (e) {}
 
-          const pc = peersRef.current[partnerUid];
-          const isDead = !pc || pc.connectionState === "closed" || pc.connectionState === "failed";
-          if (isDead && localStreamRef.current) {
-            lastCallAttemptRef.current[partnerUid] = Date.now();
+          // Strict Polite Peer rule: ONLY lower UID initiates the Offer
+          if (profile.uid < partnerUid && localStreamRef.current) {
             initiateCall(partnerUid, localStreamRef.current);
-          } else if (pc) {
-            syncPeerTracks(partnerUid, pc);
           }
         }
       } catch (err: any) {
@@ -1560,7 +1421,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         }
       }
     },
-    [createPeerConnection, initiateCall, processCandidateQueue, profile.uid, sendSignal, syncPeerTracks]
+    [createPeerConnection, initiateCall, processCandidateQueue, profile.uid, profile.username, profile.photoURL, sendSignal]
   );
 
   // Main lifecycle: acquire microphone and register in voice_users
@@ -1777,10 +1638,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                   delete peersRef.current[u.uid];
                 }
 
+                const isOfferer = profile.uid < u.uid;
                 const shouldInitiate =
-                  lastAttempt === 0 ||
-                  (profile.uid < u.uid && now - lastAttempt > backoffTime) ||
-                  (profile.uid > u.uid && now - lastAttempt > (backoffTime + 50));
+                  isOfferer &&
+                  (lastAttempt === 0 || now - lastAttempt > backoffTime);
 
                 if (shouldInitiate && (isDead || isStalled || isDisconnected) && localStreamRef.current) {
                   lastCallAttemptRef.current[u.uid] = now;
@@ -1879,24 +1740,11 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           unsubPresenceUsers();
         };
 
-        // Register before announcing the join so the first offer cannot race the
-        // socket handshake. The client filters targeted signals and self-tabs.
-        wsClient.setUserUid(profile.uid);
-        wsClient.connect();
-        unsubscribeWebSocket = wsClient.onSignal(async (signalData: any) => {
-          if (!isMountedRef.current || !localStreamRef.current) return;
-          const signal: VoiceSignal = {
-            id: signalData.id || `sig_${signalData.uid}_${signalData.type}_${Date.now()}`,
-            uid: signalData.uid,
-            targetUid: signalData.targetUid,
-            type: signalData.type,
-            sdp: signalData.sdp || signalData.candidate || "",
-            timestamp: signalData.timestamp || Date.now(),
-          };
-          if (signal.uid !== profile.uid) await handleSignal(signal, localStreamRef.current);
-        });
+        // Mobile Screen WakeLock & Autoplay unlock
+        unlockMobileAudio();
+        requestScreenWakeLock().catch(() => {});
 
-        // 1. Instant Real-time listener via Supabase Realtime Broadcast
+        // Clean single broadcast listener (WebSocket + server relay with deduplication)
         unsubscribeBroadcast = subscribeBroadcastSignals(profile.uid, async (signalData: any) => {
           if (!isMountedRef.current || !localStreamRef.current) return;
           const signal: VoiceSignal = {
@@ -1907,35 +1755,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             sdp: signalData.sdp || signalData.candidate || "",
             timestamp: signalData.timestamp || Date.now(),
           };
-          await handleSignal(signal, localStreamRef.current);
-        });
-
-        // 2. Real-time listener for WebRTC signals directed to current user via database
-        const qSignals = query(
-          collection(db, "signals"),
-          where("targetUid", "in", [profile.uid, "all"])
-        );
-
-        const unsubSignals = onSnapshot(
-          qSignals,
-          (snapshot) => {
-            if (!isMountedRef.current) return;
-            snapshot.forEach(async (signalDoc: any) => {
-              const signal = {
-                id: signalDoc.id,
-                ...signalDoc.data(),
-              } as VoiceSignal;
-              deleteDoc(doc(db, "signals", signal.id)).catch(() => {});
-              if (localStreamRef.current && isMountedRef.current && signal.uid !== profile.uid) {
-                await handleSignal(signal, localStreamRef.current);
-              }
-            });
-          },
-          (err) => {
-            console.warn("signals listener error in VoiceChannel:", err);
+          if (signal.uid !== profile.uid) {
+            await handleSignal(signal, localStreamRef.current);
           }
-        );
-        unsubscribeSignals = unsubSignals;
+        });
       } catch (err: any) {
         if (isMountedRef.current) {
           console.error("Failed to access microphone", err);
@@ -1982,6 +1805,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       window.removeEventListener("pagehide", handleUnload);
       window.removeEventListener("leave_general_voice", handleLeaveGeneralVoice);
 
+      releaseScreenWakeLock();
       stopAllMediaTracks();
       hasJoinedVoiceRef.current = false;
 
@@ -2005,9 +1829,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       }).catch(() => {});
 
       if (unsubscribeBroadcast) unsubscribeBroadcast();
-      if (unsubscribeSignals) unsubscribeSignals();
-      if (unsubscribeWebSocket) unsubscribeWebSocket();
-      wsClient.disconnect();
       if (unsubscribeUsers) unsubscribeUsers();
     };
   }, [handleSignal, initiateCall, profile, stopAllMediaTracks]);
@@ -2732,12 +2553,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                 key={`audio-playback-${uid}`}
                 ref={(el) => {
                   remoteAudioRefs.current[uid] = el;
-                  if (el) {
-                    if (el.srcObject !== stream) {
-                      el.srcObject = stream;
-                    }
-                    el.volume = 0.85; // Prevent 100% speaker clipping/bleed to reduce echo
-                    el.play().catch(() => {});
+                  if (el && stream) {
+                    attachAudioToElement(el, stream, 0.9);
                   }
                 }}
                 autoPlay

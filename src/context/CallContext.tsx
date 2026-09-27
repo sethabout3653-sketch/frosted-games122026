@@ -1,5 +1,14 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
-import { ICE_SERVERS, acquireRobustMediaStream, IceManager, gatherAndConsolidate } from "../lib/webrtc-config";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
+import {
+  ICE_SERVERS,
+  acquireRobustMediaStream,
+  IceManager,
+  gatherAndConsolidate,
+  optimizeAudioSdp,
+  requestScreenWakeLock,
+  releaseScreenWakeLock,
+  unlockMobileAudio,
+} from "../lib/webrtc-config";
 import { sendBroadcastSignal, subscribeBroadcastSignals } from "../lib/database";
 import { getSavedProfile } from "../lib/activity-tracker";
 import {
@@ -10,55 +19,6 @@ import {
 } from "../lib/ringtone-synthesizer";
 import { collection, onSnapshot, query, db, toTimestampMs } from "../supabase-adapter";
 
-// Optimized Opus audio SDP for crystal clear voice and low CPU / network footprint:
-function optimizeAudioSdp(sdp: string): string {
-  const lines = sdp.split("\r\n");
-  let opusPayloadType: string | null = null;
-  for (const line of lines) {
-    const match = line.match(/^a=rtpmap:(\d+)\s+opus\/48000\/2/i);
-    if (match) {
-      opusPayloadType = match[1];
-      break;
-    }
-  }
-
-  const av1Pt: string[] = [];
-  const vp9Pt: string[] = [];
-  const h264Pt: string[] = [];
-  const vp8Pt: string[] = [];
-
-  for (const line of lines) {
-    const av1Match = line.match(/^a=rtpmap:(\d+)\s+AV1\//i);
-    if (av1Match) av1Pt.push(av1Match[1]);
-    const vp9Match = line.match(/^a=rtpmap:(\d+)\s+VP9\//i);
-    if (vp9Match) vp9Pt.push(vp9Match[1]);
-    const h264Match = line.match(/^a=rtpmap:(\d+)\s+H264\//i);
-    if (h264Match) h264Pt.push(h264Match[1]);
-    const vp8Match = line.match(/^a=rtpmap:(\d+)\s+VP8\//i);
-    if (vp8Match) vp8Pt.push(vp8Match[1]);
-  }
-
-  return lines
-    .map((line) => {
-      if (
-        (opusPayloadType && line.startsWith(`a=fmtp:${opusPayloadType}`)) ||
-        (line.startsWith("a=fmtp:") && line.toLowerCase().includes("opus"))
-      ) {
-        const base = line.split(";")[0];
-        return `${base};maxaveragebitrate=64000;stereo=0;sprop-stereo=0;maxplaybackrate=48000;minptime=20;useinbandfec=1;usedtx=1;cbr=0`;
-      }
-      if (line.startsWith("m=video")) {
-        const parts = line.split(" ");
-        const prefix = parts.slice(0, 3);
-        const existingPts = parts.slice(3);
-        const prioritized = [...av1Pt, ...vp9Pt, ...h264Pt, ...vp8Pt];
-        const others = existingPts.filter(pt => !prioritized.includes(pt));
-        return [...prefix, ...prioritized, ...others].join(" ");
-      }
-      return line;
-    })
-    .join("\r\n");
-}
 
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
 
@@ -293,6 +253,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Clean up all call media and state
   const cleanupCall = useCallback(() => {
+    releaseScreenWakeLock();
     if (callTimeoutRef.current) {
       clearTimeout(callTimeoutRef.current);
       callTimeoutRef.current = null;
@@ -993,6 +954,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
       cleanupCall();
+      unlockMobileAudio();
       try {
         // Automatically leave general voice channel when initiating a direct call
         window.dispatchEvent(new CustomEvent("leave_general_voice"));
@@ -1000,6 +962,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const callId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       try {
+        requestScreenWakeLock();
         const stream = await acquireRobustMediaStream({ audio: true, video: type === "video" });
 
         setLocalStream(stream);
@@ -1086,6 +1049,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       callTimeoutRef.current = null;
     }
 
+    unlockMobileAudio();
     try {
       // Automatically leave general voice channel when answering a direct call
       window.dispatchEvent(new CustomEvent("leave_general_voice"));
@@ -1094,6 +1058,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     playCallTone("connected");
 
     try {
+      requestScreenWakeLock();
       const stream = await acquireRobustMediaStream({ audio: true, video: currentInc.callType === "video" });
 
       setLocalStream(stream);
@@ -1502,40 +1467,71 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const contextValue = useMemo(
+    () => ({
+      onlineUsers,
+      incomingCall,
+      outgoingCall,
+      activeCall,
+      localStream,
+      remoteStream,
+      screenStream,
+      isScreenSharing,
+      isVideoSwitchRequested,
+      isVideoSwitchPending,
+      voiceUserCount,
+      isCallMenuOpen,
+      setIsCallMenuOpen,
+      startDirectCall,
+      startGroupCall,
+      joinGeneralVoice: startGroupCall,
+      answerIncomingCall,
+      declineIncomingCall,
+      cancelOutgoingCall,
+      endActiveCall,
+      toggleMute,
+      toggleDeafen,
+      toggleScreenShare,
+      stopScreenShare,
+      startScreenShare,
+      requestSwitchToVideo,
+      respondToVideoSwitch,
+      toggleCamera,
+      setOnOpenGroupVoice,
+    }),
+    [
+      onlineUsers,
+      incomingCall,
+      outgoingCall,
+      activeCall,
+      localStream,
+      remoteStream,
+      screenStream,
+      isScreenSharing,
+      isVideoSwitchRequested,
+      isVideoSwitchPending,
+      voiceUserCount,
+      isCallMenuOpen,
+      startDirectCall,
+      startGroupCall,
+      answerIncomingCall,
+      declineIncomingCall,
+      cancelOutgoingCall,
+      endActiveCall,
+      toggleMute,
+      toggleDeafen,
+      toggleScreenShare,
+      stopScreenShare,
+      startScreenShare,
+      requestSwitchToVideo,
+      respondToVideoSwitch,
+      toggleCamera,
+      setOnOpenGroupVoice,
+    ]
+  );
+
   return (
-    <CallContext.Provider
-      value={{
-        onlineUsers,
-        incomingCall,
-        outgoingCall,
-        activeCall,
-        localStream,
-        remoteStream,
-        screenStream,
-        isScreenSharing,
-        isVideoSwitchRequested,
-        isVideoSwitchPending,
-        voiceUserCount,
-        isCallMenuOpen,
-        setIsCallMenuOpen,
-        startDirectCall,
-        startGroupCall,
-        joinGeneralVoice: startGroupCall,
-        answerIncomingCall,
-        declineIncomingCall,
-        cancelOutgoingCall,
-        endActiveCall,
-        toggleMute,
-        toggleDeafen,
-        toggleScreenShare,
-        stopScreenShare,
-        startScreenShare,
-        requestSwitchToVideo,
-        respondToVideoSwitch,
-        toggleCamera,
-        setOnOpenGroupVoice,
-      }}
-    >
+    <CallContext.Provider value={contextValue}>
       {children}
     </CallContext.Provider>
   );

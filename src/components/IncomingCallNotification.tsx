@@ -2,6 +2,7 @@ import React from "react";
 import { useCall } from "../context/CallContext";
 import { Phone, PhoneOff, Video, Sparkles, Volume2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { unlockMobileAudio } from "../lib/webrtc-config";
 
 export default function IncomingCallNotification() {
   const { incomingCall, answerIncomingCall, declineIncomingCall } = useCall();
@@ -70,7 +71,10 @@ export default function IncomingCallNotification() {
           <button
             id="decline-call-btn"
             type="button"
-            onClick={declineIncomingCall}
+            onClick={() => {
+              unlockMobileAudio();
+              declineIncomingCall();
+            }}
             className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-semibold text-xs text-rose-200 bg-rose-500/15 hover:bg-rose-500/25 active:bg-rose-500/35 border border-rose-500/30 transition-all cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98]"
           >
             <PhoneOff size={15} className="text-rose-400" />
@@ -80,7 +84,10 @@ export default function IncomingCallNotification() {
           <button
             id="answer-call-btn"
             type="button"
-            onClick={answerIncomingCall}
+            onClick={() => {
+              unlockMobileAudio();
+              answerIncomingCall();
+            }}
             className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 border border-emerald-400/30 transition-all cursor-pointer shadow-md hover:scale-[1.02] active:scale-[0.98] shadow-emerald-900/40"
           >
             {incomingCall.callType === "video" ? (

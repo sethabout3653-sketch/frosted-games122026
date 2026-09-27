@@ -2707,7 +2707,11 @@ export default function ChatPanel({
             {inVoiceUsers.length > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-2 px-1">
-                  <h3 className="text-[10px] font-bold text-emerald-400 tracking-wider uppercase flex items-center gap-1.5">
+                  <h3
+                    onClick={onSelectVoice}
+                    className="text-[10px] font-bold text-emerald-400 tracking-wider uppercase flex items-center gap-1.5 cursor-pointer hover:underline"
+                    title="Switch to General Voice Channel"
+                  >
                     <Volume2 size={12} className="animate-pulse" />
                     <span>In Voice & Calls — {inVoiceUsers.length}</span>
                   </h3>

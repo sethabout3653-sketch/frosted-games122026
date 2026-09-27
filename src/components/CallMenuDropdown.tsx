@@ -18,6 +18,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { getSavedProfile } from "../lib/activity-tracker";
 import { getAllRingtones, getSavedRingtone } from "../lib/ringtone-synthesizer";
+import { unlockMobileAudio } from "../lib/webrtc-config";
 
 interface CallMenuDropdownProps {
   isOpen: boolean;
@@ -163,6 +164,7 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
               id="join-general-voice-btn"
               type="button"
               onClick={() => {
+                unlockMobileAudio();
                 onClose();
                 joinGeneralVoice();
               }}
@@ -274,6 +276,7 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
                           id={`call-audio-${user.uid}`}
                           type="button"
                           onClick={() => {
+                            unlockMobileAudio();
                             onClose();
                             startDirectCall(user, "audio");
                           }}
@@ -287,6 +290,7 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
                           id={`call-video-${user.uid}`}
                           type="button"
                           onClick={() => {
+                            unlockMobileAudio();
                             onClose();
                             startDirectCall(user, "video");
                           }}

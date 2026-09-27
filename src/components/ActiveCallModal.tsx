@@ -17,6 +17,7 @@ import {
   Tv,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { attachAudioToElement, unlockMobileAudio } from "../lib/webrtc-config";
 
 export default function ActiveCallModal() {
   const {
@@ -89,14 +90,14 @@ export default function ActiveCallModal() {
     return () => clearInterval(interval);
   }, [activeCall]);
 
-  // Connect remote stream to single dedicated audio element
+  // Connect remote stream to single dedicated audio element with mobile autoplay unlock
   useEffect(() => {
     if (remoteAudioRef.current && remoteStream) {
-      if (remoteAudioRef.current.srcObject !== remoteStream) {
-        remoteAudioRef.current.srcObject = remoteStream;
-      }
-      remoteAudioRef.current.muted = activeCall?.isDeafened || false;
-      remoteAudioRef.current.play().catch(() => {});
+      attachAudioToElement(
+        remoteAudioRef.current,
+        remoteStream,
+        activeCall?.isDeafened ? 0 : 1.0
+      );
     }
   }, [remoteStream, activeCall?.isDeafened]);
 
@@ -105,6 +106,7 @@ export default function ActiveCallModal() {
       if (remoteVideoRef.current.srcObject !== remoteStream) {
         remoteVideoRef.current.srcObject = remoteStream;
       }
+      remoteVideoRef.current.playsInline = true;
       remoteVideoRef.current.muted = true;
       remoteVideoRef.current.defaultMuted = true;
       remoteVideoRef.current.play().catch(() => {});
@@ -116,6 +118,7 @@ export default function ActiveCallModal() {
       if (localVideoRef.current.srcObject !== localStream) {
         localVideoRef.current.srcObject = localStream;
       }
+      localVideoRef.current.playsInline = true;
       localVideoRef.current.muted = true;
       localVideoRef.current.defaultMuted = true;
       localVideoRef.current.play().catch(() => {});

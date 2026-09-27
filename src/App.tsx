@@ -78,6 +78,15 @@ function AppContent() {
   const [activeVideoTitle, setActiveVideoTitle] = useState<string | null>(null);
   const { setOnOpenGroupVoice } = useCall();
 
+  const handleVoiceSessionStarted = useCallback(() => {
+    setAutoJoinVoice(false);
+  }, []);
+
+  const handleOpenVoiceChat = useCallback(() => {
+    setCurrentView("chat");
+    setChatInitialTab("voice");
+  }, []);
+
   useEffect(() => {
     setOnOpenGroupVoice(() => {
       setCurrentView("chat");
@@ -544,13 +553,10 @@ function AppContent() {
           <Chat
             isOpen={currentView === "chat"}
             onClose={handleBackToHub}
-            onOpenVoiceChat={() => {
-              setCurrentView("chat");
-              setChatInitialTab("voice");
-            }}
+            onOpenVoiceChat={handleOpenVoiceChat}
             initialTab={chatInitialTab}
             autoJoinVoice={autoJoinVoice}
-            onVoiceSessionStarted={() => setAutoJoinVoice(false)}
+            onVoiceSessionStarted={handleVoiceSessionStarted}
             persistent
           />
         </motion.div>
