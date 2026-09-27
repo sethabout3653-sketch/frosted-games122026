@@ -23,6 +23,42 @@ import { createPool, db } from "./src/db/index";
 import { records, webrtcSignals } from "./src/db/schema";
 import { eq, and, gt, ne, or } from "drizzle-orm";
 import { youtubeRouter } from "./server/youtube";
+import Database from "better-sqlite3";
+
+// Initialize dedicated ultra-fast synchronous better-sqlite3 database for WebRTC signaling (0ms delay)
+const voiceDbFile = path.join(process.cwd(), "uploads", "voice_signaling.db");
+try {
+  if (!fs.existsSync(path.dirname(voiceDbFile))) {
+    fs.mkdirSync(path.dirname(voiceDbFile), { recursive: true });
+  }
+} catch (e) {}
+
+const voiceDb = new Database(voiceDbFile);
+voiceDb.pragma("journal_mode = WAL");
+voiceDb.pragma("synchronous = NORMAL");
+voiceDb.pragma("busy_timeout = 5000");
+
+voiceDb.exec(`
+  CREATE TABLE IF NOT EXISTS webrtc_signals (
+    id TEXT PRIMARY KEY,
+    target_uid TEXT,
+    uid TEXT,
+    payload TEXT,
+    timestamp INTEGER
+  );
+  
+  CREATE TABLE IF NOT EXISTS rtc_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id TEXT,
+    sender_id TEXT NOT NULL,
+    receiver_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_webrtc_target_ts ON webrtc_signals(target_uid, timestamp);
+  CREATE INDEX IF NOT EXISTS idx_rtc_receiver_ts ON rtc_signals(receiver_id, timestamp);
+`);
 
 export const app = express();
 export const httpServer = http.createServer(app);
@@ -1125,42 +1161,40 @@ const PORT = Number(process.env.PORT) || 3000;
           const basePeer = peerId.split("_tab_")[0];
           if (basePeer) rtcClients.set(basePeer, ws);
 
-          // Deliver any recently saved signals from the database for this peer (last 25 seconds)
-          getDb().then(async (db) => {
-            try {
-              const cutoff = Date.now() - 25000;
-              const rows = await db.all(
-                "SELECT * FROM rtc_signals WHERE (receiver_id = ? OR receiver_id = ? OR receiver_id = 'all') AND timestamp > ? ORDER BY timestamp ASC",
-                [peerId, basePeer, cutoff]
-              );
-              if (rows && rows.length > 0) {
-                for (const row of rows) {
-                  if (row.sender_id === peerId) continue;
-                  let parsedPayload: any;
-                  try { parsedPayload = JSON.parse(row.payload); } catch { parsedPayload = row.payload; }
+          // Deliver any recently saved signals from the database for this peer (last 25 seconds) using local synchronous voiceDb
+          try {
+            const cutoff = Date.now() - 25000;
+            const rows = voiceDb.prepare(
+              "SELECT * FROM rtc_signals WHERE (receiver_id = ? OR receiver_id = ? OR receiver_id = 'all') AND timestamp > ? ORDER BY timestamp ASC"
+            ).all(peerId, basePeer, cutoff) as any[];
 
-                  ws.send(JSON.stringify({
-                    type: "signal",
-                    senderId: row.sender_id,
-                    targetId: row.receiver_id,
-                    payload: parsedPayload,
-                    timestamp: row.timestamp,
-                  }));
+            if (rows && rows.length > 0) {
+              for (const row of rows) {
+                if (row.sender_id === peerId) continue;
+                let parsedPayload: any;
+                try { parsedPayload = JSON.parse(row.payload); } catch { parsedPayload = row.payload; }
 
-                  ws.send(JSON.stringify({
-                    type: "webrtc_signal",
-                    payload: {
-                      ...(typeof parsedPayload === "object" ? parsedPayload : { sdp: parsedPayload }),
-                      uid: row.sender_id,
-                      targetUid: row.receiver_id,
-                      timestamp: row.timestamp,
-                    },
+                ws.send(JSON.stringify({
+                  type: "signal",
+                  senderId: row.sender_id,
+                  targetId: row.receiver_id,
+                  payload: parsedPayload,
+                  timestamp: row.timestamp,
+                }));
+
+                ws.send(JSON.stringify({
+                  type: "webrtc_signal",
+                  payload: {
+                    ...(typeof parsedPayload === "object" ? parsedPayload : { sdp: parsedPayload }),
+                    uid: row.sender_id,
+                    targetUid: row.receiver_id,
                     timestamp: row.timestamp,
-                  }));
-                }
+                  },
+                  timestamp: row.timestamp,
+                }));
               }
-            } catch (e) {}
-          }).catch(() => {});
+            }
+          } catch (e) {}
           return;
         }
 
@@ -1298,29 +1332,25 @@ const PORT = Number(process.env.PORT) || 3000;
             timestamp,
           };
 
-          // Step 1: Explicitly write WebRTC data to database for persistence (PostgreSQL / SQLite)
-          getDb().then(async (db) => {
-            try {
-              // 1. Save to rtc_signals table
-              await db.run(
-                "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
-                [roomId, senderId, targetId, payloadJson, timestamp]
-              );
+          // Step 1: Explicitly write WebRTC data to database for persistence using local voiceDb
+          try {
+            // 1. Save to rtc_signals table
+            voiceDb.prepare(
+              "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)"
+            ).run(roomId, senderId, targetId, payloadJson, timestamp);
 
-              // 2. Save to webrtc_signals table
-              await db.run(
-                "INSERT OR REPLACE INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
-                [sigId, targetId, senderId, payloadJson, timestamp]
-              );
+            // 2. Save to webrtc_signals table
+            voiceDb.prepare(
+              "INSERT OR REPLACE INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)"
+            ).run(sigId, targetId, senderId, payloadJson, timestamp);
 
-              // 3. Prune signals older than 45 seconds to keep database fast
-              const pruneCutoff = Date.now() - 45000;
-              await db.run("DELETE FROM rtc_signals WHERE timestamp < ?", [pruneCutoff]);
-              await db.run("DELETE FROM webrtc_signals WHERE timestamp < ?", [pruneCutoff]);
-            } catch (dbErr) {
-              console.warn("[DB Signal Persistence Error]", dbErr);
-            }
-          }).catch(() => {});
+            // 3. Prune signals older than 45 seconds to keep database fast
+            const pruneCutoff = Date.now() - 45000;
+            voiceDb.prepare("DELETE FROM rtc_signals WHERE timestamp < ?").run(pruneCutoff);
+            voiceDb.prepare("DELETE FROM webrtc_signals WHERE timestamp < ?").run(pruneCutoff);
+          } catch (dbErr) {
+            console.warn("[VoiceDb Signal Persistence Error]", dbErr);
+          }
 
           // Step 2: Forward over WebSocket to the target peer(s)
           broadcastWebSocketSignal(sigObj, ws);
@@ -1575,23 +1605,21 @@ const PORT = Number(process.env.PORT) || 3000;
       // 2. Respond immediately
       res.json({ success: true, id: sigObj.id });
 
-      // 3. Asynchronously persist to database in background
+      // 3. Persist synchronously to local voiceDb
       const payloadJson = JSON.stringify(sigObj);
-      getDb().then(async (db) => {
-        try {
-          await db.run(
-            "INSERT INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, timestamp = EXCLUDED.timestamp",
-            [sigObj.id, targetUid, uid, payloadJson, sigObj.timestamp]
-          );
-          await db.run(
-            "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
-            [body.roomId || "general", uid, targetUid, payloadJson, sigObj.timestamp]
-          );
-          const cutoff = Date.now() - 45000;
-          await db.run("DELETE FROM webrtc_signals WHERE timestamp < ?", [cutoff]);
-          await db.run("DELETE FROM rtc_signals WHERE timestamp < ?", [cutoff]);
-        } catch (dbErr) {}
-      }).catch(() => {});
+      try {
+        voiceDb.prepare(
+          "INSERT OR REPLACE INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)"
+        ).run(sigObj.id, targetUid, uid, payloadJson, sigObj.timestamp);
+        voiceDb.prepare(
+          "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)"
+        ).run(body.roomId || "general", uid, targetUid, payloadJson, sigObj.timestamp);
+        const cutoff = Date.now() - 45000;
+        voiceDb.prepare("DELETE FROM webrtc_signals WHERE timestamp < ?").run(cutoff);
+        voiceDb.prepare("DELETE FROM rtc_signals WHERE timestamp < ?").run(cutoff);
+      } catch (dbErr) {
+        console.warn("[VoiceDb POST Signal Error]", dbErr);
+      }
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1607,11 +1635,9 @@ const PORT = Number(process.env.PORT) || 3000;
 
       const baseUid = targetUid.split("_tab_")[0];
 
-      const db = await getDb();
-      const rows = await db.all(
-        "SELECT payload FROM webrtc_signals WHERE (target_uid = ? OR target_uid = 'all' OR target_uid LIKE ? OR target_uid LIKE ?) AND timestamp > ?",
-        [targetUid, `${baseUid}%`, `%${baseUid}`, since]
-      );
+      const rows = voiceDb.prepare(
+        "SELECT payload FROM webrtc_signals WHERE (target_uid = ? OR target_uid = 'all' OR target_uid LIKE ? OR target_uid LIKE ?) AND timestamp > ?"
+      ).all(targetUid, `${baseUid}%`, `%${baseUid}`, since) as any[];
       
       const signals = rows.map((r: any) => {
         try {
@@ -1623,10 +1649,9 @@ const PORT = Number(process.env.PORT) || 3000;
 
       // Also fetch from rtc_signals table
       try {
-        const rtcRows = await db.all(
-          "SELECT payload, sender_id, receiver_id, timestamp FROM rtc_signals WHERE (receiver_id = ? OR receiver_id = 'all' OR receiver_id LIKE ? OR receiver_id LIKE ?) AND timestamp > ?",
-          [targetUid, `${baseUid}%`, `%${baseUid}`, since]
-        );
+        const rtcRows = voiceDb.prepare(
+          "SELECT payload, sender_id, receiver_id, timestamp FROM rtc_signals WHERE (receiver_id = ? OR receiver_id = 'all' OR receiver_id LIKE ? OR receiver_id LIKE ?) AND timestamp > ?"
+        ).all(targetUid, `${baseUid}%`, `%${baseUid}`, since) as any[];
         rtcRows.forEach((r: any) => {
           try {
             const p = JSON.parse(r.payload);
