@@ -417,9 +417,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         source.connect(analyser);
         analyserRef.current = analyser;
 
-        // Keep the native microphone track in the peer connection. Routing it through
-        // MediaStreamDestination can add latency and breaks browser AEC on some devices.
-        // The analyser remains side-band only for VAD and the UI.
+        // Create Web Audio mixed destination node (combines mic + screen share audio)
         const mixedDest = ctx.createMediaStreamDestination();
         mixedDestinationRef.current = mixedDest;
 
@@ -429,6 +427,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
         source.connect(micGain);
         micGain.connect(mixedDest);
+
+        localStreamRef.current = sourceStream;
 
         // Monitor volume levels & speech activity with throttled state updates (10 FPS max) to prevent UI frame lag on low-end CPUs
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -1023,6 +1023,11 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         screenStreamRef.current.getVideoTracks().forEach((track) => {
           const screenSender = pc.addTrack(track, screenStreamRef.current!);
           screenSendersRef.current[partnerUid] = screenSender;
+        });
+        screenStreamRef.current.getAudioTracks().forEach((track) => {
+          try {
+            pc.addTrack(track, screenStreamRef.current!);
+          } catch (e) {}
         });
       }
 
@@ -1949,25 +1954,14 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
 
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach((track) => {
-        track.enabled = !nextMuted;
-      });
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = nextMuted ? 0 : 2.0;
     }
+
     if (rawStreamRef.current) {
       rawStreamRef.current.getAudioTracks().forEach((track) => {
         track.enabled = !nextMuted;
       });
-    }
-
-    (Object.values(audioSendersRef.current) as RTCRtpSender[]).forEach((sender) => {
-      if (sender && sender.track) {
-        sender.track.enabled = !nextMuted;
-      }
-    });
-
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = nextMuted ? 0 : 2.0;
     }
 
     try {
@@ -2400,8 +2394,27 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           const screenAudioSource = audioCtxRef.current.createMediaStreamSource(new MediaStream([screenAudioTracks[0]]));
           const screenGain = audioCtxRef.current.createGain();
           screenGain.gain.value = screenAudioVolume;
+          
           screenAudioSource.connect(screenGain);
-          screenGain.connect(mixedDestinationRef.current);
+          
+          // Connect to local AudioContext destination (heard locally by screen sharer)
+          try {
+            screenGain.connect(audioCtxRef.current.destination);
+          } catch (e) {}
+
+          // Add screen share audio track directly to each active peer connection
+          const screenAudioTrack = screenAudioTracks[0];
+          if (screenAudioTrack) {
+            Object.keys(peersRef.current).forEach((pUid) => {
+              const pc = peersRef.current[pUid];
+              if (pc && pc.connectionState !== "closed") {
+                try {
+                  pc.addTrack(screenAudioTrack, displayStream);
+                } catch (e) {}
+              }
+            });
+          }
+
           screenAudioSourceRef.current = screenAudioSource;
           screenGainNodeRef.current = screenGain;
           setIsScreenAudioOn(true);
