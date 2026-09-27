@@ -1392,6 +1392,15 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
               }
             }
           }
+        } else if (signal.type === "soundboard_played") {
+          try {
+            const data = JSON.parse(signal.sdp || "{}");
+            if (data && data.soundUrl) {
+              const audio = new Audio(data.soundUrl);
+              audio.volume = 0.65;
+              audio.play().catch(() => {});
+            }
+          } catch (e) {}
         } else if (signal.type === "screenshare_started") {
           let signalData: any = {};
           try {

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useFavorites } from "../lib/favorites";
 import GameReactionsBar from "./GameReactionsBar";
+import { sendBroadcastSignal } from "../lib/database";
 
 interface GamePlayerProps {
   game: Game;

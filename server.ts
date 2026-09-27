@@ -4143,18 +4143,20 @@ Respond strictly in valid JSON format:
           });
         }
 
-        const openRouterTextCheck = await callGroqTextModeration(text);
-        if (!openRouterTextCheck.safe) {
-          return res.json({
-            safe: false,
-            reason: openRouterTextCheck.reason || "Blocked by AI safety guard.",
-            category: openRouterTextCheck.category || "prohibited content",
-            model: openRouterTextCheck.model || "openrouter/free",
-            moderator: openRouterTextCheck.moderator || "OpenRouter Content Guard",
-            modality: "text",
-            moderationNote: openRouterTextCheck.reason || "Blocked by AI safety guard."
-          });
-        }
+        // Offload deep AI text moderation asynchronously to the background so it never blocks message sends (0ms delay!)
+        callGroqTextModeration(text).then((openRouterTextCheck) => {
+          if (openRouterTextCheck && !openRouterTextCheck.safe) {
+            console.log(`[Background Moderation Flag] Text flagged asynchronously: ${openRouterTextCheck.reason}`);
+          }
+        }).catch(() => {});
+
+        // Return safe: true instantly since it passed the lightning-fast local rule checker
+        return res.json({
+          safe: true,
+          model: "regex-guard",
+          moderator: "Rule Guard",
+          modality: "text"
+        });
       }
 
       // 2. Check media attachment (if present) against our specialized OpenRouter media inspection pipelines

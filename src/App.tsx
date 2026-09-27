@@ -26,7 +26,7 @@ import { Sparkles, Gamepad2, Shuffle, Heart, Flame, Compass, Play } from "lucide
 const SOUNDBOARD_GAME: Game = {
   id: "soundboard",
   name: "Soundboard",
-  cover: "https://soundboardguys.com/favicon.ico",
+  cover: "https://play-lh.googleusercontent.com/LuIUTwJtvkVrSjIqp6ExcLF7pQKqTBeq91AioYogo0TtVnRWyTXh2xmXASI8MBWohVfCGFYjuiyekWzzXAciqp0=s0-br30",
   url: "https://soundboardguys.com/",
   author: "Soundboard Guys",
   source: "catalog",

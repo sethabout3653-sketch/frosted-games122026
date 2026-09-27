@@ -974,6 +974,20 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           break;
         }
+
+        case "soundboard_played": {
+          if (activeCallRef.current) {
+            try {
+              const data = JSON.parse(sig.sdp || "{}");
+              if (data && data.soundUrl) {
+                const audio = new Audio(data.soundUrl);
+                audio.volume = 0.65;
+                audio.play().catch(() => {});
+              }
+            } catch (e) {}
+          }
+          break;
+        }
       }
     });
 

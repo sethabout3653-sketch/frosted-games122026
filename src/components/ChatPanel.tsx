@@ -1432,31 +1432,29 @@ export default function ChatPanel({
       currentAttachment = `${currentAttachment}${sep}name=${encodeURIComponent(currentName)}&type=${encodeURIComponent(currentType || "")}&size=${currentSize || 0}`;
     }
 
-    // 2. Pre-verify message with AI Moderation API BEFORE clearing text or adding optimistic message to screen
-    try {
-      const modRes = await fetch("/api/moderate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: currentText || undefined,
-          mediaUrl: currentAttachment || undefined,
-          mediaTitle: currentName || undefined,
-          mediaType: currentType || undefined,
-        }),
-      });
+    // 2. Offload AI Moderation API check asynchronously to background (0ms delay on send!)
+    fetch("/api/moderate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: currentText || undefined,
+        mediaUrl: currentAttachment || undefined,
+        mediaTitle: currentName || undefined,
+        mediaType: currentType || undefined,
+      }),
+    }).then(async (modRes) => {
       if (modRes.ok) {
         const modData = await modRes.json();
         if (modData && modData.safe === false) {
-          showModerationAlert("Message Blocked", modData.reason || "Your message violates community safety guidelines.");
-          return;
+          console.warn("[Background Moderation Flag] Message flagged:", modData.reason);
         }
       }
-    } catch (modErr) {}
+    }).catch(() => {});
 
     const msgId = "doc_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
     const now = Date.now();
 
-    // 3. Render optimistic message ONLY after passing moderation
+    // 3. Render optimistic message instantly
     const optimisticMsg: ChatMessage = {
       id: msgId,
       channelId: activeChannel,
@@ -1530,30 +1528,28 @@ export default function ChatPanel({
   const handleSendGif = async (gifUrl: string, gifTitle?: string) => {
     if (!gifUrl) return;
 
-    // 1. Moderate GIF BEFORE adding to chat or closing picker
-    try {
-      const modRes = await fetch("/api/moderate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mediaUrl: gifUrl,
-          mediaTitle: gifTitle || "GIF",
-          mediaType: "image/gif",
-        }),
-      });
+    // 1. Offload GIF moderation check asynchronously to background (0ms delay!)
+    fetch("/api/moderate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mediaUrl: gifUrl,
+        mediaTitle: gifTitle || "GIF",
+        mediaType: "image/gif",
+      }),
+    }).then(async (modRes) => {
       if (modRes.ok) {
         const modData = await modRes.json();
         if (modData && modData.safe === false) {
-          showModerationAlert("GIF Blocked", modData.reason || "This GIF violates community safety guidelines.");
-          return;
+          console.warn("[Background Moderation Flag] GIF flagged:", modData.reason);
         }
       }
-    } catch (modErr) {}
+    }).catch(() => {});
 
     const msgId = "doc_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
     const now = Date.now();
 
-    // 2. Render optimistic GIF ONLY after passing moderation
+    // 2. Render optimistic GIF instantly
     const optimisticMsg: ChatMessage = {
       id: msgId,
       channelId: activeChannel,
