@@ -3023,56 +3023,56 @@ You MUST respond strictly in valid JSON format matching this schema:
   export const MODERATION_GROQ_MODELS = {
     // 1. Omni / All-In-One Multimodal Models (Text, Image, Video, & Audio Input)
     omni: {
-      perceptron: "perceptron/perceptron-mk1.5",
-      nemotron: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      gemini: "gemini-3.8-flash",
-      geminiFree: "google/gemini-2.0-flash-exp:free",
-      name: "Perceptron Mk1.5 & NVIDIA Nemotron 3 Nano Omni",
+      perceptron: "llama-3.2-11b-vision-instruct",
+      nemotron: "llama-3.2-11b-vision-instruct",
+      gemini: "llama-3.2-11b-vision-instruct",
+      geminiFree: "llama-3.2-11b-vision-instruct",
+      name: "Llama 3.2 Vision Multi-Modal Engine",
       modality: "omni",
     },
     // 2. Audio & Inaudible Speech / Acoustic Analytics
     audio: {
-      transcription: "openai/whisper-large-v3-turbo",
-      transcriptionAlt: "whisper-large-v3-turbo",
-      transcriptionFallback: "openai/whisper-large-v3",
-      deepSpeech: "mai-transcribe-2",
-      audioStream: "openai/gpt-audio-mini",
-      guard: "meta-llama/llama-guard-3-8b",
-      spectrogramVision: "google/gemini-2.0-flash-exp:free",
-      name: "OpenAI Whisper Large V3 Turbo + MAI-Transcribe 2 + GPT Audio",
+      transcription: "whisper-large-v3-turbo",
+      transcriptionAlt: "whisper-large-v3",
+      transcriptionFallback: "whisper-large-v3-turbo",
+      deepSpeech: "whisper-large-v3",
+      audioStream: "whisper-large-v3-turbo",
+      guard: "llama-guard-3-8b",
+      spectrogramVision: "llama-3.2-11b-vision-instruct",
+      name: "Whisper Large V3 Turbo + Whisper Large V3 + Llama Guard 3",
       modality: "audio",
     },
     // 3. Video & Image Verification Models (Visual & OCR Verification)
     image: {
-      primary: "google/gemma-4",
-      deepseekVision: "deepseek/deepseek-v4.1-flash",
-      glmVision: "glm-5.3-flash",
-      geminiVision: "google/gemini-2.0-flash-exp:free",
-      perceptronVision: "perceptron/perceptron-mk1.5",
-      nemotronVision: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      fallback: "meta-llama/llama-3.2-11b-vision-instruct:free",
-      name: "Google Gemma 4 + DeepSeek V4.1 Flash + GLM 5.3 Flash",
+      primary: "llama-3.2-11b-vision-instruct",
+      deepseekVision: "llama-3.2-11b-vision-instruct",
+      glmVision: "llama-3.2-11b-vision-instruct",
+      geminiVision: "llama-3.2-11b-vision-instruct",
+      perceptronVision: "llama-3.2-11b-vision-instruct",
+      nemotronVision: "llama-3.2-11b-vision-instruct",
+      fallback: "llama-3.2-11b-vision-instruct",
+      name: "Llama 3.2 Vision (OCR & Visual Safety Check)",
       modality: "image",
     },
     video: {
-      omniReasoning: "perceptron/perceptron-mk1.5",
-      omniNano: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      frameVision: "google/gemma-4",
-      frameVisionAlt: "deepseek/deepseek-v4.1-flash",
-      glmVision: "glm-5.3-flash",
-      geminiVision: "google/gemini-2.0-flash-exp:free",
-      audioTranscription: "openai/whisper-large-v3-turbo",
-      synthesis: "deepseek/deepseek-v4.1-flash",
-      name: "Perceptron Mk1.5 + NVIDIA Nemotron Omni + Gemma 4 + Whisper Large V3",
+      omniReasoning: "llama-3.2-11b-vision-instruct",
+      omniNano: "llama-3.2-11b-vision-instruct",
+      frameVision: "llama-3.2-11b-vision-instruct",
+      frameVisionAlt: "llama-3.2-11b-vision-instruct",
+      glmVision: "llama-3.2-11b-vision-instruct",
+      geminiVision: "llama-3.2-11b-vision-instruct",
+      audioTranscription: "whisper-large-v3-turbo",
+      synthesis: "llama-3.3-70b-versatile",
+      name: "Llama 3.2 Vision + Whisper Large V3 Compound Video Safety",
       modality: "video",
     },
     // 4. Text & Chat Moderation
     text: {
-      primary: "meta-llama/llama-guard-3-8b",
-      deepseek: "deepseek/deepseek-v4.1-flash",
-      glm: "glm-5.3-flash",
-      fallback: "meta-llama/llama-3.1-8b-instruct:free",
-      name: "Llama Guard 3 + DeepSeek V4.1 Flash + GLM 5.3 Flash",
+      primary: "llama-guard-3-8b",
+      deepseek: "llama-3.3-70b-versatile",
+      glm: "llama-3.1-8b-instant",
+      fallback: "llama-3.1-8b-instant",
+      name: "Llama Guard 3 + Llama 3.3 (70B) + Llama 3.1 (8B)",
       modality: "text",
     },
   };
@@ -3396,16 +3396,14 @@ Respond strictly in valid JSON format:
 }`;
 
     const modelsToTry = [
-      "openrouter/free", // Dynamic automatic free router (100% free text reasoning)
-      "meta-llama/llama-3.1-8b-instruct:free", // Meta's free text model
-      MODERATION_GROQ_MODELS.text.primary, // meta-llama/llama-guard-3-8b
-      MODERATION_GROQ_MODELS.text.deepseek, // deepseek/deepseek-v4.1-flash
-      MODERATION_GROQ_MODELS.text.glm, // glm-5.3-flash
-      MODERATION_GROQ_MODELS.text.fallback, // meta-llama/llama-3.1-8b-instruct:free
+      MODERATION_GROQ_MODELS.text.primary, // llama-guard-3-8b
+      MODERATION_GROQ_MODELS.text.deepseek, // llama-3.3-70b-versatile
+      MODERATION_GROQ_MODELS.text.glm, // llama-3.1-8b-instant
+      MODERATION_GROQ_MODELS.text.fallback, // llama-3.1-8b-instant
     ].filter(Boolean);
 
     if (key) {
-      const endpoint = key.startsWith("gsk_") ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
+      const endpoint = "https://api.groq.com/openai/v1/chat/completions";
       for (const model of modelsToTry) {
         try {
           const controller = new AbortController();
@@ -3417,8 +3415,6 @@ Respond strictly in valid JSON format:
             headers: {
               "Authorization": `Bearer ${key}`,
               "Content-Type": "application/json",
-              "HTTP-Referer": "https://frosted-studying.app",
-              "X-Title": "Frosted Studying"
             },
             body: JSON.stringify({
               model,
@@ -3447,13 +3443,13 @@ Respond strictly in valid JSON format:
               reason: parsed.reason || "Content flagged by Llama Guard.",
               category: parsed.category || "profanity",
               model,
-              moderator: `OpenRouter Guard Engine (${model})`,
+              moderator: `Groq Guard Engine (${model})`,
             };
           } else {
             return {
               safe: true,
               model,
-              moderator: `OpenRouter Guard Engine (${model})`,
+              moderator: `Groq Guard Engine (${model})`,
             };
           }
         } catch (e) {
@@ -3462,7 +3458,7 @@ Respond strictly in valid JSON format:
       }
     }
 
-    return { safe: true, model: MODERATION_GROQ_MODELS.text.primary, moderator: "OpenRouter Guard Engine" };
+    return { safe: true, model: MODERATION_GROQ_MODELS.text.primary, moderator: "Groq Guard Engine" };
   }
 
   // 4. 🎬 Video Compound Moderation via OpenRouter Vision & Synthesis
@@ -4308,11 +4304,11 @@ Respond strictly in valid JSON format:
   // Moderation API Endpoints
   // ==========================================
 
-  // Returns active OpenRouter models mapped specifically to each modality
+  // Returns active Groq models mapped specifically to each modality
   app.get("/api/moderation/models", (req, res) => {
     res.json({
       status: "active",
-      provider: "OpenRouter & Omni Multi-Modal Engine",
+      provider: "Groq LPU Content Moderation Engine",
       hasKey: Boolean(OPENROUTER_API_KEY),
       models: {
         omni: {
@@ -4320,7 +4316,7 @@ Respond strictly in valid JSON format:
           nemotron: MODERATION_GROQ_MODELS.omni.nemotron,
           gemini: MODERATION_GROQ_MODELS.omni.gemini,
           name: MODERATION_GROQ_MODELS.omni.name,
-          purpose: "All-in-one native text, image, video & audio input reasoning",
+          purpose: "All-in-one native text & visual frame sequence verification (Llama 3.2 Vision)",
           modality: "omni",
         },
         image: {
@@ -4330,7 +4326,7 @@ Respond strictly in valid JSON format:
           gemini: MODERATION_GROQ_MODELS.image.geminiVision,
           fallback: MODERATION_GROQ_MODELS.image.fallback,
           name: MODERATION_GROQ_MODELS.image.name,
-          purpose: "High-throughput visual & OCR verification (Gemma 4, DeepSeek V4.1 Flash, GLM 5.3 Flash)",
+          purpose: "Ultra-fast visual & OCR safety checks via Groq Llama 3.2 Vision",
           modality: "image",
         },
         audio: {
@@ -4340,7 +4336,7 @@ Respond strictly in valid JSON format:
           guard: MODERATION_GROQ_MODELS.audio.guard,
           spectrogramVision: MODERATION_GROQ_MODELS.audio.spectrogramVision,
           name: MODERATION_GROQ_MODELS.audio.name,
-          purpose: "Whisper Large V3 Turbo + MAI-Transcribe 2 (inaudible/faint speech) + Llama Guard 3",
+          purpose: "High-speed Whisper Large V3 transcription + Llama Guard 3 text safety analysis",
           modality: "audio",
         },
         video: {
@@ -4350,7 +4346,7 @@ Respond strictly in valid JSON format:
           audioTranscription: MODERATION_GROQ_MODELS.video.audioTranscription,
           synthesis: MODERATION_GROQ_MODELS.video.synthesis,
           name: MODERATION_GROQ_MODELS.video.name,
-          purpose: "Perceptron Mk1.5 & Nemotron Omni + Gemma 4 visual frame sequence + Whisper audio compound",
+          purpose: "Llama 3.2 Vision frames verification + Whisper speech track safety check",
           modality: "video",
         },
         text: {
@@ -4359,7 +4355,7 @@ Respond strictly in valid JSON format:
           glm: MODERATION_GROQ_MODELS.text.glm,
           fallback: MODERATION_GROQ_MODELS.text.fallback,
           name: MODERATION_GROQ_MODELS.text.name,
-          purpose: "Real-time message text, username, and title moderation",
+          purpose: "Real-time message text, username, and room title moderation via Llama Guard 3",
           modality: "text",
         },
       },

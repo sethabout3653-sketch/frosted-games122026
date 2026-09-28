@@ -845,7 +845,7 @@ export default function ModeratorPanelModal({
               </div>
             )}
 
-            {/* 5. AI MODERATION (OPENROUTER ENGINE) TAB */}
+            {/* 5. AI MODERATION (GROQ LPU ENGINE) TAB */}
             {activeTab === "ai_moderation" && (
               <div className="space-y-4">
                 {/* Header overview */}
@@ -854,11 +854,11 @@ export default function ModeratorPanelModal({
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                       <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
-                        <span>OpenRouter Multi-Modal Moderation Engine</span>
+                        <span>Groq LPU Multi-Modal Moderation Engine</span>
                       </h4>
                     </div>
                     <p className="text-xs text-neutral-300 leading-relaxed">
-                      Every medium is inspected with dedicated, specialized models via OpenRouter & multimodal AI pipelines.
+                      Every medium is inspected with dedicated, specialized models via Groq LPU & multimodal AI pipelines.
                     </p>
                   </div>
 
@@ -878,16 +878,16 @@ export default function ModeratorPanelModal({
                         <span>OMNI ALL-IN-ONE MODELS</span>
                       </div>
                       <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        TEXT + IMG + VID + AUDIO
+                        TEXT + IMG + VIDEO
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">perceptron/perceptron-mk1.5</div>
-                      <div className="text-[11px] font-mono text-neutral-300">+ nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ google/gemini-2.0-flash-exp:free (Gemini Family)</div>
+                      <div className="text-xs font-mono font-bold text-white">llama-3.2-11b-vision-instruct</div>
+                      <div className="text-[11px] font-mono text-neutral-300">+ Groq high-speed visual LPU pipelines</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ Real-time frame sequence inspector</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
-                      Natively processes all 4 media modalities simultaneously with embodied spatial bounding boxes & temporal clip annotations.
+                      Natively processes visual frame sequences and text simultaneously using Groq's custom LPU architectures.
                     </p>
                   </div>
 
@@ -899,16 +899,16 @@ export default function ModeratorPanelModal({
                         <span>AUDIO & INAUDIBLE SPEECH</span>
                       </div>
                       <span className="text-[10px] bg-amber-950 text-amber-300 border border-amber-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        WHISPER V3 + MAI-TRANSCRIBE
+                        WHISPER V3 + TURBO + LLAMA GUARD 3
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">openai/whisper-large-v3-turbo</div>
-                      <div className="text-[11px] font-mono text-neutral-300">+ mai-transcribe-2 (inaudible & faint speech)</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ openai/gpt-audio-mini & meta-llama/llama-guard-3-8b</div>
+                      <div className="text-xs font-mono font-bold text-white">whisper-large-v3-turbo</div>
+                      <div className="text-[11px] font-mono text-neutral-300">+ whisper-large-v3 (high-accuracy fallback)</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ llama-guard-3-8b (real-time transcript guard)</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
-                      High-resilience speech analytics that transcribe muffled, low-volume, or background audio clips while evaluating tonal acoustic safety.
+                      Lightning-fast Whisper transcriptions coupled with Llama Guard 3 text checks to evaluate conversational safety in speech tracks.
                     </p>
                   </div>
 
@@ -920,16 +920,16 @@ export default function ModeratorPanelModal({
                         <span>IMAGE & VIDEO VERIFICATION</span>
                       </div>
                       <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        GEMMA 4 + DEEPSEEK + GLM
+                        LLAMA 3.2 VISION (LPU)
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">google/gemma-4</div>
-                      <div className="text-[11px] font-mono text-neutral-300">+ deepseek/deepseek-v4.1-flash</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ glm-5.3-flash (high-throughput visual & OCR)</div>
+                      <div className="text-xs font-mono font-bold text-white">llama-3.2-11b-vision-instruct</div>
+                      <div className="text-[11px] font-mono text-neutral-300">+ Groq visual OCR checks</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ High-throughput parallel frame analysis</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
-                      High-throughput visual safety evaluation for static artwork, photos, GIFs, and sequential video frames without soundtrack overhead.
+                      Rapid visual safety and OCR extraction checks on static images, animated GIFs, and video keyframes using Groq Vision.
                     </p>
                   </div>
 
@@ -941,16 +941,16 @@ export default function ModeratorPanelModal({
                         <span>TEXT & CHAT MODERATION</span>
                       </div>
                       <span className="text-[10px] bg-red-950 text-red-300 border border-red-700/50 font-mono font-bold px-2 py-0.5 rounded-md">
-                        LLAMA GUARD 3 + GLM
+                        LLAMA GUARD 3 + DETERMINISTIC REgex
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-xs font-mono font-bold text-white">meta-llama/llama-guard-3-8b</div>
-                      <div className="text-[11px] font-mono text-neutral-300">+ deepseek/deepseek-v4.1-flash</div>
-                      <div className="text-[11px] font-mono text-neutral-400">+ glm-5.3-flash & deterministic regex guard</div>
+                      <div className="text-xs font-mono font-bold text-white">llama-guard-3-8b</div>
+                      <div className="text-[11px] font-mono text-neutral-300">+ llama-3.3-70b-versatile (heavy reasoning guard)</div>
+                      <div className="text-[11px] font-mono text-neutral-400">+ llama-3.1-8b-instant & custom word blacklist</div>
                     </div>
                     <p className="text-[11px] text-neutral-400">
-                      Zero-latency safety enforcement on live chat messages, user handles, and room titles against slurs, harassment, and threats.
+                      Sub-millisecond safety checks on chat texts and room titles against slurs, threats, and harassment with Llama Guard 3.
                     </p>
                   </div>
                 </div>
@@ -962,7 +962,7 @@ export default function ModeratorPanelModal({
                       <Sparkles size={14} className="text-amber-400" />
                       <span>Live Moderation Test Bench</span>
                     </h5>
-                    <span className="text-[10px] text-neutral-400">Test any text or media link with the respective OpenRouter model</span>
+                    <span className="text-[10px] text-neutral-400">Test any text or media link with the respective Groq LPU model</span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -1011,7 +1011,7 @@ export default function ModeratorPanelModal({
                       ) : (
                         <>
                           <Zap size={14} />
-                          <span>Inspect with OpenRouter</span>
+                          <span>Inspect with Groq LPU</span>
                         </>
                       )}
                     </button>
