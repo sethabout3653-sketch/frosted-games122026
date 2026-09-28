@@ -1109,7 +1109,6 @@ youtubeRouter.get("/yt/id/:id", async (req, res) => {
 });
 
 // SoundCloud & YouTube/YT Music Link Resolution & Streaming Proxy
-import { execFile } from "child_process";
 
 function runYtDlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {

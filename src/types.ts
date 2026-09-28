@@ -113,6 +113,7 @@ export interface YouTubeVideo {
   descriptionSnippet?: string;
   category?: string;
   streamUrl?: string;
+  mediaUrl?: string;
   streamFormats?: YouTubeStreamFormat[];
   hlsUrl?: string;
   isShort?: boolean;
