@@ -171,53 +171,53 @@ export interface AIModelOption {
 
 const AVAILABLE_MODELS: AIModelOption[] = [
   {
-    id: "openrouter/free",
-    name: "OpenRouter Auto (Free)",
-    provider: "OpenRouter Auto-Router",
-    description: "Automatically routes to active, 100% free models without managing model availability.",
-    badge: "Auto Free",
+    id: "groq/compound",
+    name: "Groq Compound (Search)",
+    provider: "Groq Compound Systems",
+    description: "Autonomous Web Search, deep browsing, and real-time page crawling (High Speed).",
+    badge: "Web Search",
   },
   {
-    id: "meta-llama/llama-3.3-70b-instruct:free",
-    name: "Llama 3.3 70B (Free)",
-    provider: "Meta via OpenRouter",
-    description: "Deep reasoning, analysis, and versatile STEM problem solving (100% Free).",
+    id: "groq/compound-mini",
+    name: "Groq Compound Mini",
+    provider: "Groq Compound Systems",
+    description: "Low-latency browser search, link clicking, and facts synthesis.",
+    badge: "Fast Search",
+  },
+  {
+    id: "llama-3.3-70b-versatile",
+    name: "Llama 3.3 70B",
+    provider: "Meta via Groq",
+    description: "Deep reasoning, analytical processing, and versatile problem solving (High Speed).",
     badge: "Recommended",
   },
   {
-    id: "qwen/qwen-2.5-coder-32b-instruct:free",
-    name: "Qwen 2.5 Coder 32B (Free)",
-    provider: "Alibaba via OpenRouter",
-    description: "Optimized for software development, debugging, and algorithms (100% Free).",
-    badge: "Coder",
+    id: "deepseek-r1-distill-llama-70b",
+    name: "DeepSeek R1 (70B Distill)",
+    provider: "DeepSeek via Groq",
+    description: "Unprecedented complex logical reasoning, math, and code distillations.",
+    badge: "Reasoning",
   },
   {
-    id: "meta-llama/llama-3.1-8b-instruct:free",
-    name: "Llama 3.1 8B (Free)",
-    provider: "Meta via OpenRouter",
-    description: "Sub-second low latency for rapid answers and study notes (100% Free).",
+    id: "llama-3.1-8b-instant",
+    name: "Llama 3.1 8B",
+    provider: "Meta via Groq",
+    description: "Sub-second ultra-low latency responses for instant, fluid chats.",
     badge: "Ultra Fast",
   },
   {
-    id: "google/gemini-2.0-flash-exp:free",
-    name: "Gemini 2.0 Flash (Free)",
-    provider: "Google via OpenRouter",
-    description: "Multimodal speed, real-time responses, and broad knowledge (100% Free).",
-    badge: "Fast Vision",
+    id: "gemma2-9b-it",
+    name: "Gemma 2 9B",
+    provider: "Google via Groq",
+    description: "Efficient, creative writing, instruction-following, and safety analysis.",
+    badge: "Gemma",
   },
   {
-    id: "mistralai/mistral-small-24b-instruct-2501:free",
-    name: "Mistral Small 24B (Free)",
-    provider: "Mistral via OpenRouter",
-    description: "Compact high-performance reasoning and writing model (100% Free).",
-    badge: "Balanced",
-  },
-  {
-    id: "microsoft/phi-4:free",
-    name: "Phi-4 14B (Free)",
-    provider: "Microsoft via OpenRouter",
-    description: "High-grade mathematical problem solving and logic (100% Free).",
-    badge: "Math & Logic",
+    id: "mixtral-8x7b-32768",
+    name: "Mixtral 8x7B",
+    provider: "Mistral via Groq",
+    description: "High quality MoE architecture with deep 32k context capability.",
+    badge: "MoE",
   },
   {
     id: "gemini-3.8-flash",
@@ -826,7 +826,7 @@ export default function AIAssistant() {
     if (saved && AVAILABLE_MODELS.some((m) => m.id === saved)) {
       return saved;
     }
-    return "meta-llama/llama-3.3-70b-instruct:free";
+    return "llama-3.3-70b-versatile";
   });
 
   // Persona management

@@ -4740,67 +4740,53 @@ Respond strictly in valid JSON format:
   let lastOpenRouterFetchTime = 0;
 
   const OPENROUTER_MODEL_ALIASES: Record<string, string> = {
-    "openrouter/free": "openrouter/free",
-    "openrouter/auto": "openrouter/free",
-    "auto": "openrouter/free",
-    "free": "openrouter/free",
-    "llama-3.3-70b-versatile": "meta-llama/llama-3.3-70b-instruct:free",
-    "llama-3.1-8b-instant": "meta-llama/llama-3.1-8b-instruct:free",
-    "mixtral-8x7b-32768": "mistralai/mistral-small-24b-instruct-2501:free",
-    "gemma2-9b-it": "google/gemma-2-9b-it:free",
-    "deepseek-r1-distill-llama-70b": "meta-llama/llama-3.3-70b-instruct:free",
-    "deepseek/deepseek-r1:free": "meta-llama/llama-3.3-70b-instruct:free",
-    "deepseek/deepseek-r1": "meta-llama/llama-3.3-70b-instruct:free",
-    "deepseek/deepseek-chat:free": "meta-llama/llama-3.3-70b-instruct:free",
-    "deepseek/deepseek-chat": "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen-2.5-32b": "qwen/qwen-2.5-coder-32b-instruct:free",
-    "qwen-2.5-coder-32b": "qwen/qwen-2.5-coder-32b-instruct:free",
-    "openai/gpt-oss-120b": "meta-llama/llama-3.3-70b-instruct:free",
-    "openai/gpt-oss-20b": "meta-llama/llama-3.1-8b-instruct:free",
-    "groq/compound": "meta-llama/llama-3.3-70b-instruct:free",
-    "groq/compound-mini": "meta-llama/llama-3.1-8b-instruct:free",
-    "gpt-4o-mini": "openai/gpt-4o-mini",
+    "groq/compound": "llama-3.3-70b-versatile",
+    "groq/compound-mini": "llama-3.1-8b-instant",
+    "openrouter/free": "llama-3.3-70b-versatile",
+    "openrouter/auto": "llama-3.3-70b-versatile",
+    "auto": "llama-3.3-70b-versatile",
+    "free": "llama-3.3-70b-versatile",
+    "llama-3.3-70b-versatile": "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant": "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768": "mixtral-8x7b-32768",
+    "gemma2-9b-it": "gemma2-9b-it",
+    "deepseek-r1-distill-llama-70b": "deepseek-r1-distill-llama-70b",
+    "deepseek/deepseek-r1:free": "deepseek-r1-distill-llama-70b",
+    "deepseek/deepseek-r1": "deepseek-r1-distill-llama-70b",
+    "deepseek/deepseek-chat:free": "llama-3.3-70b-versatile",
+    "deepseek/deepseek-chat": "llama-3.3-70b-versatile",
+    "qwen-2.5-32b": "llama-3.3-70b-versatile",
+    "qwen-2.5-coder-32b": "llama-3.3-70b-versatile",
+    "qwen/qwen-2.5-coder-32b-instruct:free": "llama-3.3-70b-versatile",
+    "google/gemini-2.0-flash-exp:free": "llama-3.1-8b-instant",
+    "google/gemini-2.0-flash-thinking-exp:free": "llama-3.3-70b-versatile",
+    "mistralai/mistral-small-24b-instruct-2501:free": "mixtral-8x7b-32768",
+    "microsoft/phi-4:free": "gemma2-9b-it",
+    "google/gemma-2-9b-it:free": "gemma2-9b-it",
+    "meta-llama/llama-3.2-3b-instruct:free": "llama-3.1-8b-instant",
+    "meta-llama/llama-3.2-1b-instruct:free": "llama-3.1-8b-instant",
+    "meta-llama/llama-3.3-70b-instruct:free": "llama-3.3-70b-versatile",
+    "meta-llama/llama-3.1-8b-instruct:free": "llama-3.1-8b-instant"
   };
 
   const FALLBACK_OPENROUTER_MODELS = [
-    "openrouter/free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "meta-llama/llama-3.1-8b-instruct:free",
-    "qwen/qwen-2.5-coder-32b-instruct:free",
-    "google/gemini-2.0-flash-exp:free",
-    "mistralai/mistral-small-24b-instruct-2501:free",
-    "microsoft/phi-4:free",
-    "google/gemini-2.0-flash-thinking-exp:free",
-    "google/gemma-2-9b-it:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "meta-llama/llama-3.2-1b-instruct:free",
-    "openrouter/auto",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "gemma2-9b-it",
+    "mixtral-8x7b-32768",
+    "deepseek-r1-distill-llama-70b"
   ];
 
   function getFriendlyModelName(id: string): string {
-    if (id === "openrouter/free") return "OpenRouter Auto (Free)";
-    if (id === "openrouter/auto") return "OpenRouter Auto";
-    if (id === "meta-llama/llama-3.3-70b-instruct:free" || id === "meta-llama/llama-3.3-70b-instruct") return "Llama 3.3 (70B) Free";
-    if (id === "meta-llama/llama-3.1-8b-instruct:free" || id === "meta-llama/llama-3.1-8b-instruct") return "Llama 3.1 (8B) Free";
-    if (id === "qwen/qwen-2.5-coder-32b-instruct:free" || id === "qwen/qwen-2.5-coder-32b") return "Qwen Coder (32B) Free";
-    if (id === "google/gemini-2.0-flash-exp:free" || id === "google/gemini-2.0-flash") return "Gemini 2.0 Flash Free";
-    if (id === "mistralai/mistral-small-24b-instruct-2501:free") return "Mistral Small (24B) Free";
-    if (id === "microsoft/phi-4:free") return "Phi-4 (14B) Free";
-    if (id === "google/gemini-2.0-flash-thinking-exp:free") return "Gemini 2.0 Thinking Free";
-    if (id === "google/gemma-2-9b-it:free") return "Gemma 2 (9B) Free";
-    if (id === "deepseek/deepseek-r1:free" || id === "deepseek/deepseek-r1") return "DeepSeek R1";
-    if (id === "deepseek/deepseek-chat:free" || id === "deepseek/deepseek-chat") return "DeepSeek V3";
-    if (id === "openai/gpt-4o-mini") return "GPT-4o Mini";
-
+    if (id === "llama-3.3-70b-versatile" || id === "llama-3.3-70b-specdec") return "Llama 3.3 70B (Powerhouse)";
+    if (id === "llama-3.1-8b-instant") return "Llama 3.1 8B (Instant)";
+    if (id === "gemma2-9b-it") return "Gemma 2 (9B)";
+    if (id === "mixtral-8x7b-32768") return "Mixtral 8x7B";
+    if (id === "deepseek-r1-distill-llama-70b") return "DeepSeek R1 (70B Distill)";
+    
     return id
-      .replace(/:free$/i, " (Free)")
-      .replace(/^openai\//i, "GPT ")
       .replace(/^meta-llama\//i, "Llama ")
-      .replace(/^deepseek\//i, "DeepSeek ")
-      .replace(/^qwen\//i, "Qwen ")
-      .replace(/^google\//i, "Gemini ")
-      .replace(/^mistralai\//i, "Mistral ")
-      .replace(/^microsoft\//i, "Microsoft ")
+      .replace(/^google\//i, "Gemma ")
       .replace(/-instruct/gi, "")
       .replace(/-(preview|instant|versatile|specdec|8192|32768)/gi, "")
       .replace(/-/g, " ")
@@ -4817,11 +4803,9 @@ Respond strictly in valid JSON format:
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch("https://openrouter.ai/api/v1/models", {
+      const res = await fetch("https://api.groq.com/openai/v1/models", {
         headers: { 
-          "Authorization": `Bearer ${key}`,
-          "HTTP-Referer": "https://frosted-studying.app",
-          "X-Title": "Frosted Studying"
+          "Authorization": `Bearer ${key}`
         },
         signal: controller.signal,
       });
@@ -4829,43 +4813,28 @@ Respond strictly in valid JSON format:
       if (res.ok) {
         const json: any = await res.json();
         if (Array.isArray(json?.data)) {
-          // Filter for valid text generation models, strictly prioritizing truly free models (:free suffix or $0 price)
-          const freeModels = json.data
-            .filter((m: any) => {
-              const id = m?.id || "";
-              const isFree = id.endsWith(":free") || m?.pricing?.prompt === "0" || m?.pricing?.prompt === 0;
-              return typeof id === "string" && isFree && !id.includes("whisper") && !id.includes("tts") && !id.includes("embed");
-            })
-            .map((m: any) => m.id);
-
-          const allValid = json.data
+          const ids = json.data
             .map((m: any) => m.id)
             .filter((id: string) => 
               typeof id === "string" &&
               !id.includes("whisper") &&
-              !id.includes("tts") &&
-              !id.includes("embed")
+              !id.includes("audio") &&
+              !id.includes("guard")
             );
 
           const combinedIds = Array.from(new Set([
             ...FALLBACK_OPENROUTER_MODELS,
-            ...freeModels,
-            ...allValid
+            ...ids
           ]));
           
-          // Sort to prioritize free and flagship models
+          // Sort to prioritize Llama 3.3 70b
           combinedIds.sort((a: string, b: string) => {
             const score = (id: string) => {
-              if (id === "meta-llama/llama-3.3-70b-instruct:free") return 20;
-              if (id === "meta-llama/llama-3.1-8b-instruct:free") return 19;
-              if (id === "qwen/qwen-2.5-coder-32b-instruct:free") return 18;
-              if (id === "google/gemini-2.0-flash-exp:free") return 17;
-              if (id === "mistralai/mistral-small-24b-instruct-2501:free") return 16;
-              if (id === "microsoft/phi-4:free") return 15;
-              if (id.endsWith(":free")) return 10;
-              if (id.includes("llama-3.3-70b")) return 8;
-              if (id.includes("coder")) return 7;
-              if (id.includes("gemini-2.0")) return 6;
+              if (id === "llama-3.3-70b-versatile") return 20;
+              if (id === "deepseek-r1-distill-llama-70b") return 19;
+              if (id === "llama-3.1-8b-instant") return 18;
+              if (id === "gemma2-9b-it") return 17;
+              if (id === "mixtral-8x7b-32768") return 16;
               return 1;
             };
             return score(b) - score(a);
@@ -4874,26 +4843,23 @@ Respond strictly in valid JSON format:
           cachedOpenRouterIds = combinedIds.slice(0, 35);
           lastOpenRouterFetchTime = now;
           cachedOpenRouterModelsList = cachedOpenRouterIds.map((id: string) => {
-            let provider = "OpenRouter";
-            if (id.includes("llama") || id.includes("meta")) provider = "Meta via OpenRouter";
-            else if (id.includes("qwen") || id.includes("alibaba")) provider = "Alibaba via OpenRouter";
-            else if (id.includes("mistral")) provider = "Mistral via OpenRouter";
-            else if (id.includes("google") || id.includes("gemini")) provider = "Google via OpenRouter";
-            else if (id.includes("microsoft") || id.includes("phi")) provider = "Microsoft via OpenRouter";
-            else if (id.includes("deepseek")) provider = "DeepSeek via OpenRouter";
-            else if (id.includes("openai")) provider = "OpenAI via OpenRouter";
+            let provider = "Groq";
+            if (id.includes("llama")) provider = "Meta via Groq";
+            else if (id.includes("gemma")) provider = "Google via Groq";
+            else if (id.includes("mixtral")) provider = "Mistral via Groq";
+            else if (id.includes("deepseek")) provider = "DeepSeek via Groq";
 
-            let badge = id.includes(":free") ? "Free Forever" : "OpenRouter";
-            if (id.includes("3.3-70b")) badge = "Free Powerhouse";
-            else if (id.includes("coder")) badge = "Free Coder";
-            else if (id.includes("3.1-8b") || id.includes("flash")) badge = "Free Fast";
+            let badge = "Groq";
+            if (id === "llama-3.3-70b-versatile") badge = "Powerhouse";
+            else if (id === "deepseek-r1-distill-llama-70b") badge = "DeepSeek R1";
+            else if (id === "llama-3.1-8b-instant") badge = "Ultra Fast";
 
             return {
               id,
               name: getFriendlyModelName(id),
               provider,
               badge,
-              description: `100% Free high-speed LLM inference via OpenRouter (${id}).`,
+              description: `High-speed LLM inference via Groq Cloud (${id}).`,
             };
           });
           return cachedOpenRouterIds;
@@ -4906,44 +4872,38 @@ Respond strictly in valid JSON format:
   app.get("/api/ai/models", async (req, res) => {
     const authHeader = req.headers.authorization || "";
     const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
-    const serverKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || process.env.AI_API_KEY || "";
-    const activeKey = (bearerToken.startsWith("sk-or-") ? bearerToken : "") || serverKey;
+    const serverKey = process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.AI_API_KEY || "";
+    const activeKey = (bearerToken.startsWith("gsk_") ? bearerToken : "") || serverKey;
 
     if (activeKey) {
       await resolveActiveOpenRouterModels(activeKey);
     }
 
     const modelsToSend = cachedOpenRouterModelsList.length > 0 ? cachedOpenRouterModelsList : FALLBACK_OPENROUTER_MODELS.map((id) => {
-      let provider = "OpenRouter";
-      if (id.includes("openai")) provider = "OpenAI via OpenRouter";
-      else if (id.includes("llama") || id.includes("meta")) provider = "Meta via OpenRouter";
-      else if (id.includes("qwen")) provider = "Alibaba via OpenRouter";
-      else if (id.includes("deepseek")) provider = "DeepSeek via OpenRouter";
-      else if (id.includes("mistral")) provider = "Mistral via OpenRouter";
-      else if (id.includes("google") || id.includes("gemini")) provider = "Google via OpenRouter";
-      else if (id.includes("microsoft") || id.includes("phi")) provider = "Microsoft via OpenRouter";
+      let provider = "Groq";
+      if (id.includes("llama")) provider = "Meta via Groq";
+      else if (id.includes("gemma")) provider = "Google via Groq";
+      else if (id.includes("mixtral")) provider = "Mistral via Groq";
+      else if (id.includes("deepseek")) provider = "DeepSeek via Groq";
 
-      let badge = "OpenRouter";
-      if (id.includes("r1")) badge = "Reasoning";
-      else if (id.includes("chat") || id.includes("v3")) badge = "Flagship";
-      else if (id.includes("8b") || id.includes("flash")) badge = "Ultra Fast";
-      else if (id.includes("coder")) badge = "Coder";
-      else if (id.includes("70b")) badge = "Powerhouse";
-      else if (id.includes(":free")) badge = "Free";
+      let badge = "Groq";
+      if (id === "llama-3.3-70b-versatile") badge = "Powerhouse";
+      else if (id === "deepseek-r1-distill-llama-70b") badge = "DeepSeek R1";
+      else if (id === "llama-3.1-8b-instant") badge = "Ultra Fast";
 
       return {
         id,
         name: getFriendlyModelName(id),
         provider,
         badge,
-        description: `Fast multimodal LLM inference via OpenRouter (${id}).`,
+        description: `High-speed LLM inference via Groq Cloud (${id}).`,
       };
     });
 
     res.json({
       models: modelsToSend,
-      hasServerKey: Boolean(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || process.env.AI_API_KEY || process.env.GEMINI_API_KEY),
-      provider: "openrouter",
+      hasServerKey: Boolean(process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.AI_API_KEY || process.env.GEMINI_API_KEY),
+      provider: "groq",
     });
   });
 
@@ -4962,40 +4922,36 @@ Respond strictly in valid JSON format:
   }): Promise<{ text: string; model: string; provider: string }> {
     const {
       messages = [],
-      model = "deepseek/deepseek-chat:free",
+      model = "llama-3.3-70b-versatile",
       systemPrompt = "You are a helpful, clear, and friendly AI study assistant. Provide accurate, well-structured, detailed answers using clean Markdown.",
       temperature = 0.7,
       customKey = "",
-      endpoint = "https://openrouter.ai/api/v1"
+      endpoint = "https://api.groq.com/openai/v1"
     } = opts || {};
 
     const cleanCustomKey = sanitizeApiKey(customKey);
-    const serverKey = sanitizeApiKey(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
-    const openrouterKey = cleanCustomKey || serverKey;
+    const serverKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
+    const groqKey = cleanCustomKey || serverKey;
 
-    let baseMappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "meta-llama/llama-3.3-70b-instruct:free";
-    if (baseMappedModel !== "openrouter/free" && baseMappedModel !== "openrouter/auto" && !baseMappedModel.endsWith(":free")) {
-      baseMappedModel = `${baseMappedModel}:free`;
-    }
+    let baseMappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "llama-3.3-70b-versatile";
 
-    // 1. Primary: OpenRouter Engine
-    if (openrouterKey) {
-      const isGroqKey = openrouterKey.startsWith("gsk_");
-      const targetEndpoint = isGroqKey ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-      const liveModels = await resolveActiveOpenRouterModels(openrouterKey);
+    // 1. Primary: Groq Engine
+    if (groqKey) {
+      const targetEndpoint = endpoint && endpoint.includes("groq.com") ? `${endpoint}/chat/completions` : "https://api.groq.com/openai/v1/chat/completions";
+      const liveModels = await resolveActiveOpenRouterModels(groqKey);
       const candidateModels = Array.from(new Set([
         baseMappedModel,
-        "openrouter/free",
-        ...liveModels.map(m => m.endsWith(":free") || m === "openrouter/free" || m === "openrouter/auto" ? m : `${m}:free`),
+        "llama-3.3-70b-versatile",
+        ...liveModels,
         ...FALLBACK_OPENROUTER_MODELS
       ])).filter(Boolean);
 
-      const openrouterMessages: any[] = [];
+      const groqMessages: any[] = [];
       if (systemPrompt && !messages.some((m: any) => m.role === "system")) {
-        openrouterMessages.push({ role: "system", content: systemPrompt });
+        groqMessages.push({ role: "system", content: systemPrompt });
       }
       for (const m of messages) {
-        openrouterMessages.push({
+        groqMessages.push({
           role: m.role === "model" ? "assistant" : (m.role || "user"),
           content: typeof m.content === "string" ? m.content : JSON.stringify(m.content)
         });
@@ -5010,13 +4966,11 @@ Respond strictly in valid JSON format:
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${openrouterKey}`,
-              "HTTP-Referer": "https://frosted-studying.app",
-              "X-Title": "Frosted Studying",
+              "Authorization": `Bearer ${groqKey}`,
             },
             body: JSON.stringify({
               model: cand,
-              messages: openrouterMessages,
+              messages: groqMessages,
               temperature: Math.min(1.0, Math.max(0.1, temperature)),
               max_tokens: 2048,
               stream: false,
@@ -5030,11 +4984,11 @@ Respond strictly in valid JSON format:
             const choice = data.choices?.[0];
             const content = choice?.message?.content || "";
             if (content) {
-              return { text: content, model: cand, provider: "openrouter" };
+              return { text: content, model: cand, provider: "groq" };
             }
           } else {
             const errText = await res.text().catch(() => "");
-            console.warn(`[OpenRouter Completion] ${cand} returned (${res.status}): ${errText.slice(0, 140)}`);
+            console.warn(`[Groq Completion] ${cand} returned (${res.status}): ${errText.slice(0, 140)}`);
           }
         } catch (routerErr) {
           // try next candidate
@@ -5131,13 +5085,13 @@ Respond strictly in valid JSON format:
 
       const {
         messages = [],
-        model = "openrouter/free",
+        model = "llama-3.3-70b-versatile",
         systemPrompt = "You are a knowledgeable, friendly, and direct study partner, full-stack app developer, and engineering mentor. Provide clear, comprehensive, step-by-step reasoning and complete working code.",
         temperature = 0.7,
         customKey = "",
         stream = false,
         enableWebSearch = false,
-        endpoint = "https://openrouter.ai/api/v1"
+        endpoint = "https://api.groq.com/openai/v1"
       } = body || {};
 
       if (!Array.isArray(messages) || messages.length === 0) {
@@ -5153,13 +5107,15 @@ Respond strictly in valid JSON format:
       const isClientGithub = cleanCustomKey.startsWith("ghp_") || cleanCustomKey.startsWith("github_pat_") || bearerToken.startsWith("ghp_") || bearerToken.startsWith("github_pat_");
       const isClientGemini = cleanCustomKey.startsWith("AIza") || bearerToken.startsWith("AIza");
 
-      const serverKey = sanitizeApiKey(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
-      const openrouterKey = (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : "") || serverKey;
+      const serverKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
+      const groqKey = (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : "") || serverKey;
 
        // Extract last user query to determine if web search is needed
       const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
       const lastQuery = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
       const needsWebSearch = enableWebSearch || 
+        model === "groq/compound" || 
+        model === "groq/compound-mini" ||
         /\b(?:search|latest|news|current|price|weather|browse|look\s*up|who\s*is|what\s*happened|today|yesterday|tomorrow|release|update|when\s*did|where\s*is|how\s*to\s*install|doc|version|202[4-9]|ranking|scores?|stock|game|create|code|file|build|maker)\b/i.test(lastQuery) ||
         /\b(?:find|check|verify|lookup)\s+(?:me\s+)?(?:the\s+)?/i.test(lastQuery);
 
@@ -5246,24 +5202,18 @@ Platform context:
       }
 
       // =========================================================================
-      // 1. PRIMARY ENGINE: OpenRouter High-Speed Inference (with auto free fallback)
+      // 1. PRIMARY ENGINE: Groq High-Speed Inference
       // =========================================================================
-      if (openrouterKey) {
-        const isGroqKey = openrouterKey.startsWith("gsk_");
-        const targetEndpoint = isGroqKey ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-        const liveModels = await resolveActiveOpenRouterModels(openrouterKey);
-        let baseMappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "openrouter/free";
-        if (baseMappedModel !== "openrouter/free" && baseMappedModel !== "openrouter/auto" && !baseMappedModel.endsWith(":free")) {
-          baseMappedModel = `${baseMappedModel}:free`;
-        }
-        
-        // Strictly use free models (strictly append :free suffix unless it is openrouter/free or openrouter/auto)
+      if (groqKey) {
+        const targetEndpoint = "https://api.groq.com/openai/v1/chat/completions";
+        const liveModels = await resolveActiveOpenRouterModels(groqKey);
+        let baseMappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "llama-3.3-70b-versatile";
+
         const candidateModels = Array.from(new Set([
-          "openrouter/free",
           baseMappedModel,
-          ...liveModels.map(m => m.endsWith(":free") || m === "openrouter/free" || m === "openrouter/auto" ? m : `${m}:free`),
+          "llama-3.3-70b-versatile",
+          ...liveModels,
           ...FALLBACK_OPENROUTER_MODELS,
-          "openrouter/auto",
         ])).filter(Boolean);
 
         for (const candModel of candidateModels) {
@@ -5275,9 +5225,7 @@ Platform context:
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${openrouterKey}`,
-                "HTTP-Referer": "https://frosted-studying.app",
-                "X-Title": "Frosted Studying",
+                "Authorization": `Bearer ${groqKey}`,
               },
               body: JSON.stringify({
                 model: candModel,
@@ -5292,7 +5240,7 @@ Platform context:
 
             if (!upstreamRes.ok) {
               const errBody = await upstreamRes.text().catch(() => "");
-              console.warn(`OpenRouter model ${candModel} returned ${upstreamRes.status}:`, errBody.slice(0, 160));
+              console.warn(`Groq model ${candModel} returned ${upstreamRes.status}:`, errBody.slice(0, 160));
               continue;
             }
 
@@ -5348,11 +5296,11 @@ Platform context:
                 text: content,
                 choices: [{ message: { content } }],
                 model: candModel,
-                provider: "openrouter"
+                provider: "groq"
               });
             }
           } catch (modelErr: any) {
-            console.warn(`OpenRouter candidate ${candModel} failed, trying next candidate:`, modelErr?.message);
+            console.warn(`Groq candidate ${candModel} failed, trying next candidate:`, modelErr?.message);
           }
         }
       }
@@ -5488,7 +5436,7 @@ Platform context:
       }
 
       // 4. Graceful Diagnostic Response (Never crash with 500/502)
-      const noticeText = `⚠️ **OpenRouter AI Connection Setup Required**\n\nFrosted AI was unable to reach a working AI provider. To enable OpenRouter responses on your live app:\n\n1. Go to your **Render Dashboard** → Your Web Service → **Environment** tab.\n2. Add the environment variable: \`OPENROUTER_API_KEY = sk-or-v1-...\`\n3. Click **Manual Deploy** → **Deploy latest commit** so Render applies the new key.\n4. You can also paste your OpenRouter API key directly using the **API Key** settings button above.\n\n*(Get an OpenRouter key in seconds at [openrouter.ai/keys](https://openrouter.ai/keys)).*`;
+      const noticeText = `⚠️ **Groq AI Connection Setup Required**\n\nFrosted AI was unable to reach a working AI provider. To enable Groq responses on your live app:\n\n1. Go to your **Render Dashboard** → Your Web Service → **Environment** tab.\n2. Add the environment variable: \`GROQ_API_KEY = gsk_...\`\n3. Click **Manual Deploy** → **Deploy latest commit** so Render applies the new key.\n4. You can also paste your Groq API key directly using the **API Key** settings button above.\n\n*(Get a Groq key in seconds at [console.groq.com](https://console.groq.com)).*`;
 
       if (isStream) {
         res.setHeader("Content-Type", "text/event-stream");
