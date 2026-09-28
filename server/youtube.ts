@@ -3,6 +3,8 @@ import { execFile } from "child_process";
 import path from "path";
 import fs from "fs";
 import { Readable } from "stream";
+import ytsSearch from "yt-search";
+import youtubeDl from "youtube-dl-exec";
 
 export const youtubeRouter = express.Router();
 
@@ -999,5 +1001,81 @@ youtubeRouter.get("/proxy-stream", async (req, res) => {
     if (!res.headersSent) {
       res.status(500).send("Stream error");
     }
+  }
+});
+
+// x8rr/music native integration routes
+youtubeRouter.get("/yt/thumbnail/:id", async (req, res) => {
+  const { id: videoId } = req.params;
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+    return res.status(400).send({ error: "Invalid video id" });
+  }
+  try {
+    const thumbRes = await fetch(`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`);
+    if (!thumbRes.ok || !thumbRes.body) return res.status(404).send("Thumbnail unavailable");
+    res.setHeader("Content-Type", thumbRes.headers.get("content-type") || "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    Readable.fromWeb(thumbRes.body as any).pipe(res);
+  } catch {
+    res.status(502).send("Thumbnail fetch failed");
+  }
+});
+
+youtubeRouter.get("/yt/search", async (req, res) => {
+  const query = req.query.q as string;
+  if (!query) {
+    return res.status(400).send({ error: "You must define a query parameter (q)" });
+  }
+  try {
+    const results = await ytsSearch(query);
+    const videos = results.videos.map((v: any) => ({
+      id: v.videoId,
+      title: v.title,
+      description: v.description,
+      timestamp: v.timestamp,
+      duration: v.duration.seconds,
+      views: v.views,
+      thumbnail: `/api/youtube/yt/thumbnail/${v.videoId}`,
+      mediaUrl: `/api/youtube/yt/id/${v.videoId}`,
+      artist: v.author?.name || "x8rr/music",
+      channelTitle: v.author?.name || "x8rr/music",
+      isMusic: true,
+      mediaType: "audio",
+    }));
+    res.send({ query, results: videos });
+  } catch (e: any) {
+    res.status(500).send({ error: "search failed", details: e?.message });
+  }
+});
+
+youtubeRouter.get("/yt/id/:id", async (req, res) => {
+  const videoId = req.params.id;
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  try {
+    const info = (await youtubeDl(videoUrl, {
+      format: "bestaudio",
+      getUrl: true,
+    } as Record<string, string | boolean>)) as unknown as string;
+    const cdnUrl = info.trim();
+    const range = req.headers.range;
+    const upstream = await fetch(cdnUrl, {
+      headers: {
+        ...(range ? { range } : {}),
+        "user-agent": "Mozilla/5.0",
+        referer: "https://www.youtube.com",
+      },
+    });
+    res.status(upstream.status);
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "audio/mp4");
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "no-store");
+    const contentLength = upstream.headers.get("content-length");
+    const contentRange = upstream.headers.get("content-range");
+    if (contentLength) res.setHeader("Content-Length", contentLength);
+    if (contentRange) res.setHeader("Content-Range", contentRange);
+    if (!upstream.body) return res.send();
+    Readable.fromWeb(upstream.body as any).pipe(res);
+  } catch (e: any) {
+    res.status(500).send({ error: "Stream failed", details: e?.message });
   }
 });

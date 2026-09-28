@@ -2338,9 +2338,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       try {
         displayStream = await navigator.mediaDevices.getDisplayMedia({
           video: {
-            width: { ideal: 1280, max: 1920 },
-            height: { ideal: 720, max: 1080 },
-            frameRate: { ideal: 60, max: 60 },
+            width: { ideal: 1280, max: 1280 },
+            height: { ideal: 720, max: 720 },
+            frameRate: { ideal: 30, max: 30 },
           },
           audio: {
             echoCancellation: true,
@@ -2363,9 +2363,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         try {
           displayStream = await navigator.mediaDevices.getDisplayMedia({
             video: {
-              width: { ideal: 1280, max: 1920 },
-              height: { ideal: 720, max: 1080 },
-              frameRate: { ideal: 60, max: 60 },
+              width: { ideal: 1280, max: 1280 },
+              height: { ideal: 720, max: 720 },
+              frameRate: { ideal: 30, max: 30 },
             },
             audio: {
               echoCancellation: true,
@@ -2379,9 +2379,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           }
           displayStream = await navigator.mediaDevices.getDisplayMedia({
             video: {
-              width: { ideal: 1280, max: 1920 },
-              height: { ideal: 720, max: 1080 },
-              frameRate: { ideal: 60, max: 60 },
+              width: { ideal: 1280, max: 1280 },
+              height: { ideal: 720, max: 720 },
+              frameRate: { ideal: 30, max: 30 },
             },
             audio: false,
           });
@@ -2488,11 +2488,11 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                 if (!params.encodings || params.encodings.length === 0) {
                   params.encodings = [{}];
                 }
-                params.encodings[0].maxBitrate = 8000000; // Match call's high performance 8 Mbps stream
+                params.encodings[0].maxBitrate = 2000000; // Optimized 2 Mbps stream for smooth lag-free screen sharing
                 params.encodings[0].priority = "high";
                 params.encodings[0].networkPriority = "high";
-                params.encodings[0].maxFramerate = 60;
-                (params as any).degradationPreference = "balanced";
+                params.encodings[0].maxFramerate = 30;
+                (params as any).degradationPreference = "maintain-framerate";
                 await screenSender.setParameters(params).catch(() => {});
               } catch (e) {}
             }

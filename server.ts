@@ -9,7 +9,8 @@ import { WebSocketServer, WebSocket } from "ws";
 import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import multer from "multer";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
+import { Readable } from "stream";
 import { Filter } from "bad-words";
 import Tesseract from "tesseract.js";
 import { GoogleGenAI } from "@google/genai";
@@ -348,6 +349,84 @@ const PORT = Number(process.env.PORT) || 3000;
   };
 
   // API routes go here FIRST
+  // Start x8rr-music actual Fastify backend service on port 2010
+  let x8rrProcess: any = null;
+  function startX8rrMusic() {
+    try {
+      const x8rrPath = path.join(process.cwd(), "x8rr-music", "index.ts");
+      if (fs.existsSync(x8rrPath)) {
+        x8rrProcess = spawn("npx", ["tsx", x8rrPath], {
+          cwd: path.join(process.cwd(), "x8rr-music"),
+          env: { ...process.env, MUSIC_PORT: "2010" },
+          stdio: "ignore",
+        });
+        x8rrProcess.on("exit", (code: any) => {
+          if (code !== 0) {
+            setTimeout(startX8rrMusic, 3000);
+          }
+        });
+      }
+    } catch (err) {
+      console.error("Failed to start x8rr-music service:", err);
+    }
+  }
+  startX8rrMusic();
+
+  // Start soundcloud-backend service on port 8081
+  let scProcess: any = null;
+  function startSoundCloudBackend() {
+    try {
+      const scPath = path.join(process.cwd(), "x8rr-music", "services", "soundcloud-backend", "server.js");
+      if (fs.existsSync(scPath)) {
+        scProcess = spawn("node", [scPath], {
+          cwd: path.join(process.cwd(), "x8rr-music", "services", "soundcloud-backend"),
+          env: { ...process.env, PORT: "8081" },
+          stdio: "ignore",
+        });
+        scProcess.on("exit", (code: any) => {
+          if (code !== 0) {
+            setTimeout(startSoundCloudBackend, 3000);
+          }
+        });
+      }
+    } catch (err) {
+      console.error("Failed to start SoundCloud backend service:", err);
+    }
+  }
+  startSoundCloudBackend();
+
+  // Proxy /api/music and /api/yt routes directly to the running x8rr-music backend!
+  app.use(["/api/music", "/api/yt"], async (req, res) => {
+    try {
+      const targetUrl = `http://127.0.0.1:2010${req.originalUrl}`;
+      const headers: Record<string, string> = {};
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (typeof v === "string" && k.toLowerCase() !== "host") headers[k] = v;
+      }
+      const upstream = await fetch(targetUrl, {
+        method: req.method,
+        headers,
+        body: req.method !== "GET" && req.method !== "HEAD" ? (req as any) : undefined,
+      });
+      res.status(upstream.status);
+      upstream.headers.forEach((val, key) => {
+        res.setHeader(key, val);
+      });
+      if (upstream.body) {
+        Readable.fromWeb(upstream.body as any).pipe(res);
+      } else {
+        res.end();
+      }
+    } catch (err: any) {
+      if (!res.headersSent) {
+        res.status(502).json({ error: "x8rr-music upstream unavailable", detail: err?.message });
+      }
+    }
+  });
+
+  // Serve authentic x8rr-music web UI at /x8rr
+  app.use("/x8rr", express.static(path.join(process.cwd(), "x8rr-music", "public")));
+
   app.use("/api/youtube", youtubeRouter);
 
   app.get("/api/ping", (req, res) => {

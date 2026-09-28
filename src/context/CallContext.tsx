@@ -899,9 +899,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 try {
                   videoStream = await navigator.mediaDevices.getUserMedia({
                     video: {
-                      width: { ideal: 1920, min: 1280 },
-                      height: { ideal: 1080, min: 720 },
-                      frameRate: { ideal: 60, min: 30 },
+                      width: { ideal: 1280, max: 1280 },
+                      height: { ideal: 720, max: 720 },
+                      frameRate: { ideal: 30, max: 30 },
                     },
                   });
                 } catch {
@@ -1460,12 +1460,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       let displayStream: MediaStream;
       try {
-        // High-fidelity studio stereo capture at 60 FPS
+        // Optimized lag-free 30 FPS screen capture
         displayStream = await navigator.mediaDevices.getDisplayMedia({
           video: {
-            width: { ideal: 1280, max: 1920 },
-            height: { ideal: 720, max: 1080 },
-            frameRate: { ideal: 60, max: 60 },
+            width: { ideal: 1280, max: 1280 },
+            height: { ideal: 720, max: 720 },
+            frameRate: { ideal: 30, max: 30 },
           },
           audio: {
             echoCancellation: true,
@@ -1481,12 +1481,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       } catch (errAudio1) {
         try {
-          // Fallback 1: Standard echo-cancelled audio at 60 FPS
           displayStream = await navigator.mediaDevices.getDisplayMedia({
             video: {
-              width: { ideal: 1280, max: 1920 },
-              height: { ideal: 720, max: 1080 },
-              frameRate: { ideal: 60, max: 60 },
+              width: { ideal: 1280, max: 1280 },
+              height: { ideal: 720, max: 720 },
+              frameRate: { ideal: 30, max: 30 },
             },
             audio: {
               echoCancellation: true,
@@ -1495,12 +1494,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } as any,
           });
         } catch (errAudio2) {
-          // Fallback 2: Video only at 60 FPS
           displayStream = await navigator.mediaDevices.getDisplayMedia({
             video: {
-              width: { ideal: 1280, max: 1920 },
-              height: { ideal: 720, max: 1080 },
-              frameRate: { ideal: 60, max: 60 },
+              width: { ideal: 1280, max: 1280 },
+              height: { ideal: 720, max: 720 },
+              frameRate: { ideal: 30, max: 30 },
             },
             audio: false,
           });
@@ -1531,10 +1529,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const params = videoSender.getParameters();
           if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-          params.encodings[0].maxBitrate = 8000000; // 8 Mbps high-bandwidth, lag-free gameplay stream
+          params.encodings[0].maxBitrate = 2000000; // Optimized 2 Mbps stream for smooth lag-free screen sharing
           params.encodings[0].priority = "high";
           params.encodings[0].networkPriority = "high";
-          params.encodings[0].maxFramerate = 60; // Force 60 FPS encode parameters
+          params.encodings[0].maxFramerate = 30;
+          (params as any).degradationPreference = "maintain-framerate";
           await videoSender.setParameters(params).catch(() => {});
         } catch {}
       } else {

@@ -24,6 +24,19 @@ interface GamePlayerProps {
 
 type FitMode = "contain" | "fill" | "16-9" | "4-3";
 
+const SOUNDS = [
+  { name: "MLG Airhorn", url: "https://www.myinstants.com/media/sounds/mlg-airhorn.mp3", emoji: "📣", color: "from-amber-500/20 to-orange-600/30 text-amber-300" },
+  { name: "Vine Boom", url: "https://www.myinstants.com/media/sounds/vine-boom.mp3", emoji: "💥", color: "from-red-500/20 to-rose-600/30 text-red-300" },
+  { name: "Bruh Moment", url: "https://www.myinstants.com/media/sounds/bruh.mp3", emoji: "💀", color: "from-slate-600/20 to-slate-800/30 text-slate-300" },
+  { name: "Wet Fart", url: "https://www.myinstants.com/media/sounds/fart-meme-sound-effect_xd1ZVTX.mp3", emoji: "💨", color: "from-lime-600/20 to-green-700/30 text-lime-300" },
+  { name: "Sad Trombone", url: "https://www.myinstants.com/media/sounds/sad-trombone.mp3", emoji: "🎻", color: "from-blue-500/20 to-indigo-600/30 text-blue-300" },
+  { name: "Anime Wow", url: "https://www.myinstants.com/media/sounds/anime-wow.mp3", emoji: "✨", color: "from-pink-500/20 to-purple-600/30 text-pink-300" },
+  { name: "Laughter", url: "https://www.myinstants.com/media/sounds/skype-laughter.mp3", emoji: "😂", color: "from-yellow-400/20 to-amber-500/30 text-yellow-300" },
+  { name: "Metal Pipe", url: "https://www.myinstants.com/media/sounds/metal-pipe-falling-sound-effect-meme_8fNbyZ4.mp3", emoji: "⚙️", color: "from-zinc-500/20 to-neutral-700/30 text-zinc-300" },
+  { name: "Taco Bell", url: "https://www.myinstants.com/media/sounds/taco-bell-bong_q9D7v7X.mp3", emoji: "🔔", color: "from-violet-500/20 to-fuchsia-600/30 text-violet-300" },
+  { name: "Quack", url: "https://www.myinstants.com/media/sounds/duck-quack_SZvW2R1.mp3", emoji: "🦆", color: "from-emerald-500/20 to-teal-600/30 text-emerald-300" },
+];
+
 export default function GamePlayer({ game, onBack }: GamePlayerProps) {
   const { isFavorite, toggleFavorite } = useFavorites();
   const favorited = isFavorite(game.id);
@@ -32,6 +45,27 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
   const [usingDirectUrl, setUsingDirectUrl] = useState(false);
   const [gameLoadError, setGameLoadError] = useState(false);
   const [isGameLoading, setIsGameLoading] = useState(true);
+  const [broadcastSoundboard, setBroadcastSoundboard] = useState<boolean>(true);
+
+  const playAndBroadcastSound = (soundUrl: string) => {
+    // 1. Play locally in caller's browser
+    const audio = new Audio(soundUrl);
+    audio.volume = 0.65;
+    audio.play().catch(() => {});
+
+    // 2. Automatically broadcast to everyone in voice channel or call instantly
+    if (broadcastSoundboard) {
+      try {
+        sendBroadcastSignal({
+          type: "soundboard_played",
+          targetUid: "all",
+          sdp: JSON.stringify({ soundUrl })
+        });
+      } catch (e) {
+        console.warn("Soundboard broadcast error:", e);
+      }
+    }
+  };
 
   // Load preferences from localStorage or default to automatic optimal fit
   const [fitMode, setFitMode] = useState<FitMode>(() => {
@@ -563,6 +597,48 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
           )}
         </div>
       </div>
+
+      {isSoundboard && (
+        <div className="max-w-6xl mx-auto w-full mt-6 p-6 rounded-2xl bg-black/40 border border-white/5 backdrop-blur-xl">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <div className="flex items-center gap-2.5 mb-1">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+                <h2 className="text-sm font-extrabold text-white uppercase tracking-wider">
+                  Live Voice & Call Soundboard Control
+                </h2>
+              </div>
+              <p className="text-xs text-neutral-400">
+                Click any sound below to play it locally and automatically broadcast it instantly to everyone in your current voice channel or call!
+              </p>
+            </div>
+            <button
+              onClick={() => setBroadcastSoundboard(!broadcastSoundboard)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-lg ${
+                broadcastSoundboard
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-emerald-500/10"
+                  : "bg-neutral-800 text-neutral-400 border border-white/5"
+              }`}
+            >
+              <span className={`w-2.5 h-2.5 rounded-full ${broadcastSoundboard ? "bg-emerald-400 animate-pulse" : "bg-neutral-600"}`} />
+              Broadcast to Voice/Call: {broadcastSoundboard ? "ON" : "OFF"}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+            {SOUNDS.map((sound) => (
+              <button
+                key={sound.name}
+                onClick={() => playAndBroadcastSound(sound.url)}
+                className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border border-white/5 bg-gradient-to-br ${sound.color} hover:bg-opacity-20 hover:scale-[1.04] active:scale-95 transition-all duration-150 cursor-pointer text-center select-none overflow-hidden shadow-lg`}
+              >
+                <span className="text-3xl mb-1.5 filter drop-shadow group-hover:scale-115 transition-transform duration-200">{sound.emoji}</span>
+                <span className="text-xs font-bold tracking-wide">{sound.name}</span>
+                <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

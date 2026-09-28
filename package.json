@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@blinkdotnew/sdk": "^2.9.0",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/static": "^10.1.5",
     "@giphy/js-fetch-api": "^5.8.0",
     "@giphy/react-components": "^10.1.2",
     "@google/genai": "^2.22.0",
@@ -36,6 +38,7 @@
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "express": "^4.21.2",
+    "fastify": "^5.12.5",
     "framer-motion": "^13.2.0",
     "jszip": "^3.10.2",
     "lucide-react": "^0.546.0",
@@ -59,7 +62,9 @@
     "ws": "^8.21.3",
     "y-webrtc": "^10.3.0",
     "yjs": "^13.6.32",
-    "youtubei.js": "^18.1.0"
+    "youtube-dl-exec": "^3.1.15",
+    "youtubei.js": "^18.1.0",
+    "yt-search": "^2.13.1"
   },
   "overrides": {
     "electron-to-chromium": "1.5.420"
@@ -74,6 +79,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/ws": "^8.18.1",
+    "@types/yt-search": "^2.10.3",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",

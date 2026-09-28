@@ -15,6 +15,7 @@ import {
   X,
   Play,
   Volume2,
+  ExternalLink,
 } from "lucide-react";
 import { YouTubeVideo } from "../types";
 import YouTubePlayer from "./YouTubePlayer";
@@ -226,10 +227,9 @@ export default function YouTubeView({
     async function loadVideos() {
       setIsLoading(true);
       try {
-        const filterParam = mediaFilter === "all" ? "" : `&filter=${mediaFilter === "audio" ? "songs" : "videos"}`;
-        let endpoint = `/api/youtube/trending?category=${selectedCategory}${filterParam}`;
+        let endpoint = `/api/youtube/trending?category=${selectedCategory}`;
         if (deferredSearch.trim()) {
-          endpoint = `/api/youtube/search?q=${encodeURIComponent(deferredSearch.trim())}${filterParam}`;
+          endpoint = `/api/youtube/yt/search?q=${encodeURIComponent(deferredSearch.trim())}`;
         }
 
         const controller = new AbortController();
@@ -240,8 +240,9 @@ export default function YouTubeView({
 
         if (res && res.ok) {
           const data = await res.json().catch(() => null);
-          if (!isCancelled && data && Array.isArray(data.videos) && data.videos.length > 0) {
-            setVideos(data.videos);
+          const items = data?.results || data?.videos;
+          if (!isCancelled && data && Array.isArray(items) && items.length > 0) {
+            setVideos(items);
             return;
           }
         }
@@ -409,43 +410,23 @@ export default function YouTubeView({
           </div>
         </div>
 
-        {/* Right: Audio Only / Music Video Filter Pill */}
-        <div className="flex items-center bg-[#181822] p-1 rounded-xl border border-white/5 shrink-0">
-          <button
-            type="button"
-            onClick={() => setMediaFilter("all")}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-150 ${
-              mediaFilter === "all"
-                ? "bg-[var(--theme-accent)] text-white shadow-md"
-                : "text-neutral-400 hover:text-white"
-            }`}
+        {/* Right: Audio Only Indicator & Authentic x8rr Web App Link */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 bg-[#181822] px-3 py-1.5 rounded-xl border border-white/5 text-xs font-bold text-emerald-400">
+            <Music size={13} />
+            <span>x8rr/music Lossless Engine</span>
+          </div>
+
+          <a
+            href="/x8rr"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 hover:text-white border border-blue-500/30 text-xs font-bold transition-all cursor-pointer shadow-sm"
+            title="Open the actual x8rr/music web app interface"
           >
-            All Tracks
-          </button>
-          <button
-            type="button"
-            onClick={() => setMediaFilter("audio")}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 ${
-              mediaFilter === "audio"
-                ? "bg-emerald-600 text-white shadow-md"
-                : "text-neutral-400 hover:text-white"
-            }`}
-          >
-            <Music size={12} />
-            Audio Only
-          </button>
-          <button
-            type="button"
-            onClick={() => setMediaFilter("video")}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all duration-150 ${
-              mediaFilter === "video"
-                ? "bg-indigo-600 text-white shadow-md"
-                : "text-neutral-400 hover:text-white"
-            }`}
-          >
-            <VideoIcon size={12} />
-            Music Videos
-          </button>
+            <ExternalLink size={13} />
+            <span>Open x8rr Web App</span>
+          </a>
         </div>
       </div>
 
