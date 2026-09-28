@@ -90,7 +90,8 @@ async function search() {
   try {
     const res = await fetch('/api/music/search?q=' + encodeURIComponent(query));
     const data = await res.json();
-    renderResults(data.items || []);
+    const list = data.items || data.tracks || data.results || (Array.isArray(data) ? data : []);
+    renderResults(list);
   } catch (e) {
     results.innerHTML = '<div class="status">Search failed.</div>';
   }
@@ -125,7 +126,7 @@ function escapeHtml(s) {
 function play(track, li) {
   document.querySelectorAll('#results li.playing').forEach((el) => el.classList.remove('playing'));
   li.classList.add('playing');
-  nowPlaying.textContent = `${track.title} — ${track.artist}`;
+  nowPlaying.textContent = `Connecting: ${track.title} — ${track.artist}...`;
 
   const params = new URLSearchParams({ id: String(track.id) });
   if (track.isrc) params.set('isrc', track.isrc);
@@ -134,8 +135,21 @@ function play(track, li) {
   if (track.artist) params.set('artist', track.artist);
 
   player.src = '/api/music/stream?' + params.toString();
-  player.play().catch(() => {});
+  player.play().catch((err) => {
+    nowPlaying.textContent = `Click play below to begin listening: ${track.title}`;
+  });
 }
+
+player.addEventListener('playing', () => {
+  const activeLi = document.querySelector('#results li.playing');
+  const title = activeLi?.querySelector('.title')?.textContent || '';
+  const artist = activeLi?.querySelector('.artist')?.textContent || '';
+  if (title) nowPlaying.textContent = `▶ Now Playing: ${title} — ${artist}`;
+});
+
+player.addEventListener('error', () => {
+  nowPlaying.textContent = `⚠️ Buffering / Retrying stream for selected track...`;
+});
 
 document.getElementById('searchBtn').addEventListener('click', search);
 q.addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });

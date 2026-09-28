@@ -43,20 +43,20 @@ function extractYouTubeId(urlOrId: string): string {
 }
 
 function parseDurationToSeconds(duration: string | number | undefined): number {
-  if (duration === undefined || duration === null) return 210;
+  if (duration === undefined || duration === null) return 0;
   if (typeof duration === "number") return duration;
   const durationStr = String(duration).trim();
-  if (!durationStr) return 210;
+  if (!durationStr) return 0;
   if (durationStr.toLowerCase() === "live") return 0;
   if (/^\d+$/.test(durationStr)) return parseInt(durationStr, 10);
   const parts = durationStr.split(":").map(Number);
-  if (parts.some(isNaN)) return 210;
+  if (parts.some(isNaN)) return 0;
   if (parts.length === 3) {
     return parts[0] * 3600 + parts[1] * 60 + parts[2];
   } else if (parts.length === 2) {
     return parts[0] * 60 + parts[1];
   }
-  return 210;
+  return 0;
 }
 
 export default function YouTubePlayer({
@@ -121,49 +121,6 @@ export default function YouTubePlayer({
     setDuration(parseDurationToSeconds(video.duration) || 210);
   }, [video]);
 
-  // Stream audio directly via x8rr-music backend (/api/yt/id/:id)
-  const activateDirectStreamBypass = useCallback(async () => {
-    if (!cleanVideoId) return;
-    setIsResolvingBypass(true);
-    setIsBuffering(true);
-    try {
-      const streamUrl = `/api/yt/id/${cleanVideoId}?title=${encodeURIComponent(video.title || "")}&artist=${encodeURIComponent(video.artist || video.channelTitle || "")}`;
-      setBypassStreamUrl(streamUrl);
-      setIsBuffering(false);
-    } catch (err) {
-      console.warn("Audio stream error:", err);
-    } finally {
-      setIsResolvingBypass(false);
-      setIsBuffering(false);
-    }
-  }, [cleanVideoId, video.title, video.artist, video.channelTitle]);
-
-  useEffect(() => {
-    if (cleanVideoId) {
-      setBypassStreamUrl(null);
-      activateDirectStreamBypass();
-    }
-  }, [cleanVideoId, activateDirectStreamBypass]);
-
-  // Sync HTML5 audio element volume and mute
-  useEffect(() => {
-    if (html5MediaRef.current) {
-      html5MediaRef.current.volume = isMuted ? 0 : volume / 100;
-      html5MediaRef.current.playbackRate = playbackRate;
-    }
-  }, [volume, isMuted, playbackRate]);
-
-  const handleTogglePlay = () => {
-    if (!html5MediaRef.current) return;
-    if (isPlaying) {
-      html5MediaRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      html5MediaRef.current.play().catch(() => {});
-      setIsPlaying(true);
-    }
-  };
-
   const handleTrackEnd = useCallback(() => {
     if (repeatModeRef.current === "one" && html5MediaRef.current) {
       html5MediaRef.current.currentTime = 0;
@@ -185,6 +142,88 @@ export default function YouTubePlayer({
       }
     }
   }, []);
+
+  // Stream audio directly via x8rr-music backend (/api/music/stream with full fallback)
+  const activateDirectStreamBypass = useCallback(async () => {
+    if (!cleanVideoId) return;
+    setIsResolvingBypass(true);
+    setIsBuffering(true);
+    try {
+      const streamUrl = `/api/music/stream?id=${cleanVideoId}&source=youtube`;
+      setBypassStreamUrl(streamUrl);
+    } catch (err) {
+      console.warn("Audio stream error:", err);
+      setBypassStreamUrl(`/api/yt/id/${cleanVideoId}`);
+    } finally {
+      setIsResolvingBypass(false);
+    }
+  }, [cleanVideoId]);
+
+  const handleAudioError = useCallback((e: React.SyntheticEvent<HTMLAudioElement>) => {
+    const err = e.currentTarget.error;
+    console.warn("Audio element error details:", err ? { code: err.code, message: err.message } : "No error details available");
+
+    // Completely ignore aborted media loading (code 1), which is harmless and triggered when changing tracks
+    if (err && err.code === 1) {
+      return;
+    }
+
+    setIsBuffering(false);
+
+    // If it's a permanent error (decode/format/not supported), skip to the next track to keep playback going
+    if (err && (err.code === 3 || err.code === 4)) {
+      console.error(`Permanent audio playback error ${err.code}: ${err.message}. Skipping to next track...`);
+      handleTrackEnd();
+      return;
+    }
+
+    if (video.mediaUrl) {
+      // If it's a resolved direct URL and we got a network error (code 2), let's skip after 1 retry
+      handleTrackEnd();
+      return;
+    }
+
+    if (!cleanVideoId) {
+      setIsPlaying(false);
+      return;
+    }
+
+    if (bypassStreamUrl?.startsWith("/api/music/stream")) {
+      setBypassStreamUrl(`/api/youtube/yt/id/${cleanVideoId}`);
+    } else if (bypassStreamUrl?.startsWith("/api/youtube/yt/id") || bypassStreamUrl?.startsWith("/api/yt/id")) {
+      setBypassStreamUrl(`https://pipedapi.kavin.rocks/streams/${cleanVideoId}`);
+    } else {
+      handleTrackEnd();
+    }
+  }, [bypassStreamUrl, cleanVideoId, handleTrackEnd, video.mediaUrl]);
+
+  useEffect(() => {
+    if (video.mediaUrl) {
+      setBypassStreamUrl(video.mediaUrl);
+    } else if (cleanVideoId || video.title) {
+      setBypassStreamUrl(null);
+      activateDirectStreamBypass();
+    }
+  }, [cleanVideoId, video.title, video.mediaUrl, activateDirectStreamBypass]);
+
+  // Sync HTML5 audio element volume and mute
+  useEffect(() => {
+    if (html5MediaRef.current) {
+      html5MediaRef.current.volume = isMuted ? 0 : volume / 100;
+      html5MediaRef.current.playbackRate = playbackRate;
+    }
+  }, [volume, isMuted, playbackRate]);
+
+  const handleTogglePlay = () => {
+    if (!html5MediaRef.current) return;
+    if (isPlaying) {
+      html5MediaRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      html5MediaRef.current.play().catch(() => {});
+      setIsPlaying(true);
+    }
+  };
 
   const handlePrevTrack = () => {
     const currentList = playlistRef.current;
@@ -262,10 +301,16 @@ export default function YouTubePlayer({
               );
             }
           }}
+          onCanPlay={() => setIsBuffering(false)}
+          onPlaying={() => {
+            setIsPlaying(true);
+            setIsBuffering(false);
+          }}
+          onWaiting={() => setIsBuffering(true)}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           onEnded={handleTrackEnd}
-          onError={() => setIsBuffering(true)}
+          onError={handleAudioError}
         />
       )}
 

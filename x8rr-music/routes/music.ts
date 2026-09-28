@@ -1495,6 +1495,7 @@ function normalizeForMatch(s: string): string {
   return s
     .toLowerCase()
     .replace(/\([^)]*\)|\[[^\]]*\]/g, "")
+    .replace(/(official\s*(music\s*)?video|remaster(ed)?|audio|lyrics?|visualizer|hd|4k)/gi, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
@@ -1508,6 +1509,7 @@ function pickScDlpMatch(
   title: string,
   durationSec?: number,
 ): ScDlpTrack | null {
+  if (!results || results.length === 0) return null;
   const wantTitle = normalizeForMatch(title);
   const wantArtist = normalizeForMatch(artist);
   let best: { t: ScDlpTrack; score: number } | null = null;
@@ -1517,10 +1519,10 @@ function pickScDlpMatch(
     const gotArtist = normalizeForMatch(t.artist || "");
     let score = 0;
 
-    if (gotTitle.includes(wantTitle)) score += 40;
-    else continue; // wrong song entirely
+    if (gotTitle.includes(wantTitle) || (wantTitle.length > 3 && wantTitle.includes(gotTitle))) score += 40;
+    else if (gotTitle.split(" ").some((w) => w.length > 3 && wantTitle.includes(w))) score += 20;
 
-    if (gotArtist.includes(wantArtist) || gotTitle.includes(wantArtist))
+    if (gotArtist.includes(wantArtist) || gotTitle.includes(wantArtist) || wantArtist.includes(gotArtist))
       score += 30;
     if (YT_JUNK_TERMS.some((k) => (t.title || "").toLowerCase().includes(k)))
       score -= 60;
@@ -1535,7 +1537,7 @@ function pickScDlpMatch(
     if (score > 0 && (!best || score > best.score)) best = { t, score };
   }
 
-  return best?.t ?? null;
+  return best?.t ?? results[0] ?? null;
 }
 
 async function scdlpSearch(

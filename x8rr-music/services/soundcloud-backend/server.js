@@ -210,7 +210,7 @@ app.get('/api/sc/stream', async (req, res) => {
 	if (!trackUrl || !/soundcloud\.com\//.test(trackUrl)) return res.status(400).end();
 	const cacheKey = createHash('md5').update('sc:' + trackUrl).digest('hex');
 	await _serveAudioCached(req, res, cacheKey, [
-		'-f', 'bestaudio[protocol!~=m3u8][ext=mp3]/bestaudio[protocol!~=m3u8]',
+		'-f', 'bestaudio/best',
 		'-o', '-', '--no-warnings', '--quiet', trackUrl,
 	], 'audio/mpeg');
 });

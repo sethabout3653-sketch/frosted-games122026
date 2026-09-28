@@ -547,6 +547,34 @@ function upscaleMusicThumbnail(url: string, videoId?: string): string {
   return url;
 }
 
+function parseTrackMetadata(title: string, subtitle: string) {
+  const subParts = (subtitle || "").split("•").map((s) => s.trim()).filter(Boolean);
+  const views = subParts.find((s) => /views|audience|watching/i.test(s)) || "";
+  const duration = subParts.find((s) => /^\d+:\d+(:\d+)?$/.test(s)) || "";
+
+  const candidateParts = subParts.filter(
+    (s) =>
+      !/^(song|video|album|single|ep)$/i.test(s) &&
+      !/views|audience|watching/i.test(s) &&
+      !/^\d+:\d+(:\d+)?$/.test(s)
+  );
+
+  let artist = candidateParts[0] || "";
+
+  if ((!artist || /views|watching/i.test(artist)) && title && title.includes(" - ")) {
+    const parts = title.split(" - ");
+    if (parts[0].trim().length > 1) {
+      artist = parts[0].trim();
+    }
+  }
+
+  if (!artist || /views|watching/i.test(artist)) {
+    artist = "Music Artist";
+  }
+
+  return { artist, views, duration };
+}
+
 // Query music.youtube.com official Innertube API (WEB_REMIX)
 async function searchYouTubeMusicInnertube(query: string, filter?: "songs" | "videos"): Promise<VideoItem[]> {
   try {
@@ -1077,5 +1105,122 @@ youtubeRouter.get("/yt/id/:id", async (req, res) => {
     Readable.fromWeb(upstream.body as any).pipe(res);
   } catch (e: any) {
     res.status(500).send({ error: "Stream failed", details: e?.message });
+  }
+});
+
+// SoundCloud & YouTube/YT Music Link Resolution & Streaming Proxy
+import { exec } from "child_process";
+import { promisify } from "util";
+const execAsync = promisify(exec);
+
+function extractYoutubeId(url: string): string | null {
+  const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|music\.youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/i);
+  return match ? match[1] : null;
+}
+
+async function resolveUrlWithYtDlp(url: string) {
+  // Sanitize the URL to avoid command injection
+  const safeUrl = url.replace(/(["\s'$`\\])/g, '\\$1');
+  const { stdout } = await execAsync(`yt-dlp -j --no-playlist "${safeUrl}"`);
+  return JSON.parse(stdout);
+}
+
+async function getStreamUrlWithYtDlp(url: string) {
+  const safeUrl = url.replace(/(["\s'$`\\])/g, '\\$1');
+  const { stdout } = await execAsync(`yt-dlp -g --format bestaudio "${safeUrl}"`);
+  return stdout.trim();
+}
+
+youtubeRouter.get("/resolve", async (req, res) => {
+  const { url } = req.query;
+  if (!url || typeof url !== "string") {
+    return res.status(400).send({ error: "Missing url parameter" });
+  }
+
+  try {
+    const ytId = extractYoutubeId(url);
+    if (ytId) {
+      // Direct, instant resolution for YouTube / YouTube Music links using high-perf local proxies
+      res.json({
+        id: ytId,
+        title: "Loading YouTube Track...",
+        description: "",
+        duration: 0,
+        thumbnail: `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
+        mediaUrl: `/api/youtube/yt/id/${ytId}`,
+        artist: "YouTube Music",
+        channelTitle: "YouTube Music",
+        isMusic: true,
+        mediaType: "audio",
+        resolvedUrl: url,
+      });
+      return;
+    }
+
+    const info = await resolveUrlWithYtDlp(url);
+
+    if (!info) {
+      return res.status(404).send({ error: "Could not retrieve metadata for this URL" });
+    }
+
+    const videoId = info.id || "resolved-track";
+    const title = info.title || "Resolved Audio";
+    const artist = info.artist || info.uploader || info.creator || "Unknown Artist";
+    const duration = info.duration || 0;
+    const thumbnail = info.thumbnail || info.thumbnails?.[0]?.url || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400";
+
+    const mediaUrl = `/api/youtube/stream-url?url=${encodeURIComponent(url)}`;
+
+    res.json({
+      id: videoId,
+      title,
+      description: info.description || "",
+      duration,
+      thumbnail,
+      mediaUrl,
+      artist,
+      channelTitle: artist,
+      isMusic: true,
+      mediaType: "audio",
+      resolvedUrl: url,
+    });
+  } catch (err: any) {
+    res.status(500).send({ error: "Resolution failed", details: err?.message });
+  }
+});
+
+youtubeRouter.get("/stream-url", async (req, res) => {
+  const { url } = req.query;
+  if (!url || typeof url !== "string") {
+    return res.status(400).send({ error: "Missing url parameter" });
+  }
+
+  try {
+    const streamUrl = await getStreamUrlWithYtDlp(url);
+
+    const cdnUrl = streamUrl.trim();
+    const range = req.headers.range;
+
+    const upstream = await fetch(cdnUrl, {
+      headers: {
+        ...(range ? { range } : {}),
+        "user-agent": "Mozilla/5.0",
+      },
+    });
+
+    res.status(upstream.status);
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "audio/mp4");
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "no-store");
+
+    const contentLength = upstream.headers.get("content-length");
+    const contentRange = upstream.headers.get("content-range");
+    if (contentLength) res.setHeader("Content-Length", contentLength);
+    if (contentRange) res.setHeader("Content-Range", contentRange);
+
+    if (!upstream.body) return res.send();
+    Readable.fromWeb(upstream.body as any).pipe(res);
+  } catch (err: any) {
+    res.status(500).send({ error: "Streaming failed", details: err?.message });
   }
 });

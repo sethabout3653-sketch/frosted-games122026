@@ -120,5 +120,7 @@ export interface YouTubeVideo {
   mediaType?: "audio" | "video";
   artist?: string;
   album?: string;
+  isrc?: string;
+  source?: string;
 }
 

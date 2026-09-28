@@ -179,6 +179,7 @@ export default function YouTubeView({
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const deferredSearch = useDeferredValue(searchQuery);
+  const [viewMode, setViewMode] = useState<"portal" | "x8rr_app">("portal");
 
   const [videos, setVideos] = useState<YouTubeVideo[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -227,23 +228,82 @@ export default function YouTubeView({
     async function loadVideos() {
       setIsLoading(true);
       try {
-        let endpoint = `/api/youtube/trending?category=${selectedCategory}`;
-        if (deferredSearch.trim()) {
-          endpoint = `/api/youtube/yt/search?q=${encodeURIComponent(deferredSearch.trim())}`;
-        }
-
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-        const res = await fetch(endpoint, { signal: controller.signal }).catch(() => null);
-        clearTimeout(timeoutId);
+        if (deferredSearch.trim()) {
+          const isUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com|soundcloud\.com)\/.+$/i.test(deferredSearch.trim());
+          if (isUrl) {
+            try {
+              const resolveRes = await fetch(`/api/youtube/resolve?url=${encodeURIComponent(deferredSearch.trim())}`, {
+                signal: controller.signal,
+              }).catch(() => null);
 
-        if (res && res.ok) {
-          const data = await res.json().catch(() => null);
-          const items = data?.results || data?.videos;
-          if (!isCancelled && data && Array.isArray(items) && items.length > 0) {
-            setVideos(items);
-            return;
+              if (resolveRes && resolveRes.ok) {
+                const item = await resolveRes.json().catch(() => null);
+                if (!isCancelled && item && item.id) {
+                  clearTimeout(timeoutId);
+                  setVideos([item]);
+                  return;
+                }
+              }
+            } catch (e) {}
+          }
+
+          try {
+            const musicRes = await fetch(`/api/music/search?q=${encodeURIComponent(deferredSearch.trim())}`, {
+              signal: controller.signal,
+            }).catch(() => null);
+
+            if (musicRes && musicRes.ok) {
+              const musicData = await musicRes.json().catch(() => null);
+              const list = musicData?.items || musicData?.tracks || [];
+              if (!isCancelled && Array.isArray(list) && list.length > 0) {
+                clearTimeout(timeoutId);
+                const mapped: YouTubeVideo[] = list.map((t: any) => ({
+                  id: String(t.id),
+                  title: t.title,
+                  channelTitle: t.artist,
+                  artist: t.artist,
+                  views: t.source ? `${String(t.source).toUpperCase()} Lossless` : "Lossless Audio",
+                  duration: t.duration ? `${Math.floor(t.duration / 60)}:${(t.duration % 60).toString().padStart(2, "0")}` : "",
+                  thumbnail: t.artwork || `https://i.ytimg.com/vi/${t.id}/hqdefault.jpg`,
+                  mediaType: "audio",
+                  isMusic: true,
+                  isrc: t.isrc,
+                  source: t.source,
+                }));
+                setVideos(mapped);
+                return;
+              }
+            }
+          } catch (e) {}
+
+          const ytRes = await fetch(`/api/youtube/yt/search?q=${encodeURIComponent(deferredSearch.trim())}`, {
+            signal: controller.signal,
+          }).catch(() => null);
+          clearTimeout(timeoutId);
+
+          if (ytRes && ytRes.ok) {
+            const data = await ytRes.json().catch(() => null);
+            const items = data?.results || data?.videos;
+            if (!isCancelled && data && Array.isArray(items) && items.length > 0) {
+              setVideos(items);
+              return;
+            }
+          }
+        } else {
+          const endpoint = `/api/youtube/trending?category=${selectedCategory}`;
+          const res = await fetch(endpoint, { signal: controller.signal }).catch(() => null);
+          clearTimeout(timeoutId);
+
+          if (res && res.ok) {
+            const data = await res.json().catch(() => null);
+            const items = data?.results || data?.videos;
+            if (!isCancelled && data && Array.isArray(items) && items.length > 0) {
+              setVideos(items);
+              return;
+            }
           }
         }
 
@@ -253,7 +313,6 @@ export default function YouTubeView({
           setVideos(fallback);
         }
       } catch (e) {
-        // Fallback gracefully without noisy console errors
         if (!isCancelled) {
           const fallback = LOCAL_FALLBACK_TRACKS[selectedCategory] || LOCAL_FALLBACK_TRACKS.all || [];
           setVideos(fallback);
@@ -410,11 +469,32 @@ export default function YouTubeView({
           </div>
         </div>
 
-        {/* Right: Audio Only Indicator & Authentic x8rr Web App Link */}
+        {/* Right: Audio Only Indicator & Mode Switcher */}
         <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-2 bg-[#181822] px-3 py-1.5 rounded-xl border border-white/5 text-xs font-bold text-emerald-400">
-            <Music size={13} />
-            <span>x8rr/music Lossless Engine</span>
+          <div className="flex items-center p-1 bg-[#14141e] rounded-xl border border-white/10 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setViewMode("portal")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === "portal"
+                  ? "bg-[var(--theme-accent)] text-white shadow-md"
+                  : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              Frosted Portal
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("x8rr_app")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                viewMode === "x8rr_app"
+                  ? "bg-blue-600 text-white shadow-md"
+                  : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              <Music size={12} />
+              <span>x8rr Pure UI</span>
+            </button>
           </div>
 
           <a
@@ -422,16 +502,45 @@ export default function YouTubeView({
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 hover:text-white border border-blue-500/30 text-xs font-bold transition-all cursor-pointer shadow-sm"
-            title="Open the actual x8rr/music web app interface"
+            title="Open the actual x8rr/music web app interface in new tab"
           >
             <ExternalLink size={13} />
-            <span>Open x8rr Web App</span>
+            <span>Open in Tab</span>
           </a>
         </div>
       </div>
 
-      {/* Category Filter Pills */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+      {viewMode === "x8rr_app" ? (
+        <div className="w-full min-h-[calc(100vh-180px)] flex flex-col rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-[#0d0d0f]">
+          <div className="bg-[#17171a] px-4 py-2.5 border-b border-white/10 flex items-center justify-between text-xs text-neutral-300">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-semibold text-white">x8rr/music Pure Standalone Interface</span>
+              <span className="text-neutral-500 font-mono">(/x8rr)</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-neutral-400 text-[11px] hidden sm:inline">Real-time lossless audio playback powered by Fastify & yt-dlp</span>
+              <a
+                href="/x8rr"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-blue-400 hover:text-white font-medium"
+              >
+                <span>Pop out</span>
+                <ExternalLink size={12} />
+              </a>
+            </div>
+          </div>
+          <iframe
+            src="/x8rr"
+            title="x8rr music"
+            className="w-full flex-1 border-0 min-h-[calc(100vh-230px)]"
+          />
+        </div>
+      ) : (
+        <>
+          {/* Category Filter Pills */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         {MUSIC_CATEGORIES.map((cat) => {
           const Icon = cat.icon;
           const isSelected = selectedCategory === cat.id;
@@ -594,6 +703,8 @@ export default function YouTubeView({
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

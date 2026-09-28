@@ -349,6 +349,17 @@ const PORT = Number(process.env.PORT) || 3000;
   };
 
   // API routes go here FIRST
+  // Ensure yt-dlp binary is executable and accessible system-wide
+  const binYtDlp = path.join(process.cwd(), "bin", "yt-dlp");
+  try {
+    if (fs.existsSync(binYtDlp)) {
+      fs.chmodSync(binYtDlp, 0o755);
+    }
+    if (!fs.existsSync("/usr/local/bin/yt-dlp") && fs.existsSync(binYtDlp)) {
+      try { fs.symlinkSync(binYtDlp, "/usr/local/bin/yt-dlp"); } catch (e) {}
+    }
+  } catch (e) {}
+
   // Start x8rr-music actual Fastify backend service on port 2010
   let x8rrProcess: any = null;
   function startX8rrMusic() {
@@ -357,7 +368,13 @@ const PORT = Number(process.env.PORT) || 3000;
       if (fs.existsSync(x8rrPath)) {
         x8rrProcess = spawn("npx", ["tsx", x8rrPath], {
           cwd: path.join(process.cwd(), "x8rr-music"),
-          env: { ...process.env, MUSIC_PORT: "2010" },
+          env: {
+            ...process.env,
+            MUSIC_PORT: "2010",
+            YT_DLP_PATH: binYtDlp,
+            YTDLP_PATH: binYtDlp,
+            PATH: `${path.dirname(binYtDlp)}:${process.env.PATH || ""}`,
+          },
           stdio: "ignore",
         });
         x8rrProcess.on("exit", (code: any) => {
@@ -380,7 +397,13 @@ const PORT = Number(process.env.PORT) || 3000;
       if (fs.existsSync(scPath)) {
         scProcess = spawn("node", [scPath], {
           cwd: path.join(process.cwd(), "x8rr-music", "services", "soundcloud-backend"),
-          env: { ...process.env, PORT: "8081" },
+          env: {
+            ...process.env,
+            PORT: "8081",
+            YT_DLP_PATH: binYtDlp,
+            YTDLP_PATH: binYtDlp,
+            PATH: `${path.dirname(binYtDlp)}:${process.env.PATH || ""}`,
+          },
           stdio: "ignore",
         });
         scProcess.on("exit", (code: any) => {
@@ -2856,8 +2879,10 @@ You MUST respond strictly in valid JSON format matching this schema:
 
   const GEMINI_MODELS_CASCADE = [
     "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-3.5-flash-lite",
     "gemini-3.6-flash",
-    "gemini-3.1-flash-lite",
   ];
 
   // In-memory LRU safety cache keyed by SHA-256 hash

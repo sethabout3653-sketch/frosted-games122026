@@ -175,33 +175,19 @@ export async function youtubeRoutes(fastify: FastifyInstance) {
 
   fastify.get("/api/yt/id/:id", async (req, res) => {
     const { id: videoId } = req.params as { id: string };
-    const queryTitle = (req.query as any)?.title || "";
-    const queryArtist = (req.query as any)?.artist || "";
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     try {
-      let cdnUrl = "";
-      try {
-        const info = (await youtubeDl(videoUrl, {
-          format: "bestaudio/best",
-          getUrl: true,
-          jsRuntimes: "node:/usr/local/bin/node",
-        } as Record<string, string | boolean>)) as unknown as string;
-        cdnUrl = (info || "").trim().split("\n")[0];
-      } catch (ytErr) {
-        // Fallback to high-quality audio search via scsearch or title/videoId
-        const searchTerm = queryTitle ? `${queryArtist} ${queryTitle}`.trim() : videoId;
-        const scInfo = (await youtubeDl(`scsearch:${searchTerm}`, {
-          format: "bestaudio/best",
-          getUrl: true,
-        } as Record<string, string | boolean>)) as unknown as string;
-        cdnUrl = (scInfo || "").trim().split("\n")[0];
-      }
+      const info = (await youtubeDl(videoUrl, {
+        format: "best",
+        getUrl: true,
+      } as Record<string, string | boolean>)) as unknown as string;
 
-      if (!cdnUrl || !cdnUrl.startsWith("http")) {
-        throw new Error("No playable audio stream found");
-      }
-
+      const cdnUrl = info.trim();
       const range = req.headers.range;
+
+      // Video, so an abandoned request holds far more than a thumbnail: a
+      // seek or a closed tab leaves the CDN pushing megabytes into a buffer
+      // with no reader. Bind the upstream to the client connection.
       const abort = new AbortController();
       req.raw.on("close", () => abort.abort());
 
@@ -217,7 +203,7 @@ export async function youtubeRoutes(fastify: FastifyInstance) {
       res.code(upstream.status);
       res.header(
         "content-type",
-        upstream.headers.get("content-type") || "audio/mp4",
+        upstream.headers.get("content-type") || "video/mp4",
       );
       res.header("accept-ranges", "bytes");
       res.header("cache-control", "no-store");
