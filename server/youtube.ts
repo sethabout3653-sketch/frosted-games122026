@@ -1109,9 +1109,20 @@ youtubeRouter.get("/yt/id/:id", async (req, res) => {
 });
 
 // SoundCloud & YouTube/YT Music Link Resolution & Streaming Proxy
-import { exec } from "child_process";
-import { promisify } from "util";
-const execAsync = promisify(exec);
+import { execFile } from "child_process";
+
+function runYtDlp(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // Set a strict 12-second timeout to prevent any hanging connections
+    execFile("yt-dlp", args, { timeout: 12000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.error("yt-dlp error:", error, stderr);
+        return reject(error);
+      }
+      resolve(stdout.trim());
+    });
+  });
+}
 
 function extractYoutubeId(url: string): string | null {
   const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|music\.youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/i);
@@ -1119,16 +1130,21 @@ function extractYoutubeId(url: string): string | null {
 }
 
 async function resolveUrlWithYtDlp(url: string) {
-  // Sanitize the URL to avoid command injection
-  const safeUrl = url.replace(/(["\s'$`\\])/g, '\\$1');
-  const { stdout } = await execAsync(`yt-dlp -j --no-playlist "${safeUrl}"`);
+  const stdout = await runYtDlp(["-j", "--no-playlist", "--no-warnings", "--no-call-home", url]);
   return JSON.parse(stdout);
 }
 
 async function getStreamUrlWithYtDlp(url: string) {
-  const safeUrl = url.replace(/(["\s'$`\\])/g, '\\$1');
-  const { stdout } = await execAsync(`yt-dlp -g --format bestaudio "${safeUrl}"`);
-  return stdout.trim();
+  try {
+    // Try bestaudio format first
+    const stdout = await runYtDlp(["-g", "--format", "bestaudio", "--no-playlist", "--no-warnings", "--no-call-home", url]);
+    return stdout;
+  } catch (err) {
+    console.warn("yt-dlp bestaudio failed, falling back to default format:", err);
+    // Fallback to default
+    const stdout = await runYtDlp(["-g", "--no-playlist", "--no-warnings", "--no-call-home", url]);
+    return stdout;
+  }
 }
 
 youtubeRouter.get("/resolve", async (req, res) => {
@@ -1198,7 +1214,17 @@ youtubeRouter.get("/stream-url", async (req, res) => {
   try {
     const streamUrl = await getStreamUrlWithYtDlp(url);
 
-    const cdnUrl = streamUrl.trim();
+    // Filter and find the last http/https URL to cleanly bypass any prepended warnings/logs
+    const lastHttpsIndex = streamUrl.lastIndexOf("https://");
+    const lastHttpIndex = streamUrl.lastIndexOf("http://");
+    const index = Math.max(lastHttpsIndex, lastHttpIndex);
+
+    if (index === -1) {
+      return res.status(404).send({ error: "No valid streaming URL found in yt-dlp output" });
+    }
+
+    const cdnUrl = streamUrl.substring(index).trim();
+
     const range = req.headers.range;
 
     const upstream = await fetch(cdnUrl, {
