@@ -1720,10 +1720,16 @@ async function resolveYoutubeStreamUrl(
     { format: "bestaudio", getUrl: true },
     { timeout: YT_DLP_TIMEOUT_MS },
   )) as unknown as string;
-  const url = String(info).trim().split("\n")[0];
-  if (!url.startsWith("http")) {
-    throw new Error("yt-dlp returned no stream URL");
+  
+  const streamOutput = String(info);
+  const lastHttpsIndex = streamOutput.lastIndexOf("https://");
+  const lastHttpIndex = streamOutput.lastIndexOf("http://");
+  const index = Math.max(lastHttpsIndex, lastHttpIndex);
+
+  if (index === -1) {
+    throw new Error("yt-dlp returned no valid HTTP/HTTPS stream URL");
   }
+  const url = streamOutput.substring(index).trim();
   return {
     url,
     mimeType: "audio/mp4",

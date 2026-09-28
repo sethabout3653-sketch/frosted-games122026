@@ -452,6 +452,206 @@ const PORT = Number(process.env.PORT) || 3000;
 
   app.use("/api/youtube", youtubeRouter);
 
+  // =========================================================================
+  // UNIFIED STREAMING API ENDPOINTS (For YouTube Music & SoundCloud)
+  // =========================================================================
+
+  function parseYtId(url: string): string | null {
+    const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|music\.youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/i);
+    return match ? match[1] : null;
+  }
+
+  // GET /api/search?q={query}&platform={youtube|soundcloud|all}
+  app.get("/api/search", async (req, res) => {
+    const { q, platform = "all" } = req.query;
+    if (!q || typeof q !== "string" || q.trim() === "") {
+      return res.status(400).json({ error: "Missing query parameter 'q'" });
+    }
+
+    const query = q.trim();
+    const results: any[] = [];
+
+    try {
+      // 1. YouTube Search Branch
+      if (platform === "youtube" || platform === "all") {
+        try {
+          const ytRes = await fetch(`http://localhost:${PORT}/api/youtube/search?q=${encodeURIComponent(query)}`);
+          if (ytRes.ok) {
+            const ytData = await ytRes.json();
+            const items = Array.isArray(ytData.videos) ? ytData.videos : (Array.isArray(ytData) ? ytData : []);
+            items.slice(0, 10).forEach((v: any) => {
+              results.push({
+                platform: "youtube",
+                id: v.id || v.videoId,
+                title: v.title,
+                artist: v.artist || v.channelTitle || v.author?.name || "Unknown Artist",
+                duration: v.duration || 0,
+                thumbnail: v.thumbnail || `https://i.ytimg.com/vi/${v.id || v.videoId}/hqdefault.jpg`,
+                streamUrl: `/api/stream?platform=youtube&id=${v.id || v.videoId}`
+              });
+            });
+          }
+        } catch (ytErr: any) {
+          console.error("Unified search YouTube branch error:", ytErr.message);
+        }
+      }
+
+      // 2. SoundCloud Search Branch
+      if (platform === "soundcloud" || platform === "all") {
+        try {
+          const scRes = await fetch(`http://localhost:8081/api/music/search?q=${encodeURIComponent(query)}`);
+          if (scRes.ok) {
+            const bodyText = await scRes.text();
+            const lines = bodyText.split("\n");
+            lines.forEach((line) => {
+              if (line.startsWith("data: ")) {
+                const content = line.substring(6).trim();
+                if (content && content !== "[DONE]") {
+                  try {
+                    const track = JSON.parse(content);
+                    results.push({
+                      platform: "soundcloud",
+                      id: track.url,
+                      title: track.title,
+                      artist: track.artist || "Unknown Artist",
+                      duration: track.duration || 0,
+                      thumbnail: track.thumb || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400",
+                      streamUrl: `/api/stream?platform=soundcloud&id=${encodeURIComponent(track.url)}`
+                    });
+                  } catch (parseErr) {}
+                }
+              }
+            });
+          }
+        } catch (scErr: any) {
+          console.error("Unified search SoundCloud branch error:", scErr.message);
+        }
+      }
+
+      res.json({
+        query,
+        platform,
+        count: results.length,
+        tracks: results
+      });
+
+    } catch (err: any) {
+      res.status(500).json({ error: "Unified search execution failed", details: err?.message });
+    }
+  });
+
+  // GET /api/stream?platform={youtube|soundcloud}&id={track_id_or_url}
+  app.get("/api/stream", async (req, res) => {
+    const { platform, id } = req.query;
+    if (!platform || !id || typeof id !== "string") {
+      return res.status(400).json({ error: "Missing platform or id parameters" });
+    }
+
+    try {
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Cache-Control", "no-store");
+
+      if (platform === "youtube") {
+        const ytId = parseYtId(id) || id;
+        const streamUrl = `http://localhost:${PORT}/api/youtube/yt/id/${ytId}`;
+        const upstream = await fetch(streamUrl, {
+          headers: { ...(req.headers.range ? { range: req.headers.range } : {}) }
+        });
+
+        res.status(upstream.status);
+        for (const [key, value] of upstream.headers.entries()) {
+          res.setHeader(key, value);
+        }
+        res.setHeader("Content-Type", "audio/mpeg");
+
+        if (upstream.body) {
+          Readable.fromWeb(upstream.body as any).pipe(res);
+        } else {
+          res.end();
+        }
+        return;
+      }
+
+      if (platform === "soundcloud") {
+        const scUrl = `http://localhost:8081/api/sc/stream?url=${encodeURIComponent(id)}`;
+        const upstream = await fetch(scUrl, {
+          headers: { ...(req.headers.range ? { range: req.headers.range } : {}) }
+        });
+
+        res.status(upstream.status);
+        for (const [key, value] of upstream.headers.entries()) {
+          res.setHeader(key, value);
+        }
+        res.setHeader("Content-Type", "audio/mpeg");
+
+        if (upstream.body) {
+          Readable.fromWeb(upstream.body as any).pipe(res);
+        } else {
+          res.end();
+        }
+        return;
+      }
+
+      res.status(400).json({ error: "Unsupported platform specified" });
+
+    } catch (err: any) {
+      console.error("Unified streaming endpoint error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Streaming connection failed", details: err?.message });
+      }
+    }
+  });
+
+  // GET /api/info?platform={youtube|soundcloud}&id={track_id_or_url}
+  app.get("/api/info", async (req, res) => {
+    const { platform, id } = req.query;
+    if (!platform || !id || typeof id !== "string") {
+      return res.status(400).json({ error: "Missing platform or id parameters" });
+    }
+
+    try {
+      if (platform === "youtube") {
+        const ytId = parseYtId(id) || id;
+        const infoRes = await fetch(`http://localhost:${PORT}/api/youtube/resolve?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + ytId)}`);
+        if (!infoRes.ok) {
+          return res.status(404).json({ error: "Could not retrieve YouTube track details" });
+        }
+        const info = await infoRes.json();
+        return res.json({
+          platform: "youtube",
+          id: ytId,
+          title: info.title || "Unknown YouTube Track",
+          artist: info.artist || info.channelTitle || "Unknown Artist",
+          duration: info.duration || 0,
+          thumbnail: info.thumbnail || `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
+          streamUrl: `/api/stream?platform=youtube&id=${ytId}`
+        });
+      }
+
+      if (platform === "soundcloud") {
+        const infoRes = await fetch(`http://localhost:${PORT}/api/youtube/resolve?url=${encodeURIComponent(id)}`);
+        if (!infoRes.ok) {
+          return res.status(404).json({ error: "Could not retrieve SoundCloud track details" });
+        }
+        const info = await infoRes.json();
+        return res.json({
+          platform: "soundcloud",
+          id,
+          title: info.title || "Unknown SoundCloud Track",
+          artist: info.artist || "Unknown Artist",
+          duration: info.duration || 0,
+          thumbnail: info.thumbnail || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400",
+          streamUrl: `/api/stream?platform=soundcloud&id=${encodeURIComponent(id)}`
+        });
+      }
+
+      res.status(400).json({ error: "Unsupported platform specified" });
+
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to retrieve track metadata", details: err?.message });
+    }
+  });
+
   app.get("/api/ping", (req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
   });
