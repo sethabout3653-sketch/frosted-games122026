@@ -62,6 +62,10 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
     const luminToken = findLuminIconForGame(name);
     if (luminToken) {
       sources.push(`/api/lumin-icon/${luminToken}`);
+    } else {
+      // Synthetic fallback for any game name not in index
+      const cleanSlug = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+      sources.push(`/api/lumin-icon/selenite/${cleanSlug}`);
     }
   }
 

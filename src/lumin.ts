@@ -252,16 +252,34 @@ export async function fetchLuminGames(): Promise<Game[]> {
  * Uses our secure, unblocked server-side proxy to bypass school Wi-Fi blocks.
  */
 export async function getLuminGameUrl(luminId: string): Promise<string | null> {
+  const cacheKey = `frosted_lumin_url_${luminId}`;
+  if (typeof window !== "undefined") {
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        return cached;
+      }
+    } catch {}
+  }
+
   try {
-    const res = await fetch(`/api/lumin-game-url/${luminId}`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    
+    const res = await fetch(`/api/lumin-game-url/${luminId}`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
     if (res.ok) {
       const data = await res.json();
       if (data && data.url) {
+        if (typeof window !== "undefined") {
+          try { localStorage.setItem(cacheKey, data.url); } catch {}
+        }
         return data.url;
       }
     }
   } catch {
-    // Silently continue
+    // Silently continue to headless fallback
   }
 
   // Pure local runtime client-side fallback if the server is restarting/unreachable
@@ -270,6 +288,9 @@ export async function getLuminGameUrl(luminId: string): Promise<string | null> {
     try {
       const url = await window.Lumin.getGameUrl(luminId);
       if (url && typeof url === "string" && url.trim().length > 0) {
+        if (typeof window !== "undefined") {
+          try { localStorage.setItem(cacheKey, url); } catch {}
+        }
         return url;
       }
     } catch {

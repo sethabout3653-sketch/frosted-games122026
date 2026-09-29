@@ -5683,7 +5683,10 @@ Platform context:
       } else {
         const parts = token.split("/");
         const lastPart = parts[parts.length - 1] || "Game";
-        gameName = lastPart.replace(/[-_]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+        gameName = lastPart
+          .replace(/([a-z])([A-Z])/g, "$1 $2")
+          .replace(/[-_]/g, " ")
+          .replace(/\b\w/g, (c: string) => c.toUpperCase());
       }
       
       const svg = generateGorgeousGameSvg(gameName);
