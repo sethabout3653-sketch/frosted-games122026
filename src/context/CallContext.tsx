@@ -18,7 +18,8 @@ import {
   getSavedRingtone,
   SOUND_ASSETS,
 } from "../lib/ringtone-synthesizer";
-import { collection, onSnapshot, query, db, toTimestampMs, doc, getDoc } from "../supabase-adapter";
+import { collection, onSnapshot, query, db, toTimestampMs, doc, getDoc, deleteDoc, updateDoc } from "../supabase-adapter";
+import { wsClient } from "../lib/websocket-client";
 
 
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
@@ -76,10 +77,12 @@ interface CallContextType {
   isVideoSwitchPending: boolean;
   voiceUserCount: number;
   isCallMenuOpen: boolean;
+  isInVoiceSession: boolean;
   setIsCallMenuOpen: (open: boolean) => void;
   startDirectCall: (user: CallUser, type: "audio" | "video") => Promise<void>;
   startGroupCall: () => void;
   joinGeneralVoice: () => void;
+  leaveGeneralVoice: () => void;
   answerIncomingCall: () => Promise<void>;
   declineIncomingCall: () => void;
   cancelOutgoingCall: () => void;
@@ -121,6 +124,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isVideoSwitchRequested, setIsVideoSwitchRequested] = useState(false);
   const [isVideoSwitchPending, setIsVideoSwitchPending] = useState(false);
   const [isCallMenuOpen, setIsCallMenuOpen] = useState(false);
+  const [isInVoiceSession, setIsInVoiceSession] = useState(false);
   const [voiceUserCount, setVoiceUserCount] = useState<number>(0);
 
   const onOpenGroupVoiceRef = useRef<(() => void) | null>(null);
@@ -1549,8 +1553,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [isScreenSharing, stopScreenShare, startScreenShare]);
 
-  // Action: Start Group Call (General Voice)
-  const startGroupCall = useCallback(() => {
+  // Action: Join / Leave Group Call (General Voice)
+  const joinGeneralVoice = useCallback(() => {
+    setIsInVoiceSession(true);
     setIsCallMenuOpen(false);
     try {
       window.dispatchEvent(new CustomEvent("join_general_voice"));
@@ -1559,6 +1564,24 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       onOpenGroupVoiceRef.current();
     }
   }, []);
+
+  const leaveGeneralVoice = useCallback(() => {
+    const prof = getSavedProfile();
+    if (prof?.uid) {
+      try {
+        wsClient.sendChange("delete", "voice_users", prof.uid);
+        wsClient.sendChange("update", "presence", prof.uid, { inVoice: false, isMuted: false });
+      } catch (e) {}
+      deleteDoc(doc(db, "voice_users", prof.uid)).catch(() => {});
+      updateDoc(doc(db, "presence", prof.uid), {
+        inVoice: false,
+        isMuted: false,
+      }).catch(() => {});
+    }
+    setIsInVoiceSession(false);
+  }, []);
+
+  const startGroupCall = joinGeneralVoice;
 
   const contextValue = useMemo(
     () => ({
@@ -1574,10 +1597,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isVideoSwitchPending,
       voiceUserCount,
       isCallMenuOpen,
+      isInVoiceSession,
       setIsCallMenuOpen,
       startDirectCall,
       startGroupCall,
-      joinGeneralVoice: startGroupCall,
+      joinGeneralVoice,
+      leaveGeneralVoice,
       answerIncomingCall,
       declineIncomingCall,
       cancelOutgoingCall,
@@ -1605,8 +1630,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isVideoSwitchPending,
       voiceUserCount,
       isCallMenuOpen,
+      isInVoiceSession,
       startDirectCall,
-      startGroupCall,
+      joinGeneralVoice,
+      leaveGeneralVoice,
       answerIncomingCall,
       declineIncomingCall,
       cancelOutgoingCall,

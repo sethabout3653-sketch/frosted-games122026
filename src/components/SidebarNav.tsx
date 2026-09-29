@@ -17,6 +17,7 @@ import CallMenuDropdown from "./CallMenuDropdown";
 interface SidebarNavProps {
   currentView: "home" | "game" | "chat" | "youtube" | "assistant";
   onSelectView: (view: "home" | "chat" | "youtube" | "assistant") => void;
+  onOpenVoiceLounge?: () => void;
   onOpenTheme: () => void;
   onOpenSettings: () => void;
   onRandomGame: () => void;
@@ -30,6 +31,7 @@ interface SidebarNavProps {
 export default function SidebarNav({
   currentView,
   onSelectView,
+  onOpenVoiceLounge,
   onOpenTheme,
   onOpenSettings,
   onRandomGame,
@@ -189,13 +191,21 @@ export default function SidebarNav({
           <div className="relative">
             <button
               id="sidebar-voice-lounge-btn"
-              onClick={() => setIsCallMenuOpen(!isCallMenuOpen)}
-              className={`w-full flex items-center gap-3 p-2.5 rounded-xl font-semibold text-xs text-neutral-300 hover:text-white hover:bg-white/5 transition-all cursor-pointer group ${
-                collapsed ? "justify-center" : ""
-              }`}
-              title="Voice Lounge & Calls"
+              onClick={() => {
+                if (onOpenVoiceLounge) {
+                  onOpenVoiceLounge();
+                } else {
+                  onSelectView("chat");
+                }
+              }}
+              className={`w-full flex items-center gap-3 p-2.5 rounded-xl font-semibold text-xs transition-all cursor-pointer group ${
+                currentView === "chat"
+                  ? "bg-emerald-600/90 text-white shadow-md font-bold"
+                  : "text-neutral-300 hover:text-white hover:bg-white/5"
+              } ${collapsed ? "justify-center" : ""}`}
+              title="Voice Lounge"
             >
-              <Phone size={18} className="text-emerald-400 group-hover:scale-110 transition-transform" />
+              <Phone size={18} className={currentView === "chat" ? "text-white" : "text-emerald-400 group-hover:scale-110 transition-transform"} />
               {!collapsed && (
                 <div className="flex-1 flex items-center justify-between">
                   <span>Voice Lounge</span>

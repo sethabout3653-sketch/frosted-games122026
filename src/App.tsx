@@ -16,7 +16,8 @@ import BackgroundEditor, { DEFAULT_BACKGROUND, AppBackground } from "./component
 import SettingsModal from "./components/SettingsModal";
 import LoadingScreen from "./components/LoadingScreen";
 import { applyTabCloak, getSavedTabCloak } from "./tabCloaks";
-import { useActivityTracker } from "./lib/activity-tracker";
+import { useActivityTracker, getSavedProfile } from "./lib/activity-tracker";
+import VoiceChannel from "./components/VoiceChannel";
 import { applyTheme, getSavedTheme } from "./utils/theme";
 import localZones from "./zones.json";
 import { CallProvider, useCall } from "./context/CallContext";
@@ -76,10 +77,10 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<"home" | "game" | "chat" | "youtube" | "assistant">("home");
-  const [chatInitialTab, setChatInitialTab] = useState<"chat" | "voice" | "profile">("chat");
+  const [chatInitialTab, setChatInitialTab] = useState<"chat" | "voice" | "profile" | "friends">("chat");
   const [autoJoinVoice, setAutoJoinVoice] = useState(false);
   const [activeVideoTitle, setActiveVideoTitle] = useState<string | null>(null);
-  const { setOnOpenGroupVoice } = useCall();
+  const { setOnOpenGroupVoice, isInVoiceSession, joinGeneralVoice, leaveGeneralVoice } = useCall();
 
   const handleVoiceSessionStarted = useCallback(() => {
     setAutoJoinVoice(false);
@@ -364,6 +365,10 @@ function AppContent() {
           onSelectView={(v) => {
             if (v === "home") handleBackToHub();
             else setCurrentView(v);
+          }}
+          onOpenVoiceLounge={() => {
+            setCurrentView("chat");
+            setChatInitialTab("voice");
           }}
           onOpenTheme={() => setIsThemeOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
@@ -660,6 +665,7 @@ function AppContent() {
                 onClose={handleBackToHub}
                 onOpenVoiceChat={handleOpenVoiceChat}
                 initialTab={chatInitialTab}
+                onTabChange={(tab) => setChatInitialTab(tab)}
                 autoJoinVoice={autoJoinVoice}
                 onVoiceSessionStarted={handleVoiceSessionStarted}
                 persistent
@@ -722,6 +728,22 @@ function AppContent() {
             setIsThemeOpen(true);
           }}
         />
+
+        {/* Real-time Voice Channel Overlay (App-level) */}
+        {isInVoiceSession && (
+          <VoiceChannel
+            profile={getSavedProfile()}
+            isPip={currentView !== "chat" || chatInitialTab !== "voice"}
+            showMembersSidebar={true}
+            onExpand={() => {
+              setCurrentView("chat");
+              setChatInitialTab("voice");
+            }}
+            onLeave={() => {
+              leaveGeneralVoice();
+            }}
+          />
+        )}
 
         {/* Real-time P2P Call Modals & In-App Top Right Notification */}
         <IncomingCallNotification />

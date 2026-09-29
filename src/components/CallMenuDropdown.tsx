@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getSavedProfile } from "../lib/activity-tracker";
-import { getAllRingtones, getSavedRingtone } from "../lib/ringtone-synthesizer";
+import { getAllRingtones, getSavedRingtone, setSavedRingtone } from "../lib/ringtone-synthesizer";
 import { unlockMobileAudio } from "../lib/webrtc-config";
 
 interface CallMenuDropdownProps {
@@ -32,6 +32,7 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, posi
   const menuRef = useRef<HTMLDivElement | null>(null);
   const myProfile = getSavedProfile();
   const [searchQuery, setSearchQuery] = useState("");
+  const [showRingtonePicker, setShowRingtonePicker] = useState(false);
 
   const [ringtoneState, setRingtoneState] = useState(() => {
     const saved = getSavedRingtone();
@@ -63,12 +64,17 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, posi
     const timer = setTimeout(() => {
       const handleClickOutside = (e: MouseEvent) => {
         const target = e.target as HTMLElement | null;
+        if (!target) return;
+        
+        // If target was detached/unmounted during the click event, it was inside the menu. Do not close!
+        if (!document.contains(target)) return;
+
         if (
           menuRef.current &&
           !menuRef.current.contains(target) &&
-          !target?.closest("#sidebar-voice-lounge-btn") &&
-          !target?.closest("#header-voice-lounge-btn") &&
-          !target?.closest("#nav-call-btn")
+          !target.closest?.("#sidebar-voice-lounge-btn") &&
+          !target.closest?.("#header-voice-lounge-btn") &&
+          !target.closest?.("#nav-call-btn")
         ) {
           onClose();
         }
@@ -129,22 +135,56 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, posi
           </div>
 
           <div className="flex items-center gap-1.5">
-            {onOpenSettings && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenSettings();
-                }}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-[11px] transition-colors cursor-pointer"
-                title="Customize Incoming Call Ringtone"
-              >
-                <Music size={12} className="text-emerald-400" />
-                <span>Ringtone</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setShowRingtonePicker((prev) => !prev)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-[11px] font-semibold transition-colors cursor-pointer shadow-sm"
+              title="Customize Incoming Call Ringtone"
+            >
+              <Music size={12} className="text-emerald-400" />
+              <span>Ringtone</span>
+            </button>
           </div>
         </div>
+
+        {/* INLINE RINGTONE PICKER PANEL */}
+        {showRingtonePicker && (
+          <div className="p-3 bg-neutral-950/90 border-b border-white/10 space-y-2 animate-in fade-in slide-in-from-top-2 duration-150">
+            <div className="flex items-center justify-between pb-1 border-b border-white/10">
+              <span className="text-xs font-bold text-emerald-400">Select Incoming Ringtone</span>
+              <button
+                type="button"
+                onClick={() => setShowRingtonePicker(false)}
+                className="p-1 hover:bg-white/10 rounded-lg text-neutral-400 hover:text-white transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+              {getAllRingtones().map((rt) => (
+                <button
+                  key={rt.id}
+                  type="button"
+                  onClick={() => {
+                    setSavedRingtone(rt.id);
+                    setRingtoneState(rt);
+                  }}
+                  className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-medium transition-all ${
+                    currentRingtone.id === rt.id
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : "hover:bg-white/5 text-neutral-300 hover:text-white"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Music size={12} className={currentRingtone.id === rt.id ? "text-emerald-400" : "text-neutral-400"} />
+                    <span>{rt.name}</span>
+                  </div>
+                  {currentRingtone.id === rt.id && <UserCheck size={12} className="text-emerald-400" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Scrollable Content */}
         <div className="max-h-[420px] overflow-y-auto p-3 space-y-3.5">

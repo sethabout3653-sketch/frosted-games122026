@@ -385,6 +385,7 @@ export default function ChatPanel({
 
   useEffect(() => {
     function handleReactionClickOutside(e: MouseEvent) {
+      if (e.target && !document.contains(e.target as Node)) return;
       if (reactionPopoverRef.current && !reactionPopoverRef.current.contains(e.target as Node)) {
         setActiveReactionMenuMsgId(null);
       }
