@@ -1,27 +1,22 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { 
   Gamepad2, 
-  Tv, 
   MessageSquare, 
   Bot, 
-  Shuffle, 
   Heart, 
   Palette, 
   Settings, 
-  Search, 
   Volume2, 
   Shield, 
-  Sparkles, 
   Snowflake,
+  Music,
   ChevronLeft,
   ChevronRight,
-  Headphones,
-  SlidersHorizontal,
-  Flame,
-  Radio
+  Phone
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
 import { applyTabCloak, TAB_CLOAKS } from "../tabCloaks";
+import { useCall } from "../context/CallContext";
+import CallMenuDropdown from "./CallMenuDropdown";
 
 interface SidebarNavProps {
   currentView: "home" | "game" | "chat" | "youtube" | "assistant";
@@ -58,6 +53,8 @@ export default function SidebarNav({
     }
   });
 
+  const { isCallMenuOpen, setIsCallMenuOpen, onlineUsers } = useCall();
+
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
       const next = !prev;
@@ -74,7 +71,6 @@ export default function SidebarNav({
   const isAssistant = currentView === "assistant";
 
   const handlePanicCloak = () => {
-    // Quick emergency cloak to Google Docs / School portal
     const targetCloak = TAB_CLOAKS.find((c) => c.id === "google_docs") || TAB_CLOAKS[1];
     if (targetCloak) {
       applyTabCloak({
@@ -116,16 +112,13 @@ export default function SidebarNav({
               <span className="text-sm font-bold tracking-tight text-white group-hover:text-[var(--theme-text-accent)] transition-colors truncate block">
                 Frosted
               </span>
-              <span className="text-[10px] text-[var(--theme-text-muted)] font-mono block">
-                v2.6 Next-Gen
-              </span>
             </div>
           )}
         </button>
 
         <button
           onClick={toggleCollapsed}
-          className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+          className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
           title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
@@ -134,29 +127,6 @@ export default function SidebarNav({
 
       {/* Main Navigation Stack */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-        {/* Quick Command Bar Trigger */}
-        <button
-          onClick={onOpenCommandPalette}
-          style={{
-            backgroundColor: "var(--theme-darkest)",
-            borderColor: "var(--theme-border-subtle)",
-          }}
-          className={`w-full flex items-center gap-2.5 p-2 rounded-xl border text-left hover:border-[var(--theme-border)] text-neutral-300 hover:text-white transition-all group cursor-pointer mb-2 ${
-            collapsed ? "justify-center" : "justify-between px-3"
-          }`}
-          title="Command Palette (Cmd+K)"
-        >
-          <div className="flex items-center gap-2.5">
-            <Search size={16} className="text-[var(--theme-text-accent)] shrink-0" />
-            {!collapsed && <span className="text-xs font-medium text-neutral-300">Quick Search...</span>}
-          </div>
-          {!collapsed && (
-            <kbd className="px-1.5 py-0.5 text-[9px] font-mono bg-white/10 rounded text-neutral-400 border border-white/10">
-              ⌘K
-            </kbd>
-          )}
-        </button>
-
         {/* Navigation Items */}
         <div className="space-y-1">
           {/* Games Library */}
@@ -182,7 +152,7 @@ export default function SidebarNav({
             )}
           </button>
 
-          {/* YouTube Theater */}
+          {/* Music View */}
           <button
             onClick={() => onSelectView("youtube")}
             style={{
@@ -192,20 +162,17 @@ export default function SidebarNav({
             className={`w-full flex items-center gap-3 p-2.5 rounded-xl font-semibold text-xs transition-all duration-150 cursor-pointer group ${
               isYouTube ? "shadow-md text-white" : "hover:bg-white/5 hover:text-white"
             } ${collapsed ? "justify-center" : ""}`}
-            title="YouTube Unblocked Theater"
+            title="Music Player"
           >
-            <Tv size={18} className={isYouTube ? "text-white" : "text-rose-400 group-hover:scale-110 transition-transform"} />
+            <Music size={18} className={isYouTube ? "text-white" : "text-rose-400 group-hover:scale-110 transition-transform"} />
             {!collapsed && (
               <div className="flex-1 flex items-center justify-between">
-                <span>YouTube Media</span>
-                <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300">
-                  HD
-                </span>
+                <span>Music</span>
               </div>
             )}
           </button>
 
-          {/* Live Lounge & Voice */}
+          {/* Chat */}
           <button
             onClick={() => onSelectView("chat")}
             style={{
@@ -215,22 +182,38 @@ export default function SidebarNav({
             className={`w-full flex items-center gap-3 p-2.5 rounded-xl font-semibold text-xs transition-all duration-150 cursor-pointer group relative ${
               isChat ? "shadow-md text-white" : "hover:bg-white/5 hover:text-white"
             } ${collapsed ? "justify-center" : ""}`}
-            title="Live Chat & Voice Channels"
+            title="Live Chat Rooms"
           >
             <MessageSquare size={18} className={isChat ? "text-white" : "text-emerald-400 group-hover:scale-110 transition-transform"} />
             {!collapsed && (
               <div className="flex-1 flex items-center justify-between">
-                <span>Live Lounge</span>
-                <div className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-[10px] text-emerald-300 font-medium">Voice</span>
-                </div>
+                <span>Chat</span>
               </div>
             )}
-            {collapsed && (
-              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-400" />
-            )}
           </button>
+
+          {/* Voice Lounge Tab */}
+          <div className="relative">
+            <button
+              onClick={() => setIsCallMenuOpen(!isCallMenuOpen)}
+              className={`w-full flex items-center gap-3 p-2.5 rounded-xl font-semibold text-xs text-neutral-300 hover:text-white hover:bg-white/5 transition-all cursor-pointer group ${
+                collapsed ? "justify-center" : ""
+              }`}
+              title="Voice Lounge & Calls"
+            >
+              <Phone size={18} className="text-emerald-400 group-hover:scale-110 transition-transform" />
+              {!collapsed && (
+                <div className="flex-1 flex items-center justify-between">
+                  <span>Voice Lounge</span>
+                  {onlineUsers.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      {onlineUsers.length}
+                    </span>
+                  )}
+                </div>
+              )}
+            </button>
+          </div>
 
           {/* AI Assistant */}
           <button
@@ -242,15 +225,12 @@ export default function SidebarNav({
             className={`w-full flex items-center gap-3 p-2.5 rounded-xl font-semibold text-xs transition-all duration-150 cursor-pointer group ${
               isAssistant ? "shadow-md text-white" : "hover:bg-white/5 hover:text-white"
             } ${collapsed ? "justify-center" : ""}`}
-            title="Groq AI Companion"
+            title="AI Assistant"
           >
             <Bot size={18} className={isAssistant ? "text-white" : "text-indigo-400 group-hover:scale-110 transition-transform"} />
             {!collapsed && (
               <div className="flex-1 flex items-center justify-between">
-                <span>AI Companion</span>
-                <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300">
-                  LPU
-                </span>
+                <span>AI Assistant</span>
               </div>
             )}
           </button>
@@ -261,7 +241,7 @@ export default function SidebarNav({
           <div className="h-[1px] bg-[var(--theme-border-subtle)]" />
         </div>
 
-        {/* Quick Collections */}
+        {/* Quick Shortcuts */}
         <div className="space-y-1">
           {!collapsed && (
             <div className="px-2 py-1 text-[10px] font-bold tracking-wider uppercase text-neutral-400">
@@ -300,18 +280,6 @@ export default function SidebarNav({
           >
             <Volume2 size={16} className="text-amber-400 group-hover:scale-110 transition-transform" />
             {!collapsed && <span>Soundboard</span>}
-          </button>
-
-          {/* Surprise Me Launch */}
-          <button
-            onClick={onRandomGame}
-            className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-all cursor-pointer group ${
-              collapsed ? "justify-center" : ""
-            }`}
-            title="Surprise Launch Random Game"
-          >
-            <Shuffle size={16} className="text-amber-400 group-hover:rotate-180 transition-transform duration-300" />
-            {!collapsed && <span className="font-semibold">Surprise Me</span>}
           </button>
         </div>
       </div>
@@ -354,6 +322,14 @@ export default function SidebarNav({
           {!collapsed && <span>Panic Shield</span>}
         </button>
       </div>
+
+      {/* Non-clipping fixed position overlay for the Voice Calls */}
+      <CallMenuDropdown
+        isOpen={isCallMenuOpen}
+        onClose={() => setIsCallMenuOpen(false)}
+        onOpenSettings={onOpenSettings}
+        positionMode="fixed"
+      />
     </aside>
   );
 }

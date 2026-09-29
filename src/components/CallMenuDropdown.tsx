@@ -24,9 +24,10 @@ interface CallMenuDropdownProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenSettings?: () => void;
+  positionMode?: "absolute" | "fixed";
 }
 
-export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: CallMenuDropdownProps) {
+export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, positionMode = "absolute" }: CallMenuDropdownProps) {
   const { onlineUsers, voiceUserCount, startDirectCall, joinGeneralVoice } = useCall();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const myProfile = getSavedProfile();
@@ -92,7 +93,11 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 8, scale: 0.96 }}
         transition={{ duration: 0.16 }}
-        className="absolute top-full right-0 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 mt-2 w-84 sm:w-96 rounded-2xl border border-white/15 bg-neutral-900/95 text-white shadow-2xl backdrop-blur-xl z-50 overflow-hidden"
+        className={`${
+          positionMode === "fixed"
+            ? "fixed left-16 md:left-64 bottom-24 w-80 sm:w-96"
+            : "absolute top-full right-0 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 mt-2 w-84 sm:w-96"
+        } rounded-2xl border border-white/15 bg-neutral-900/95 text-white shadow-2xl backdrop-blur-xl z-50 overflow-hidden`}
         style={{
           boxShadow: "0 20px 50px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(16, 185, 129, 0.12)",
         }}

@@ -1,5 +1,5 @@
 import React, { memo } from "react";
-import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart, Music, Shuffle } from "lucide-react";
+import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart, Music, Shuffle, Settings } from "lucide-react";
 import { formatTagLabel } from "../utils";
 import { useCall } from "../context/CallContext";
 import { useFavorites } from "../lib/favorites";
@@ -86,9 +86,9 @@ const Header = memo(function Header({
   return (
     <header
       id="app-header"
-      className="sticky top-0 z-40 w-full border-b border-[var(--theme-border-subtle)] bg-[var(--theme-darkest)]/90 px-3 sm:px-6 py-2.5 shadow-xl shadow-black/40 transition-all duration-200"
+      className="sticky top-0 z-40 w-full border-b border-[var(--theme-border-subtle)] bg-[var(--theme-darkest)]/90 px-4 md:px-8 py-2.5 shadow-xl transition-all duration-200"
     >
-      <div className="mx-auto flex max-w-7xl flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mx-auto flex w-full max-w-7xl flex-row items-center justify-between gap-3 flex-wrap">
         {/* Brand Logo & Primary View Dock (Visible on Mobile, seamlessly integrated with Sidebar on Desktop) */}
         <div className="flex items-center justify-between gap-3 sm:gap-4 flex-wrap md:hidden">
           <button
@@ -108,7 +108,6 @@ const Header = memo(function Header({
                 size={16}
                 className="text-[var(--theme-text-accent)] transition-transform duration-300 group-hover:rotate-45"
               />
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400" />
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-base font-bold tracking-tight text-white group-hover:text-[var(--theme-text-accent)] transition-colors">
@@ -268,22 +267,7 @@ const Header = memo(function Header({
             ) : null}
           </div>
 
-          {/* Random Game Launcher Button */}
-          {onRandomGame && (
-            <button
-              type="button"
-              onClick={onRandomGame}
-              style={{
-                backgroundColor: "var(--theme-surface)",
-                borderColor: "var(--theme-border-subtle)",
-              }}
-              className="h-9 px-3 rounded-xl border text-xs font-semibold text-neutral-300 hover:text-white hover:border-[var(--theme-border-strong)] transition-all cursor-pointer flex items-center gap-1.5 shrink-0 shadow-sm active:scale-95"
-              title="Play a random game"
-            >
-              <Shuffle size={13} className="text-amber-400" />
-              <span className="hidden md:inline">Random</span>
-            </button>
-          )}
+
 
           {/* Quick Favorites Button */}
           <button
@@ -383,7 +367,7 @@ const Header = memo(function Header({
             title="Settings & Tab Cloaking"
             aria-label="Settings"
           >
-            <SlidersHorizontal size={14} className="text-neutral-300 hover:text-white" />
+            <Settings size={15} className="text-neutral-300 hover:text-white" />
           </button>
         </div>
       </div>

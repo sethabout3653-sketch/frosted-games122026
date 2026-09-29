@@ -359,26 +359,28 @@ function AppContent() {
       
       <div 
         id="app-root" 
-        className={`${(currentView === "game" && !isSoundboardActive) || currentView === "chat" || currentView === "assistant" ? "h-screen overflow-hidden" : "min-h-screen"} ${showStartup ? "pointer-events-none select-none" : ""} text-white antialiased font-sans flex flex-row selection:bg-white/20 selection:text-white`} 
+        className={`${(currentView === "game" && !isSoundboardActive) || currentView === "chat" || currentView === "assistant" ? "h-screen overflow-hidden" : "min-h-screen"} ${showStartup ? "pointer-events-none select-none" : ""} bg-[#0a0e1a] text-white antialiased font-sans flex flex-row selection:bg-white/20 selection:text-white`} 
         style={{ background: background.type === "image" ? `url(${background.value}) center / cover fixed` : background.value }}
       >
         {/* Next-Gen Collapsible Left Sidebar Rail */}
-        <SidebarNav
-          currentView={currentView}
-          onSelectView={(v) => {
-            if (v === "home") handleBackToHub();
-            else setCurrentView(v);
-          }}
-          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-          onOpenTheme={() => setIsThemeOpen(true)}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onRandomGame={handleRandomGame}
-          onFilterFavorites={handleFilterFavorites}
-          onOpenSoundboard={handleOpenSoundboard}
-          favoritesCount={favoriteIds.size}
-          totalGamesCount={games.length}
-          isSoundboardActive={isSoundboardActive}
-        />
+        {!(currentView === "game" && !isSoundboardActive) && (
+          <SidebarNav
+            currentView={currentView}
+            onSelectView={(v) => {
+              if (v === "home") handleBackToHub();
+              else setCurrentView(v);
+            }}
+            onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+            onOpenTheme={() => setIsThemeOpen(true)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onRandomGame={handleRandomGame}
+            onFilterFavorites={handleFilterFavorites}
+            onOpenSoundboard={handleOpenSoundboard}
+            favoritesCount={favoriteIds.size}
+            totalGamesCount={games.length}
+            isSoundboardActive={isSoundboardActive}
+          />
+        )}
 
         {/* Right Main Content Column */}
         <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
