@@ -5489,6 +5489,140 @@ Platform context:
     return cachedLuminSessionId || "60919094aa4265e2fd2bc9e9b1874e4e";
   }
 
+  // Proxies Lumin session creation
+  app.all(["/api/lumin/session", "/api/lumin-session"], async (_req, res) => {
+    try {
+      const sessionId = await getLuminSessionId();
+      return res.json({ session_id: sessionId });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Proxies full Lumin game catalog
+  app.get(["/api/lumin/games", "/api/lumin-games"], async (_req, res) => {
+    try {
+      const sessionId = await getLuminSessionId();
+      const response = await fetch("https://a.luminsdk.com/api/v1/games?limit=5000", {
+        headers: { "X-Session": sessionId },
+      });
+      if (!response.ok) {
+        return res.status(response.status).json({ error: "Failed to fetch games from Lumin" });
+      }
+      const data = await response.json();
+      return res.json(data);
+    } catch (err: any) {
+      console.error("Error proxying lumin games:", err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Resolves a single Lumin game's playable frame and asset tokens
+  app.get(["/api/lumin/game/*", "/api/lumin-game/*"], async (req, res) => {
+    try {
+      let gameId = (req.params as any)[0] || req.path.replace(/^\/api\/(lumin\/game|lumin-game)\//, "");
+      if (!gameId) {
+        return res.status(400).json({ error: "Missing game ID" });
+      }
+      gameId = decodeURIComponent(gameId).trim();
+      
+      const sessionId = await getLuminSessionId();
+      const response = await fetch(`https://a.luminsdk.com/api/v1/games/${encodeURIComponent(gameId)}`, {
+        headers: { "X-Session": sessionId },
+      });
+      
+      if (!response.ok) {
+        // Fallback retry with raw game ID if encode differed
+        const fallbackRes = await fetch(`https://a.luminsdk.com/api/v1/games/${gameId}`, {
+          headers: { "X-Session": sessionId },
+        });
+        if (fallbackRes.ok) {
+          const gameData = await fallbackRes.json();
+          const frameToken = gameData.frame_token || "";
+          const assetToken = gameData.asset_token || "";
+          return res.json({
+            ...gameData,
+            frame_url: frameToken ? `/api/lumin/frame/${frameToken}` : "",
+            asset_url: assetToken ? `/api/lumin/assets/${assetToken}` : "",
+          });
+        }
+        return res.status(response.status).json({ error: "Game not found on Lumin" });
+      }
+      
+      const gameData = await response.json();
+      const frameToken = gameData.frame_token || "";
+      const assetToken = gameData.asset_token || "";
+      
+      return res.json({
+        ...gameData,
+        frame_url: frameToken ? `/api/lumin/frame/${frameToken}` : "",
+        asset_url: assetToken ? `/api/lumin/assets/${assetToken}` : "",
+      });
+    } catch (err: any) {
+      console.error("Error proxying lumin game:", err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Proxies and renders the playable Lumin frame HTML
+  app.get(["/api/lumin/frame/*", "/api/lumin-frame/*"], async (req, res) => {
+    try {
+      let token = (req.params as any)[0] || req.path.replace(/^\/api\/(lumin\/frame|lumin-frame)\//, "");
+      if (!token) {
+        return res.status(400).send("Missing frame token");
+      }
+      token = decodeURIComponent(token).trim();
+      
+      const targetUrl = `https://a.luminsdk.com/api/v1/frames/${token}`;
+      const response = await fetch(targetUrl);
+      
+      if (!response.ok) {
+        return res.status(response.status).send(`Failed to fetch frame from Lumin: ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get("content-type") || "text/html; charset=utf-8";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      
+      const text = await response.text();
+      return res.send(text);
+    } catch (err: any) {
+      console.error("Error proxying lumin frame:", err);
+      return res.status(500).send(err.message);
+    }
+  });
+
+  // Proxies Lumin game assets and raw tokens
+  app.get(["/api/lumin/assets/*", "/api/lumin-asset/*", "/api/v1/assets/*"], async (req, res) => {
+    try {
+      let token = (req.params as any)[0] || req.path.replace(/^\/api\/(lumin\/assets|lumin-asset|v1\/assets)\//, "");
+      if (!token) {
+        return res.status(400).send("Missing asset token");
+      }
+      
+      const targetUrl = `https://a.luminsdk.com/api/v1/assets/${token}`;
+      const response = await fetch(targetUrl);
+      
+      if (!response.ok) {
+        return res.status(response.status).send(`Failed to fetch asset from Lumin: ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get("content-type");
+      if (contentType) {
+        res.setHeader("Content-Type", contentType);
+      }
+      
+      res.setHeader("Cache-Control", "public, max-age=31536000");
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      return res.send(buffer);
+    } catch (err: any) {
+      console.error("Error proxying lumin asset:", err);
+      return res.status(500).send(err.message);
+    }
+  });
+
+  // Proxies Lumin cover icons
   app.get("/api/lumin-icon/*", async (req, res) => {
     try {
       let token = (req.params as any)[0] || req.path.replace("/api/lumin-icon/", "");

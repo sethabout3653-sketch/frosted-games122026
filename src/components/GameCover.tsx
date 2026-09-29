@@ -2,6 +2,7 @@ import React, { memo, useMemo, useState } from "react";
 import { Gamepad2 } from "lucide-react";
 import { formatCoverUrl } from "../utils";
 import luminGamesList from "../lumin-games.json";
+import localZones from "../zones.json";
 
 const PRESET_GRADIENTS = [
   "from-indigo-600 via-indigo-700 to-violet-800",
@@ -31,20 +32,89 @@ function getCanonical(str: string) {
     .replace(/\s+/g, " ");
 }
 
-// Pre-index canonical game names to image tokens once for O(1) lookup
+function getCleanAlphanumeric(str: string) {
+  return str.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Pre-index canonical game names and zone covers
 const luminIconMap = new Map<string, string>();
+const zoneCoverMap = new Map<string, string>();
+
 try {
+  // Index all LuminSDK images
   for (const g of luminGamesList) {
-    if (g.name && g.image_token) {
-      luminIconMap.set(getCanonical(g.name), g.image_token);
+    if (g.image_token) {
+      if (g.name) {
+        luminIconMap.set(getCanonical(g.name), g.image_token);
+        luminIconMap.set(getCleanAlphanumeric(g.name), g.image_token);
+      }
+      if (g.id) {
+        luminIconMap.set(getCanonical(g.id), g.image_token);
+        luminIconMap.set(getCleanAlphanumeric(g.id), g.image_token);
+        const slug = g.id.split("/").pop();
+        if (slug) {
+          luminIconMap.set(getCleanAlphanumeric(slug), g.image_token);
+        }
+      }
+    }
+  }
+
+  // Index all catalog zone covers
+  for (const z of localZones) {
+    if (z.name && z.cover) {
+      const formatted = formatCoverUrl(z.cover);
+      zoneCoverMap.set(getCanonical(z.name), formatted);
+      zoneCoverMap.set(getCleanAlphanumeric(z.name), formatted);
     }
   }
 } catch {}
 
+/**
+ * Searches through the whole SDK catalog for a game image token
+ */
 export function findLuminIconForGame(name: string): string | null {
   if (!name) return null;
-  const canonName = getCanonical(name);
-  return luminIconMap.get(canonName) || null;
+  
+  // 1. Direct canonical match
+  const canon = getCanonical(name);
+  if (luminIconMap.has(canon)) return luminIconMap.get(canon)!;
+
+  // 2. Alphanumeric match
+  const clean = getCleanAlphanumeric(name);
+  if (luminIconMap.has(clean)) return luminIconMap.get(clean)!;
+
+  // 3. Search through whole SDK list with fuzzy match
+  for (const g of luminGamesList) {
+    if (!g.image_token) continue;
+    const gClean = getCleanAlphanumeric(g.name || "");
+    if (gClean === clean || (gClean.length > 3 && clean.includes(gClean)) || (clean.length > 3 && gClean.includes(clean))) {
+      return g.image_token;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Finds high-res cover image from zones catalog
+ */
+export function findZoneCoverForGame(name: string): string | null {
+  if (!name) return null;
+  const canon = getCanonical(name);
+  if (zoneCoverMap.has(canon)) return zoneCoverMap.get(canon)!;
+
+  const clean = getCleanAlphanumeric(name);
+  if (zoneCoverMap.has(clean)) return zoneCoverMap.get(clean)!;
+
+  for (const z of localZones) {
+    if (!z.cover) continue;
+    const zClean = getCleanAlphanumeric(z.name || "");
+    if (zClean === clean || (zClean.length > 3 && clean.includes(zClean))) {
+      return formatCoverUrl(z.cover);
+    }
+  }
+
+  return null;
 }
 
 const coverSourceCache = new Map<string, string[]>();
@@ -55,21 +125,28 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
   const cached = coverSourceCache.get(cacheKey);
   if (cached) return cached;
 
-  const source = formatCoverUrl(cover);
   const sources: string[] = [];
 
-  if (source) {
-    sources.push(source);
-    if (source.includes("raw.githubusercontent.com/")) {
-      const path = source.replace("https://raw.githubusercontent.com/", "");
+  // 1. If explicit cover is provided
+  if (cover) {
+    const formatted = formatCoverUrl(cover);
+    if (formatted) sources.push(formatted);
+    if (formatted.includes("raw.githubusercontent.com/")) {
+      const path = formatted.replace("https://raw.githubusercontent.com/", "");
       const [owner, repo, branch, ...rest] = path.split("/");
       sources.push(`https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${rest.join("/")}`);
       sources.push(`https://raw.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
     }
   }
 
-  // Inject LuminSDK proxy cover search as fallback
+  // 2. Zone catalog cover match
   if (name) {
+    const zoneCover = findZoneCoverForGame(name);
+    if (zoneCover && !sources.includes(zoneCover)) {
+      sources.push(zoneCover);
+    }
+
+    // 3. Whole LuminSDK cover search
     const luminToken = findLuminIconForGame(name);
     if (luminToken) {
       sources.push(`/api/lumin-icon/${luminToken}`);

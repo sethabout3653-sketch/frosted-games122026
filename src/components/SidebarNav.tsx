@@ -5,16 +5,12 @@ import {
   Bot, 
   Heart, 
   Palette, 
-  Settings, 
-  Volume2, 
-  Shield, 
   Snowflake,
   Music,
   ChevronLeft,
   ChevronRight,
   Phone
 } from "lucide-react";
-import { applyTabCloak, TAB_CLOAKS } from "../tabCloaks";
 import { useCall } from "../context/CallContext";
 import CallMenuDropdown from "./CallMenuDropdown";
 
@@ -69,17 +65,6 @@ export default function SidebarNav({
   const isChat = currentView === "chat";
   const isYouTube = currentView === "youtube";
   const isAssistant = currentView === "assistant";
-
-  const handlePanicCloak = () => {
-    const targetCloak = TAB_CLOAKS.find((c) => c.id === "google_docs") || TAB_CLOAKS[1];
-    if (targetCloak) {
-      applyTabCloak({
-        id: targetCloak.id,
-        title: targetCloak.title,
-        icon: targetCloak.iconUrl,
-      });
-    }
-  };
 
   return (
     <aside
@@ -279,18 +264,6 @@ export default function SidebarNav({
               </div>
             )}
           </button>
-
-          {/* Soundboard Studio */}
-          <button
-            onClick={onOpenSoundboard}
-            className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-xs transition-all cursor-pointer group ${
-              isSoundboardActive ? "bg-amber-500/20 text-amber-300 font-bold" : "text-neutral-300 hover:text-white hover:bg-white/5"
-            } ${collapsed ? "justify-center" : ""}`}
-            title="Soundboard Studio"
-          >
-            <Volume2 size={16} className="text-amber-400 group-hover:scale-110 transition-transform" />
-            {!collapsed && <span>Soundboard</span>}
-          </button>
         </div>
       </div>
 
@@ -306,30 +279,6 @@ export default function SidebarNav({
         >
           <Palette size={16} className="text-cyan-400" />
           {!collapsed && <span>Theme Suite</span>}
-        </button>
-
-        {/* Settings & Tab Cloaking */}
-        <button
-          onClick={onOpenSettings}
-          className={`w-full flex items-center gap-3 p-2 rounded-xl text-xs text-neutral-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer ${
-            collapsed ? "justify-center" : ""
-          }`}
-          title="Settings & Cloaking"
-        >
-          <Settings size={16} className="text-neutral-400" />
-          {!collapsed && <span>Settings & Cloak</span>}
-        </button>
-
-        {/* Emergency Panic Cloak */}
-        <button
-          onClick={handlePanicCloak}
-          className={`w-full flex items-center gap-3 p-2 rounded-xl text-[11px] text-neutral-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors cursor-pointer ${
-            collapsed ? "justify-center" : ""
-          }`}
-          title="Panic Shield (Instant Classroom Cloak)"
-        >
-          <Shield size={16} className="text-emerald-400" />
-          {!collapsed && <span>Panic Shield</span>}
         </button>
       </div>
 
