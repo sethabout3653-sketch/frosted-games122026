@@ -7,6 +7,7 @@ import Header from "./components/Header";
 import SidebarNav from "./components/SidebarNav";
 import GameGrid from "./components/GameGrid";
 import GameCard from "./components/GameCard";
+import GameCover from "./components/GameCover";
 import GamePlayer from "./components/GamePlayer";
 import Chat from "./components/Chat";
 import YouTubeView from "./components/YouTubeView";
@@ -491,17 +492,17 @@ function AppContent() {
                   </div>
 
                   {/* Spotlight Cover Preview */}
-                  {spotlightGame.cover && (
+                  {spotlightGame && (
                     <div
                       onClick={() => handleSelectGame(spotlightGame)}
                       style={{ borderColor: "var(--theme-border-subtle)" }}
                       className="w-32 h-32 sm:w-44 sm:h-44 rounded-2xl border overflow-hidden shadow-2xl shrink-0 cursor-pointer group-hover:scale-[1.03] transition-transform duration-200 relative bg-black/60"
                     >
-                      <img
-                        src={spotlightGame.cover}
-                        alt={spotlightGame.name}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
+                      <GameCover
+                        name={spotlightGame.name}
+                        cover={spotlightGame.cover}
+                        url={spotlightGame.url}
+                        className="w-full h-full"
                       />
                       <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                         <div

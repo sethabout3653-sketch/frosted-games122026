@@ -65,7 +65,7 @@ const GameCard = memo(function GameCard({
       {/* Cover Image Container */}
       <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-neutral-950">
         <div className="w-full h-full transition-transform duration-300 ease-out group-hover:scale-105">
-          <GameCover name={game.name} cover={game.cover} />
+          <GameCover name={game.name} cover={game.cover} url={game.url} />
         </div>
 
         {/* Hover Play Icon Overlay */}

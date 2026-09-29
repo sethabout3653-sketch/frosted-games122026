@@ -5540,8 +5540,10 @@ Platform context:
           const gameData = await fallbackRes.json();
           const frameToken = gameData.frame_token || "";
           const assetToken = gameData.asset_token || "";
+          const directPlayUrl = frameToken ? `https://a.luminsdk.com/g/${frameToken}/${gameData.id || gameId}/` : "";
           return res.json({
             ...gameData,
+            direct_play_url: directPlayUrl,
             frame_url: frameToken ? `/api/lumin/frame/${frameToken}` : "",
             asset_url: assetToken ? `/api/lumin/assets/${assetToken}` : "",
           });
@@ -5552,9 +5554,11 @@ Platform context:
       const gameData = await response.json();
       const frameToken = gameData.frame_token || "";
       const assetToken = gameData.asset_token || "";
+      const directPlayUrl = frameToken ? `https://a.luminsdk.com/g/${frameToken}/${gameData.id || gameId}/` : "";
       
       return res.json({
         ...gameData,
+        direct_play_url: directPlayUrl,
         frame_url: frameToken ? `/api/lumin/frame/${frameToken}` : "",
         asset_url: assetToken ? `/api/lumin/assets/${assetToken}` : "",
       });
@@ -5687,6 +5691,98 @@ Platform context:
     } catch (error: any) {
       console.error("Error retrieving game image through proxy:", error);
       return res.status(500).send("Error retrieving game image through proxy.");
+    }
+  });
+
+  // Game Favicon Resolver (uses the game URL's favicon for the game cover)
+  app.get(["/api/game-favicon", "/api/favicon"], async (req, res) => {
+    try {
+      res.header("Access-Control-Allow-Origin", "*");
+      res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+
+      let gameUrl = req.query.url as string;
+      if (!gameUrl) {
+        return res.status(400).send("Missing 'url' parameter.");
+      }
+
+      if (gameUrl.startsWith("http://")) gameUrl = gameUrl.replace("http://", "https://");
+      if (!gameUrl.startsWith("http")) {
+        return res.status(400).send("Invalid URL protocol.");
+      }
+
+      const parsedUrl = new URL(gameUrl);
+      let faviconUrl: string | null = null;
+
+      // Try fetching HTML of game page to locate <link rel="icon">
+      try {
+        const pageRes = await fetch(gameUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8"
+          },
+          signal: AbortSignal.timeout(3500)
+        });
+
+        if (pageRes.ok) {
+          const contentType = pageRes.headers.get("content-type") || "";
+          if (contentType.includes("image/")) {
+            faviconUrl = gameUrl;
+          } else {
+            const html = await pageRes.text();
+            const iconMatch =
+              html.match(/<link[^>]+rel=["\x27][^"\x27]*icon[^"\x27]*["\x27][^>]+href=["\x27]([^"\x27]+)["\x27]/i) ||
+              html.match(/<link[^>]+href=["\x27]([^"\x27]+)["\x27][^>]+rel=["\x27][^"\x27]*icon[^"\x27]*["\x27]/i);
+            if (iconMatch && iconMatch[1]) {
+              faviconUrl = new URL(iconMatch[1], gameUrl).href;
+            }
+          }
+        }
+      } catch (e) {
+        // Fall back to direct favicon
+      }
+
+      if (!faviconUrl) {
+        // Try origin /favicon.ico
+        faviconUrl = `${parsedUrl.origin}/favicon.ico`;
+      }
+
+      // Fetch the actual favicon image
+      try {
+        const favRes = await fetch(faviconUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+          },
+          signal: AbortSignal.timeout(3500)
+        });
+
+        if (favRes.ok) {
+          const mime = (favRes.headers.get("content-type") || "").toLowerCase();
+          if (mime.startsWith("image/") || mime.includes("icon") || (!mime.includes("text/html") && !mime.includes("text/plain"))) {
+            res.set("Content-Type", mime || "image/x-icon");
+            res.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+            const buf = Buffer.from(await favRes.arrayBuffer());
+            return res.send(buf);
+          }
+        }
+      } catch (e) {}
+
+      // Fallback to Google favicon service (always returns reliable high-res png)
+      try {
+        const googleFavicon = `https://www.google.com/s2/favicons?domain=${parsedUrl.hostname}&sz=128`;
+        const gRes = await fetch(googleFavicon);
+        if (gRes.ok) {
+          const gMime = gRes.headers.get("content-type") || "image/png";
+          res.set("Content-Type", gMime);
+          res.set("Cache-Control", "public, max-age=86400");
+          return res.send(Buffer.from(await gRes.arrayBuffer()));
+        }
+      } catch (e) {}
+
+      return res.status(404).send("Favicon not found");
+    } catch (error: any) {
+      console.error("Error retrieving game favicon:", error);
+      return res.status(500).send("Error retrieving game favicon.");
     }
   });
 

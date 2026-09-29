@@ -237,12 +237,26 @@ export async function fetchLuminGames(): Promise<Game[]> {
 }
 
 /**
- * Resolves the direct playable URL for a Lumin game.
+ * Resolves the direct playable URL for a Lumin game using a.luminsdk.com/g/.
  */
 export async function getLuminGameUrl(luminId: string): Promise<string | null> {
   if (!luminId) return null;
 
-  // 1. Client SDK if initialized
+  try {
+    const cleanId = encodeURIComponent(luminId.trim());
+    const res = await fetch(`/api/lumin/game/${cleanId}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.direct_play_url) {
+        return data.direct_play_url;
+      }
+      if (data?.frame_token) {
+        return `https://a.luminsdk.com/g/${data.frame_token}/${data.id || luminId}/`;
+      }
+    }
+  } catch {}
+
+  // Client SDK fallback if loaded
   if (typeof window !== "undefined" && window.Lumin && typeof window.Lumin.getGameUrl === "function") {
     try {
       const url = await window.Lumin.getGameUrl(luminId);

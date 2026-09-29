@@ -120,8 +120,8 @@ export function findZoneCoverForGame(name: string): string | null {
 const coverSourceCache = new Map<string, string[]>();
 const failedUrlSet = new Set<string>();
 
-export const getCoverSources = (cover: string, name?: string): string[] => {
-  const cacheKey = `${cover || ""}|${name || ""}`;
+export const getCoverSources = (cover: string, name?: string, url?: string): string[] => {
+  const cacheKey = `${cover || ""}|${name || ""}|${url || ""}`;
   const cached = coverSourceCache.get(cacheKey);
   if (cached) return cached;
 
@@ -132,15 +132,14 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
     const formatted = formatCoverUrl(cover);
     if (formatted) {
       sources.push(formatted);
+      if (formatted.includes("raw.githubusercontent.com/")) {
+        const path = formatted.replace("https://raw.githubusercontent.com/", "");
+        const [owner, repo, branch, ...rest] = path.split("/");
+        sources.push(`https://rawcdn.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
+      }
       if (formatted.startsWith("http")) {
         sources.push(`/proxy-image?url=${encodeURIComponent(formatted)}`);
       }
-    }
-    if (formatted.includes("raw.githubusercontent.com/")) {
-      const path = formatted.replace("https://raw.githubusercontent.com/", "");
-      const [owner, repo, branch, ...rest] = path.split("/");
-      sources.push(`https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${rest.join("/")}`);
-      sources.push(`https://raw.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
     }
   }
 
@@ -149,15 +148,55 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
     const zoneCover = findZoneCoverForGame(name);
     if (zoneCover && !sources.includes(zoneCover)) {
       sources.push(zoneCover);
+      if (zoneCover.includes("raw.githubusercontent.com/")) {
+        const path = zoneCover.replace("https://raw.githubusercontent.com/", "");
+        const [owner, repo, branch, ...rest] = path.split("/");
+        sources.push(`https://rawcdn.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
+      }
       if (zoneCover.startsWith("http")) {
         sources.push(`/proxy-image?url=${encodeURIComponent(zoneCover)}`);
       }
     }
+  }
 
-    // 3. Whole LuminSDK cover search
-    const luminToken = findLuminIconForGame(name);
-    if (luminToken) {
-      sources.push(`/api/lumin-icon/${luminToken}`);
+  // 3. Game URL Favicon (uses the game URL's favicon for the cover)
+  let targetGameUrl = url;
+  if (!targetGameUrl && name) {
+    const clean = getCleanAlphanumeric(name);
+    const matchedZone = localZones.find((z) => getCleanAlphanumeric(z.name || "") === clean);
+    if (matchedZone?.url) {
+      targetGameUrl = matchedZone.url;
+    }
+  }
+
+  if (targetGameUrl) {
+    const formattedGameUrl = formatCoverUrl(targetGameUrl);
+    if (formattedGameUrl.startsWith("http")) {
+      try {
+        const parsed = new URL(formattedGameUrl);
+        // Primary backend favicon resolver that parses <link rel="icon">
+        sources.push(`/api/game-favicon?url=${encodeURIComponent(formattedGameUrl)}`);
+
+        // Direct origin favicon & proxied favicon
+        sources.push(`${parsed.origin}/favicon.ico`);
+        sources.push(`/proxy-image?url=${encodeURIComponent(parsed.origin + "/favicon.ico")}`);
+
+        // If path has a subfolder, try folder favicon / icon
+        const pathSegments = parsed.pathname.split("/").filter(Boolean);
+        if (pathSegments.length > 0) {
+          pathSegments.pop(); // remove file/trailing segment
+          if (pathSegments.length > 0) {
+            const folderUrl = `${parsed.origin}/${pathSegments.join("/")}`;
+            sources.push(`${folderUrl}/favicon.ico`);
+            sources.push(`${folderUrl}/favicon.png`);
+            sources.push(`${folderUrl}/icon.png`);
+          }
+        }
+
+        // Public high-resolution favicon services
+        sources.push(`https://www.google.com/s2/favicons?domain=${parsed.hostname}&sz=128`);
+        sources.push(`https://icons.duckduckgo.com/ip2/${parsed.hostname}.ico`);
+      } catch (e) {}
     }
   }
 
@@ -169,11 +208,12 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
 interface GameCoverProps {
   name: string;
   cover: string;
+  url?: string;
   className?: string;
 }
 
-const GameCover = memo(function GameCover({ name, cover, className = "" }: GameCoverProps) {
-  const sources = useMemo(() => getCoverSources(cover, name), [cover, name]);
+const GameCover = memo(function GameCover({ name, cover, url, className = "" }: GameCoverProps) {
+  const sources = useMemo(() => getCoverSources(cover, name, url), [cover, name, url]);
   const [index, setIndex] = useState(0);
   const currentUrl = sources[index];
   const failed = !currentUrl || index >= sources.length;

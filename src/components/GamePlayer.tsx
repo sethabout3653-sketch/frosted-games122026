@@ -289,7 +289,19 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
     }, 4000);
 
     async function loadGame() {
-      // 1. Check if game matches a direct HTML5 catalog game in zones.json
+      // 1. For Lumin SDK games, fetch the authentic a.luminsdk.com/g/ URL
+      if (isLuminGame && game.luminId) {
+        const luminUrl = await getLuminGameUrl(game.luminId);
+        if (!isCancelled && luminUrl) {
+          setGameUrl(luminUrl);
+          setRawGameUrl(luminUrl);
+          setUsingDirectUrl(false);
+          setGameLoadError(false);
+          return;
+        }
+      }
+
+      // 2. Check if game matches a direct HTML5 catalog game in zones.json
       const cleanName = (game.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       const matchedCatalogGame = localZones.find((z) => {
         const zClean = (z.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -308,7 +320,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
         }
       }
 
-      // 2. Direct formatGameUrl if game.url exists and is not a lumin protocol marker
+      // 3. Direct formatGameUrl if game.url exists and is not a lumin protocol marker
       if (game.url && !game.url.startsWith("lumin:")) {
         const catalogUrl = formatGameUrl(game.url);
         const directRaw = getRawGameUrl(game.url);
@@ -321,7 +333,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
         }
       }
 
-      // 3. For any Lumin/Selenite game, resolve its direct embed URL
+      // 4. Fallback slug mirror for Selenite games
       if (game.luminId) {
         const slug = game.luminId.includes("/") ? game.luminId.split("/").pop()! : game.luminId;
         const targetUrl = `https://rawcdn.githack.com/selenite-cc/selenite-old/main/games/${slug}/index.html`;
