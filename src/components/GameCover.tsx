@@ -159,7 +159,21 @@ export const getCoverSources = (cover: string, name?: string, url?: string): str
     }
   }
 
-  // 3. Game URL Favicon (uses the game URL's favicon for the cover)
+  // 3. LuminSDK game image match (fetches authentic a.luminsdk.com/g/.../icons/web-icon.png)
+  if (name) {
+    const luminToken = findLuminIconForGame(name);
+    if (luminToken) {
+      sources.push(`/api/lumin-icon/${luminToken}`);
+    }
+  }
+  if (url && (url.includes("luminsdk.com") || url.includes("selenite/"))) {
+    const slugMatch = url.match(/(selenite\/[^/]+|[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)/);
+    if (slugMatch) {
+      sources.push(`/api/lumin-icon/${slugMatch[1]}`);
+    }
+  }
+
+  // 4. Game URL Favicon (uses the game URL's favicon for the cover)
   let targetGameUrl = url;
   if (!targetGameUrl && name) {
     const clean = getCleanAlphanumeric(name);
