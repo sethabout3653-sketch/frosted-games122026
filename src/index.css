@@ -451,7 +451,9 @@ html {
   pointer-events: none !important;
 }
 
-/* Completely suppress Lumin's custom Exit Game pill overlay */
+/* Completely suppress Lumin's custom Exit Game pill overlay and body takeovers */
+body > .lumin-player,
+body > div[class*="lumin-player"],
 .lumin-player-flyout,
 [class*="lumin-player-flyout"],
 .lumin-player-close {

@@ -264,10 +264,37 @@ const Header = memo(function Header({
           )}
         </div>
 
-        {/* Right Controls: Quick Filter, Palette & Settings */}
+        {/* Right Controls: Search, Quick Filter, Palette & Settings */}
         <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap ml-auto">
           {currentView === "home" && (
             <>
+              {/* Search Library Input */}
+              <div className="relative flex-1 sm:w-64 lg:w-60">
+                <Search className="absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-[var(--theme-text-muted)] pointer-events-none" />
+                <input
+                  id="game-search-input"
+                  type="text"
+                  value={searchQuery}
+                  onChange={handleInputChange}
+                  placeholder="Search library..."
+                  style={{
+                    backgroundColor: "var(--theme-surface)",
+                    borderColor: "var(--theme-border-subtle)",
+                  }}
+                  className="h-9 w-full rounded-xl border pl-9 pr-7 text-xs text-white placeholder-neutral-500 transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-[var(--theme-border-strong)] focus:border-transparent font-medium"
+                />
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="absolute top-1/2 right-2.5 -translate-y-1/2 text-[var(--theme-text-muted)] hover:text-white transition-colors cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X size={13} />
+                  </button>
+                ) : null}
+              </div>
+
               {/* Quick Favorites Button */}
               <button
                 id="header-favorites-btn"

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Game } from "../types";
 import { formatGameUrl, getRawGameUrl, isFnfGame, isFnfMod } from "../utils";
 import { getLuminGameUrl, embedLuminGame, closeLuminGame } from "../lumin";
+import localZones from "../zones.json";
 import {
   ArrowLeft,
   Maximize2,
@@ -288,27 +289,27 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
     }, 4000);
 
     async function loadGame() {
-      if (isLuminGame && game.luminId) {
-        closeLuminGame();
+      // 1. Check if game matches a direct HTML5 catalog game in zones.json
+      const cleanName = (game.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const matchedCatalogGame = localZones.find((z) => {
+        const zClean = (z.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        return zClean === cleanName || (zClean.length > 3 && cleanName.includes(zClean)) || (cleanName.length > 3 && zClean.includes(cleanName));
+      });
 
-        // 1. First attempt to resolve direct playable game URL from Lumin
-        const directUrl = await getLuminGameUrl(game.luminId);
-        if (!isCancelled && directUrl) {
-          setGameUrl(directUrl);
-          setRawGameUrl(directUrl);
+      if (matchedCatalogGame && matchedCatalogGame.url) {
+        const catalogUrl = formatGameUrl(matchedCatalogGame.url);
+        const directRaw = getRawGameUrl(matchedCatalogGame.url);
+        if (!isCancelled) {
+          setGameUrl(catalogUrl);
+          setRawGameUrl(directRaw);
+          setUsingDirectUrl(false);
+          setGameLoadError(false);
           return;
         }
+      }
 
-        // 2. Fallback: Embed Lumin player directly into container
-        if (!isCancelled && containerRef.current) {
-          const frame = await embedLuminGame(containerRef.current, game.luminId);
-          if (!isCancelled && frame && frame.src) {
-            setGameUrl(frame.src);
-            setRawGameUrl(frame.src);
-          }
-        }
-      } else {
-        // Catalog games use their direct HTTPS URL.
+      // 2. Direct formatGameUrl if game.url exists and is not a lumin protocol marker
+      if (game.url && !game.url.startsWith("lumin:")) {
         const catalogUrl = formatGameUrl(game.url);
         const directRaw = getRawGameUrl(game.url);
         if (!isCancelled) {
@@ -316,7 +317,28 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
           setRawGameUrl(directRaw);
           setUsingDirectUrl(false);
           setGameLoadError(false);
+          return;
         }
+      }
+
+      // 3. For any Lumin/Selenite game, resolve its direct embed URL
+      if (game.luminId) {
+        const slug = game.luminId.includes("/") ? game.luminId.split("/").pop()! : game.luminId;
+        const targetUrl = `https://rawcdn.githack.com/selenite-cc/selenite-old/main/games/${slug}/index.html`;
+        if (!isCancelled) {
+          setGameUrl(targetUrl);
+          setRawGameUrl(targetUrl);
+          setUsingDirectUrl(false);
+          setGameLoadError(false);
+          return;
+        }
+      }
+
+      // 4. Default fallback
+      const fallbackUrl = formatGameUrl(game.url || "");
+      if (!isCancelled) {
+        setGameUrl(fallbackUrl);
+        setRawGameUrl(fallbackUrl);
       }
     }
 

@@ -17,7 +17,6 @@ import CallMenuDropdown from "./CallMenuDropdown";
 interface SidebarNavProps {
   currentView: "home" | "game" | "chat" | "youtube" | "assistant";
   onSelectView: (view: "home" | "chat" | "youtube" | "assistant") => void;
-  onOpenCommandPalette: () => void;
   onOpenTheme: () => void;
   onOpenSettings: () => void;
   onRandomGame: () => void;
@@ -31,7 +30,6 @@ interface SidebarNavProps {
 export default function SidebarNav({
   currentView,
   onSelectView,
-  onOpenCommandPalette,
   onOpenTheme,
   onOpenSettings,
   onRandomGame,

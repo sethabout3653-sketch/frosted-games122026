@@ -5,7 +5,6 @@ import { fetchGamesList, getUniqueTags, isFnfGame, isFnfMod, deduplicateGames, f
 import { fetchLuminGames, getLocalLuminGames, fetchLuminSessionId, getLocalLuminGamesWithSession } from "./lumin";
 import Header from "./components/Header";
 import SidebarNav from "./components/SidebarNav";
-import CommandPalette from "./components/CommandPalette";
 import GameGrid from "./components/GameGrid";
 import GameCard from "./components/GameCard";
 import GamePlayer from "./components/GamePlayer";
@@ -79,7 +78,6 @@ function AppContent() {
   const [chatInitialTab, setChatInitialTab] = useState<"chat" | "voice" | "profile">("chat");
   const [autoJoinVoice, setAutoJoinVoice] = useState(false);
   const [activeVideoTitle, setActiveVideoTitle] = useState<string | null>(null);
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const { setOnOpenGroupVoice } = useCall();
 
   const handleVoiceSessionStarted = useCallback(() => {
@@ -139,12 +137,6 @@ function AppContent() {
     };
     const interval = window.setInterval(keepAlivePing, 10 * 60 * 1000);
     return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const handleOpenPaletteEvent = () => setIsCommandPaletteOpen(true);
-    window.addEventListener("open-command-palette", handleOpenPaletteEvent);
-    return () => window.removeEventListener("open-command-palette", handleOpenPaletteEvent);
   }, []);
 
   useEffect(() => {
@@ -369,7 +361,6 @@ function AppContent() {
             if (v === "home") handleBackToHub();
             else setCurrentView(v);
           }}
-          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
           onOpenTheme={() => setIsThemeOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onRandomGame={handleRandomGame}
@@ -495,15 +486,6 @@ function AppContent() {
                       >
                         <Shuffle size={14} className="text-amber-400" />
                         <span>Surprise Launch</span>
-                      </button>
-
-                      <button
-                        onClick={() => setIsCommandPaletteOpen(true)}
-                        className="hidden sm:flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
-                      >
-                        <span>Press</span>
-                        <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-white/10 rounded text-neutral-300 border border-white/10">⌘K</kbd>
-                        <span>to search</span>
                       </button>
                     </div>
                   </div>
@@ -721,20 +703,6 @@ function AppContent() {
         </div>
 
         {/* Global Modals */}
-        <CommandPalette
-          isOpen={isCommandPaletteOpen}
-          onClose={() => setIsCommandPaletteOpen(false)}
-          games={games}
-          onSelectGame={handleSelectGame}
-          onSwitchView={(v) => {
-            if (v === "home") handleBackToHub();
-            else setCurrentView(v);
-          }}
-          onOpenTheme={() => setIsThemeOpen(true)}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onRandomGame={handleRandomGame}
-        />
-
         <BackgroundEditor
           background={background}
           onChange={setBackground}

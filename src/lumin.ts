@@ -237,30 +237,12 @@ export async function fetchLuminGames(): Promise<Game[]> {
 }
 
 /**
- * Resolves the direct playable URL for a Lumin game through our server proxy,
- * completely bypassing school WiFi blocks and ad filters (GreatKids, Securly, GoGuardian).
+ * Resolves the direct playable URL for a Lumin game.
  */
 export async function getLuminGameUrl(luminId: string): Promise<string | null> {
   if (!luminId) return null;
 
-  // 1. Primary: High-Speed Unrestricted Server Proxy (100% works on all school & filtered WiFis)
-  try {
-    const cleanId = encodeURIComponent(luminId.trim());
-    const res = await fetch(`/api/lumin/game/${cleanId}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.frame_url) {
-        return `${window.location.origin}${data.frame_url}`;
-      }
-      if (data && data.asset_url) {
-        return `${window.location.origin}${data.asset_url}`;
-      }
-    }
-  } catch {
-    // Continue to fallback
-  }
-
-  // 2. Client SDK fallback if loaded
+  // 1. Client SDK if initialized
   if (typeof window !== "undefined" && window.Lumin && typeof window.Lumin.getGameUrl === "function") {
     try {
       const url = await window.Lumin.getGameUrl(luminId);
@@ -269,24 +251,6 @@ export async function getLuminGameUrl(luminId: string): Promise<string | null> {
       }
     } catch {}
   }
-
-  // 3. Direct REST session fallback
-  try {
-    const sessionRes = await fetch("/api/lumin/session");
-    if (sessionRes.ok) {
-      const { session_id } = await sessionRes.json();
-      if (session_id) {
-        globalSessionId = session_id;
-        const gameRes = await fetch(`/api/lumin/game/${encodeURIComponent(luminId)}`);
-        if (gameRes.ok) {
-          const gameData = await gameRes.json();
-          if (gameData?.frame_url) {
-            return `${window.location.origin}${gameData.frame_url}`;
-          }
-        }
-      }
-    }
-  } catch {}
 
   return null;
 }

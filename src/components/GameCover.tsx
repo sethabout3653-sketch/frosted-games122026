@@ -130,7 +130,12 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
   // 1. If explicit cover is provided
   if (cover) {
     const formatted = formatCoverUrl(cover);
-    if (formatted) sources.push(formatted);
+    if (formatted) {
+      sources.push(formatted);
+      if (formatted.startsWith("http")) {
+        sources.push(`/proxy-image?url=${encodeURIComponent(formatted)}`);
+      }
+    }
     if (formatted.includes("raw.githubusercontent.com/")) {
       const path = formatted.replace("https://raw.githubusercontent.com/", "");
       const [owner, repo, branch, ...rest] = path.split("/");
@@ -144,6 +149,9 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
     const zoneCover = findZoneCoverForGame(name);
     if (zoneCover && !sources.includes(zoneCover)) {
       sources.push(zoneCover);
+      if (zoneCover.startsWith("http")) {
+        sources.push(`/proxy-image?url=${encodeURIComponent(zoneCover)}`);
+      }
     }
 
     // 3. Whole LuminSDK cover search
