@@ -240,23 +240,30 @@ export function createSilentAudioTrack(): MediaStreamTrack {
   try {
     const ctx = getSharedAudioContext();
     const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    gain.gain.value = 0.0001; // Silent tone
     const dst = ctx.createMediaStreamDestination();
-    oscillator.connect(dst);
+    oscillator.connect(gain);
+    gain.connect(dst);
     oscillator.start();
     const track = dst.stream.getAudioTracks()[0];
-    track.enabled = false;
-    return track;
-  } catch (err) {
+    if (track) {
+      track.enabled = true;
+      return track;
+    }
+  } catch (err) {}
+
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = new AudioContextClass();
+    const dst = ctx.createMediaStreamDestination();
+    return dst.stream.getAudioTracks()[0];
+  } catch (e) {
     const canvas = document.createElement("canvas");
     canvas.width = 1;
     canvas.height = 1;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = "black";
-      ctx.fillRect(0, 0, 1, 1);
-    }
     const stream = (canvas as any).captureStream ? (canvas as any).captureStream(1) : new MediaStream();
-    return stream.getTracks()[0] || null;
+    return stream.getTracks()[0];
   }
 }
 
@@ -336,9 +343,6 @@ export async function acquireRobustMediaStream(options: { audio: boolean; video:
 
   // Level 4: Absolute Fallback (Listen-Only Mode)
   const silentTrack = createSilentAudioTrack();
-  if (silentTrack) {
-    return new MediaStream([silentTrack]);
-  }
-  return new MediaStream();
+  return new MediaStream([silentTrack].filter(Boolean) as MediaStreamTrack[]);
 }
 

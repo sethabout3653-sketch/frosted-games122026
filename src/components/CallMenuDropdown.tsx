@@ -60,14 +60,25 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, posi
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
+    const timer = setTimeout(() => {
+      const handleClickOutside = (e: MouseEvent) => {
+        const target = e.target as HTMLElement | null;
+        if (
+          menuRef.current &&
+          !menuRef.current.contains(target) &&
+          !target?.closest("#sidebar-voice-lounge-btn") &&
+          !target?.closest("#header-voice-lounge-btn") &&
+          !target?.closest("#nav-call-btn")
+        ) {
+          onClose();
+        }
+      };
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, 50);
+
+    return () => clearTimeout(timer);
   }, [isOpen, onClose]);
 
   // Filter users by search

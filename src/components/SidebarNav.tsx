@@ -188,6 +188,7 @@ export default function SidebarNav({
           {/* Voice Lounge Tab */}
           <div className="relative">
             <button
+              id="sidebar-voice-lounge-btn"
               onClick={() => setIsCallMenuOpen(!isCallMenuOpen)}
               className={`w-full flex items-center gap-3 p-2.5 rounded-xl font-semibold text-xs text-neutral-300 hover:text-white hover:bg-white/5 transition-all cursor-pointer group ${
                 collapsed ? "justify-center" : ""
