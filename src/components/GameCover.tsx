@@ -2,7 +2,6 @@ import React, { memo, useMemo, useState } from "react";
 import { Gamepad2 } from "lucide-react";
 import { formatCoverUrl } from "../utils";
 import luminGamesList from "../lumin-games.json";
-import localZones from "../zones.json";
 
 const PRESET_GRADIENTS = [
   "from-indigo-600 via-indigo-700 to-violet-800",
@@ -32,185 +31,48 @@ function getCanonical(str: string) {
     .replace(/\s+/g, " ");
 }
 
-function getCleanAlphanumeric(str: string) {
-  return str.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-// Pre-index canonical game names and zone covers
+// Pre-index canonical game names to image tokens once for O(1) lookup
 const luminIconMap = new Map<string, string>();
-const zoneCoverMap = new Map<string, string>();
-
 try {
-  // Index all LuminSDK images
   for (const g of luminGamesList) {
-    if (g.image_token) {
-      if (g.name) {
-        luminIconMap.set(getCanonical(g.name), g.image_token);
-        luminIconMap.set(getCleanAlphanumeric(g.name), g.image_token);
-      }
-      if (g.id) {
-        luminIconMap.set(getCanonical(g.id), g.image_token);
-        luminIconMap.set(getCleanAlphanumeric(g.id), g.image_token);
-        const slug = g.id.split("/").pop();
-        if (slug) {
-          luminIconMap.set(getCleanAlphanumeric(slug), g.image_token);
-        }
-      }
-    }
-  }
-
-  // Index all catalog zone covers
-  for (const z of localZones) {
-    if (z.name && z.cover) {
-      const formatted = formatCoverUrl(z.cover);
-      zoneCoverMap.set(getCanonical(z.name), formatted);
-      zoneCoverMap.set(getCleanAlphanumeric(z.name), formatted);
+    if (g.name && g.image_token) {
+      luminIconMap.set(getCanonical(g.name), g.image_token);
     }
   }
 } catch {}
 
-/**
- * Searches through the whole SDK catalog for a game image token
- */
 export function findLuminIconForGame(name: string): string | null {
   if (!name) return null;
-  
-  // 1. Direct canonical match
-  const canon = getCanonical(name);
-  if (luminIconMap.has(canon)) return luminIconMap.get(canon)!;
-
-  // 2. Alphanumeric match
-  const clean = getCleanAlphanumeric(name);
-  if (luminIconMap.has(clean)) return luminIconMap.get(clean)!;
-
-  // 3. Search through whole SDK list with fuzzy match
-  for (const g of luminGamesList) {
-    if (!g.image_token) continue;
-    const gClean = getCleanAlphanumeric(g.name || "");
-    if (gClean === clean || (gClean.length > 3 && clean.includes(gClean)) || (clean.length > 3 && gClean.includes(clean))) {
-      return g.image_token;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Finds high-res cover image from zones catalog
- */
-export function findZoneCoverForGame(name: string): string | null {
-  if (!name) return null;
-  const canon = getCanonical(name);
-  if (zoneCoverMap.has(canon)) return zoneCoverMap.get(canon)!;
-
-  const clean = getCleanAlphanumeric(name);
-  if (zoneCoverMap.has(clean)) return zoneCoverMap.get(clean)!;
-
-  for (const z of localZones) {
-    if (!z.cover) continue;
-    const zClean = getCleanAlphanumeric(z.name || "");
-    if (zClean === clean || (zClean.length > 3 && clean.includes(zClean))) {
-      return formatCoverUrl(z.cover);
-    }
-  }
-
-  return null;
+  const canonName = getCanonical(name);
+  return luminIconMap.get(canonName) || null;
 }
 
 const coverSourceCache = new Map<string, string[]>();
 const failedUrlSet = new Set<string>();
 
-export const getCoverSources = (cover: string, name?: string, url?: string): string[] => {
-  const cacheKey = `${cover || ""}|${name || ""}|${url || ""}`;
+export const getCoverSources = (cover: string, name?: string): string[] => {
+  const cacheKey = `${cover || ""}|${name || ""}`;
   const cached = coverSourceCache.get(cacheKey);
   if (cached) return cached;
 
   const sources: string[] = [];
 
-  // 1. If explicit cover is provided
-  if (cover) {
-    const formatted = formatCoverUrl(cover);
-    if (formatted) {
-      sources.push(formatted);
-      if (formatted.includes("raw.githubusercontent.com/")) {
-        const path = formatted.replace("https://raw.githubusercontent.com/", "");
-        const [owner, repo, branch, ...rest] = path.split("/");
-        sources.push(`https://rawcdn.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
-      }
-      if (formatted.startsWith("http")) {
-        sources.push(`/proxy-image?url=${encodeURIComponent(formatted)}`);
-      }
-    }
-  }
-
-  // 2. Zone catalog cover match
-  if (name) {
-    const zoneCover = findZoneCoverForGame(name);
-    if (zoneCover && !sources.includes(zoneCover)) {
-      sources.push(zoneCover);
-      if (zoneCover.includes("raw.githubusercontent.com/")) {
-        const path = zoneCover.replace("https://raw.githubusercontent.com/", "");
-        const [owner, repo, branch, ...rest] = path.split("/");
-        sources.push(`https://rawcdn.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
-      }
-      if (zoneCover.startsWith("http")) {
-        sources.push(`/proxy-image?url=${encodeURIComponent(zoneCover)}`);
-      }
-    }
-  }
-
-  // 3. LuminSDK game image match (fetches authentic a.luminsdk.com/g/.../icons/web-icon.png)
+  // Prioritize our high-speed server SVG generator so covers load instantly without network lag
   if (name) {
     const luminToken = findLuminIconForGame(name);
     if (luminToken) {
       sources.push(`/api/lumin-icon/${luminToken}`);
     }
   }
-  if (url && (url.includes("luminsdk.com") || url.includes("selenite/"))) {
-    const slugMatch = url.match(/(selenite\/[^/]+|[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)/);
-    if (slugMatch) {
-      sources.push(`/api/lumin-icon/${slugMatch[1]}`);
-    }
-  }
 
-  // 4. Game URL Favicon (uses the game URL's favicon for the cover)
-  let targetGameUrl = url;
-  if (!targetGameUrl && name) {
-    const clean = getCleanAlphanumeric(name);
-    const matchedZone = localZones.find((z) => getCleanAlphanumeric(z.name || "") === clean);
-    if (matchedZone?.url) {
-      targetGameUrl = matchedZone.url;
-    }
-  }
-
-  if (targetGameUrl) {
-    const formattedGameUrl = formatCoverUrl(targetGameUrl);
-    if (formattedGameUrl.startsWith("http")) {
-      try {
-        const parsed = new URL(formattedGameUrl);
-        // Primary backend favicon resolver that parses <link rel="icon">
-        sources.push(`/api/game-favicon?url=${encodeURIComponent(formattedGameUrl)}`);
-
-        // Direct origin favicon & proxied favicon
-        sources.push(`${parsed.origin}/favicon.ico`);
-        sources.push(`/proxy-image?url=${encodeURIComponent(parsed.origin + "/favicon.ico")}`);
-
-        // If path has a subfolder, try folder favicon / icon
-        const pathSegments = parsed.pathname.split("/").filter(Boolean);
-        if (pathSegments.length > 0) {
-          pathSegments.pop(); // remove file/trailing segment
-          if (pathSegments.length > 0) {
-            const folderUrl = `${parsed.origin}/${pathSegments.join("/")}`;
-            sources.push(`${folderUrl}/favicon.ico`);
-            sources.push(`${folderUrl}/favicon.png`);
-            sources.push(`${folderUrl}/icon.png`);
-          }
-        }
-
-        // Public high-resolution favicon services
-        sources.push(`https://www.google.com/s2/favicons?domain=${parsed.hostname}&sz=128`);
-        sources.push(`https://icons.duckduckgo.com/ip2/${parsed.hostname}.ico`);
-      } catch (e) {}
+  const source = formatCoverUrl(cover);
+  if (source) {
+    sources.push(source);
+    if (source.includes("raw.githubusercontent.com/")) {
+      const path = source.replace("https://raw.githubusercontent.com/", "");
+      const [owner, repo, branch, ...rest] = path.split("/");
+      sources.push(`https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${rest.join("/")}`);
+      sources.push(`https://raw.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
     }
   }
 
@@ -222,12 +84,11 @@ export const getCoverSources = (cover: string, name?: string, url?: string): str
 interface GameCoverProps {
   name: string;
   cover: string;
-  url?: string;
   className?: string;
 }
 
-const GameCover = memo(function GameCover({ name, cover, url, className = "" }: GameCoverProps) {
-  const sources = useMemo(() => getCoverSources(cover, name, url), [cover, name, url]);
+const GameCover = memo(function GameCover({ name, cover, className = "" }: GameCoverProps) {
+  const sources = useMemo(() => getCoverSources(cover, name), [cover, name]);
   const [index, setIndex] = useState(0);
   const currentUrl = sources[index];
   const failed = !currentUrl || index >= sources.length;
@@ -245,7 +106,6 @@ const GameCover = memo(function GameCover({ name, cover, url, className = "" }: 
         <img
           src={currentUrl}
           alt={`${name} cover`}
-          loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
           className="h-full w-full object-cover"
