@@ -98,6 +98,7 @@ export async function initLuminHeadless(): Promise<boolean> {
       if (window.Lumin && typeof window.Lumin.init === "function") {
         await window.Lumin.init({
           container: "#lumin-headless-container",
+          renderUI: false,
         });
         return true;
       }
@@ -213,6 +214,35 @@ export function getLocalLuminGamesWithSession(sessionId: string): Game[] {
  * Falls back to the full bundled 1,169-game library if network restricts requests.
  */
 export async function fetchLuminGames(): Promise<Game[]> {
+  try {
+    const initialized = await initLuminHeadless();
+    if (initialized && window.Lumin && typeof window.Lumin.getGames === "function") {
+      const clientGames = await window.Lumin.getGames();
+      if (Array.isArray(clientGames) && clientGames.length > 0) {
+        return clientGames.map((g: any) => {
+          const gameName = g.name || g.title || "Game";
+          const gameId = String(g.id || "");
+          const imageToken = g.image_token || g.image || g.thumbnail;
+          const specialTags = inferLuminTags(gameName, gameId);
+          return {
+            id: `lumin-${gameId}`,
+            name: gameName,
+            cover: imageToken
+              ? (String(imageToken).startsWith("http") ? imageToken : `/api/lumin-icon/${imageToken}`)
+              : "",
+            url: `lumin:${gameId}`,
+            author: undefined,
+            featured: false,
+            special: specialTags,
+            source: "luminsdk",
+            luminId: gameId,
+            _search: (gameName + " " + specialTags.join(" ")).toLowerCase(),
+          };
+        });
+      }
+    }
+  } catch {}
+
   try {
     const response = await fetch("/api/lumin-games");
     if (!response.ok) {

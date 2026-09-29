@@ -5655,7 +5655,9 @@ Platform context:
       const targetUrl = `https://a.luminsdk.com/api/v1/assets/${freshToken}`;
       
       try {
-        const response = await fetch(targetUrl);
+        const response = await fetch(targetUrl, {
+          headers: { "X-Session": sessionId }
+        });
         const contentType = response.headers.get("content-type") || "";
         
         // If the fetch succeeds and actually returns an image file, proxy it!
