@@ -5701,6 +5701,38 @@ Platform context:
     }
   });
 
+  app.get("/api/proxy-cover", async (req, res) => {
+    try {
+      const targetUrl = req.query.url as string;
+      const gameName = (req.query.name as string) || "Game";
+      
+      if (targetUrl) {
+        try {
+          const response = await fetch(targetUrl);
+          const contentType = response.headers.get("content-type") || "";
+          if (response.ok && !contentType.includes("text/html")) {
+            res.setHeader("Content-Type", contentType);
+            res.setHeader("Cache-Control", "public, max-age=31536000");
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            return res.send(buffer);
+          }
+        } catch (e) {
+          // Fallback to SVG below
+        }
+      }
+      
+      const svg = generateGorgeousGameSvg(gameName);
+      res.setHeader("Content-Type", "image/svg+xml");
+      res.setHeader("Cache-Control", "public, max-age=31536000");
+      return res.send(svg);
+    } catch (err: any) {
+      const fallbackSvg = generateGorgeousGameSvg("Game");
+      res.setHeader("Content-Type", "image/svg+xml");
+      return res.send(fallbackSvg);
+    }
+  });
+
   // Custom Real-Time Database Engine Routes (Vercel & Local Node compatible)
   app.all(["/api/db/data", "/api/db/data/*"], async (req, res) => {
     try {

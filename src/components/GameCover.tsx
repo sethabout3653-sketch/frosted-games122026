@@ -56,20 +56,24 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
   if (cached) return cached;
 
   const sources: string[] = [];
+  const gameName = name || "Game";
+  const source = formatCoverUrl(cover);
 
-  // Prioritize our high-speed server SVG generator so covers load instantly without network lag
+  // Route through our server proxy first to bypass school Wi-Fi blocks (raw.githubusercontent.com, etc.)
+  if (source) {
+    sources.push(`/api/proxy-cover?url=${encodeURIComponent(source)}&name=${encodeURIComponent(gameName)}`);
+  }
+
   if (name) {
     const luminToken = findLuminIconForGame(name);
     if (luminToken) {
       sources.push(`/api/lumin-icon/${luminToken}`);
     } else {
-      // Synthetic fallback for any game name not in index
       const cleanSlug = name.toLowerCase().replace(/[^a-z0-9]/g, "");
       sources.push(`/api/lumin-icon/selenite/${cleanSlug}`);
     }
   }
 
-  const source = formatCoverUrl(cover);
   if (source) {
     sources.push(source);
     if (source.includes("raw.githubusercontent.com/")) {
