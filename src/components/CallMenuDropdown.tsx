@@ -170,8 +170,8 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, posi
               type="button"
               onClick={() => {
                 unlockMobileAudio();
-                onClose();
                 joinGeneralVoice();
+                onClose();
               }}
               className="mt-3 w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white transition-all cursor-pointer shadow-sm shadow-emerald-950/40 hover:scale-[1.01] active:scale-[0.99]"
             >

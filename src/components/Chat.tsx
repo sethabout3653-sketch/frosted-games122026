@@ -20,7 +20,7 @@ import VoiceChannel from "./VoiceChannel";
 import FriendsPanel from "./FriendsPanel";
 import { ChatProfile, ChatMessage } from "../types";
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
-import { saveUserProfile, setVoiceState } from "../lib/activity-tracker";
+import { saveUserProfile, setVoiceState, getSavedProfile } from "../lib/activity-tracker";
 import { wsClient } from "../lib/websocket-client";
 import { getOrCreateUserTag } from "../lib/friends";
 import { SOUND_ASSETS } from "../lib/ringtone-synthesizer";
@@ -60,46 +60,7 @@ export default function Chat({
   onVoiceSessionStarted?: () => void;
 }) {
   const [profile, setProfile] = useState<ChatProfile | null>(() => {
-    try {
-      // Optional url query for immediate multi-user testing (e.g. ?user=Alice)
-      const params = new URLSearchParams(window.location.search);
-      const urlUser = params.get("user");
-      if (urlUser) {
-        return {
-          uid: "user_" + urlUser.toLowerCase().replace(/[^a-z0-9]/g, ""),
-          username: urlUser.trim(),
-          photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(urlUser.trim())}`,
-        };
-      }
-
-      const sessionSaved = sessionStorage.getItem("frosted_chat_profile");
-      if (sessionSaved) {
-        const parsed = JSON.parse(sessionSaved);
-        if (parsed && parsed.username) {
-          return parsed;
-        }
-      }
-
-      const saved = localStorage.getItem("frosted_chat_profile");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.username) {
-          let tabId = sessionStorage.getItem("frosted_tab_id");
-          if (!tabId) {
-            tabId = Math.random().toString(36).substring(2, 6);
-            sessionStorage.setItem("frosted_tab_id", tabId);
-          }
-          const tabProfile = {
-            ...parsed,
-            uid: parsed.uid.includes("_tab_") ? parsed.uid : `${parsed.uid}_tab_${tabId}`,
-          };
-          sessionStorage.setItem("frosted_chat_profile", JSON.stringify(tabProfile));
-          return tabProfile;
-        }
-        localStorage.removeItem("frosted_chat_profile");
-      }
-    } catch (e) {}
-    return null;
+    return getSavedProfile();
   });
 
   const [activeTab, setActiveTab] = useState<"chat" | "voice" | "profile" | "friends">(initialTab || "chat");
@@ -119,15 +80,22 @@ export default function Chat({
 
   // Handle immediate joining to General Voice
   useEffect(() => {
-    // Wait for the profile to be ready before consuming the auto-join request.
-    // Chat stays mounted across view changes, so this also covers profiles that
-    // finish loading after the call menu is clicked.
-    if (autoJoinVoice && profile) {
+    if (autoJoinVoice) {
       setActiveTab("voice");
       setIsInVoiceSession(true);
       onVoiceSessionStarted?.();
     }
-  }, [autoJoinVoice, onVoiceSessionStarted, profile]);
+  }, [autoJoinVoice, onVoiceSessionStarted]);
+
+  // Global event listener for instant joining to General Voice from anywhere (e.g. Voice Lounge button)
+  useEffect(() => {
+    const handleGlobalJoinVoice = () => {
+      setActiveTab("voice");
+      setIsInVoiceSession(true);
+    };
+    window.addEventListener("join_general_voice", handleGlobalJoinVoice);
+    return () => window.removeEventListener("join_general_voice", handleGlobalJoinVoice);
+  }, []);
 
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
   const [rawVoiceUsers, setRawVoiceUsers] = useState<

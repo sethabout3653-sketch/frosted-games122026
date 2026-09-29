@@ -95,6 +95,9 @@ function AppContent() {
       setCurrentView("chat");
       setChatInitialTab("voice");
       setAutoJoinVoice(true);
+      try {
+        window.dispatchEvent(new CustomEvent("join_general_voice"));
+      } catch (e) {}
     });
   }, [setOnOpenGroupVoice]);
 
