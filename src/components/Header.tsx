@@ -86,15 +86,15 @@ const Header = memo(function Header({
   return (
     <header
       id="app-header"
-      className="sticky top-0 z-40 w-full border-b border-[var(--theme-border-subtle)] bg-[var(--theme-darkest)]/95 px-3 sm:px-6 py-2.5 shadow-xl shadow-black/50 transition-all duration-200"
+      className="sticky top-0 z-40 w-full border-b border-[var(--theme-border-subtle)] bg-[var(--theme-darkest)]/90 px-3 sm:px-6 py-2.5 shadow-xl shadow-black/40 transition-all duration-200"
     >
       <div className="mx-auto flex max-w-7xl flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
-        {/* Brand Logo & Primary View Tabs */}
-        <div className="flex items-center justify-between gap-3 sm:gap-4 flex-wrap">
+        {/* Brand Logo & Primary View Dock (Visible on Mobile, seamlessly integrated with Sidebar on Desktop) */}
+        <div className="flex items-center justify-between gap-3 sm:gap-4 flex-wrap md:hidden">
           <button
             id="frosted-logo-btn"
             onClick={handleLogoClick}
-            className="flex items-center gap-2.5 text-left group cursor-pointer focus:outline-none rounded-2xl transition-all duration-200 active:scale-95 shrink-0"
+            className="flex items-center gap-2.5 text-left group cursor-pointer focus:outline-none rounded-xl transition-all duration-200 active:scale-95 shrink-0"
             title="Frosted Studying Home"
           >
             <div
@@ -102,31 +102,28 @@ const Header = memo(function Header({
                 backgroundColor: "var(--theme-surface)",
                 borderColor: "var(--theme-border-strong)",
               }}
-              className="relative flex h-9.5 w-9.5 items-center justify-center rounded-2xl text-white border shadow-lg shadow-[var(--theme-darkest)] transition-all duration-300 group-hover:scale-105 group-hover:border-white/40"
+              className="relative flex h-8 w-8 items-center justify-center rounded-xl text-white border shadow-md shadow-[var(--theme-darkest)] transition-all duration-200 group-hover:scale-105 group-hover:border-white/30"
             >
               <Snowflake
-                size={20}
-                className="text-[var(--theme-text-accent)] transition-transform duration-500 group-hover:rotate-90 group-hover:scale-110"
+                size={16}
+                className="text-[var(--theme-text-accent)] transition-transform duration-300 group-hover:rotate-45"
               />
               <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400" />
             </div>
-            <div className="flex flex-col">
-              <span className="text-base sm:text-lg font-black tracking-tight text-white group-hover:text-[var(--theme-text-accent)] transition-colors flex items-center gap-1.5">
-                Frosted Studying
-              </span>
-              <span className="text-[10px] text-[var(--theme-text-muted)] font-medium -mt-1 hidden sm:inline">
-                Cozy games & study hub
+            <div className="flex items-center gap-1.5">
+              <span className="text-base font-bold tracking-tight text-white group-hover:text-[var(--theme-text-accent)] transition-colors">
+                Frosted
               </span>
             </div>
           </button>
 
-          {/* Frosted Navigation Mode Tabs */}
+          {/* Frosted Navigation Segmented Dock */}
           <nav
             style={{
               backgroundColor: "var(--theme-surface)",
               borderColor: "var(--theme-border-subtle)",
             }}
-            className="flex items-center gap-1 p-1 rounded-2xl border shadow-inner flex-wrap sm:flex-nowrap"
+            className="flex items-center gap-0.5 p-1 rounded-xl border shadow-inner flex-wrap sm:flex-nowrap"
           >
             {/* Games Hub Tab */}
             <button
@@ -135,15 +132,15 @@ const Header = memo(function Header({
               onClick={onGoHome}
               style={{
                 backgroundColor: isHome ? "var(--theme-accent)" : "transparent",
-                borderColor: isHome ? "var(--theme-border)" : "transparent",
+                borderColor: isHome ? "var(--theme-border-strong)" : "transparent",
               }}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all duration-150 cursor-pointer ${
                 isHome
-                  ? "text-white shadow-md ring-1 ring-white/20 bg-[var(--theme-accent)]"
+                  ? "text-white shadow-sm ring-1 ring-white/20 font-bold"
                   : "text-neutral-400 hover:text-white hover:bg-white/5"
               }`}
             >
-              <Gamepad2 size={15} className={isHome ? "text-[var(--theme-text-accent)]" : ""} />
+              <Gamepad2 size={14} className={isHome ? "text-white" : "text-neutral-400"} />
               <span>Games</span>
             </button>
 
@@ -154,16 +151,16 @@ const Header = memo(function Header({
               onClick={onChatClick}
               style={{
                 backgroundColor: isChat ? "var(--theme-accent)" : "transparent",
-                borderColor: isChat ? "var(--theme-border)" : "transparent",
+                borderColor: isChat ? "var(--theme-border-strong)" : "transparent",
               }}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all duration-150 cursor-pointer ${
                 isChat
-                  ? "text-white shadow-md ring-1 ring-white/20 bg-[var(--theme-accent)]"
+                  ? "text-white shadow-sm ring-1 ring-white/20 font-bold"
                   : "text-neutral-400 hover:text-white hover:bg-white/5"
               }`}
               title="Social Chat"
             >
-              <MessageSquare size={15} className={isChat ? "text-[var(--theme-text-accent)]" : ""} />
+              <MessageSquare size={14} className={isChat ? "text-white" : "text-neutral-400"} />
               <span>Chat</span>
             </button>
 
@@ -174,16 +171,16 @@ const Header = memo(function Header({
               onClick={onAssistantClick}
               style={{
                 backgroundColor: isAssistant ? "var(--theme-accent)" : "transparent",
-                borderColor: isAssistant ? "var(--theme-border)" : "transparent",
+                borderColor: isAssistant ? "var(--theme-border-strong)" : "transparent",
               }}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all duration-150 cursor-pointer ${
                 isAssistant
-                  ? "text-white shadow-md ring-1 ring-white/20 bg-[var(--theme-accent)]"
+                  ? "text-white shadow-sm ring-1 ring-white/20 font-bold"
                   : "text-neutral-400 hover:text-white hover:bg-white/5"
               }`}
               title="Study Assistant"
             >
-              <Sparkles size={15} className={isAssistant ? "text-amber-300 animate-pulse" : "text-[var(--theme-text-accent)]"} />
+              <Sparkles size={14} className={isAssistant ? "text-amber-300 animate-pulse" : "text-amber-400"} />
               <span>Assistant</span>
             </button>
 
@@ -194,16 +191,16 @@ const Header = memo(function Header({
               onClick={onYouTubeClick}
               style={{
                 backgroundColor: isYouTube ? "var(--theme-accent)" : "transparent",
-                borderColor: isYouTube ? "var(--theme-border)" : "transparent",
+                borderColor: isYouTube ? "var(--theme-border-strong)" : "transparent",
               }}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all duration-150 cursor-pointer ${
                 isYouTube
-                  ? "text-white shadow-md ring-1 ring-white/20 bg-[var(--theme-accent)]"
+                  ? "text-white shadow-sm ring-1 ring-white/20 font-bold"
                   : "text-neutral-400 hover:text-white hover:bg-white/5"
               }`}
               title="Music & Lo-Fi"
             >
-              <Music size={15} className={isYouTube ? "text-white" : "text-[var(--theme-text-accent)]"} />
+              <Music size={14} className={isYouTube ? "text-white" : "text-neutral-400"} />
               <span>Music</span>
             </button>
 
@@ -215,19 +212,19 @@ const Header = memo(function Header({
                 onClick={() => setIsCallMenuOpen(!isCallMenuOpen)}
                 style={{
                   backgroundColor: isCallMenuOpen ? "var(--theme-accent)" : "transparent",
-                  borderColor: isCallMenuOpen ? "var(--theme-border)" : "transparent",
+                  borderColor: isCallMenuOpen ? "var(--theme-border-strong)" : "transparent",
                 }}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all duration-150 cursor-pointer ${
                   isCallMenuOpen
-                    ? "text-white shadow-md ring-1 ring-white/20 bg-[var(--theme-accent)]"
+                    ? "text-white shadow-sm ring-1 ring-white/20 font-bold"
                     : "text-neutral-400 hover:text-white hover:bg-white/5"
                 }`}
                 title="Voice Calls"
               >
-                <Phone size={14} className={isCallMenuOpen || onlineUsers.length > 0 ? "text-emerald-400" : ""} />
+                <Phone size={13} className={isCallMenuOpen || onlineUsers.length > 0 ? "text-emerald-400" : "text-neutral-400"} />
                 <span>Call</span>
                 {onlineUsers.length > 0 && (
-                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                     {onlineUsers.length}
                   </span>
                 )}
@@ -242,9 +239,9 @@ const Header = memo(function Header({
           </nav>
         </div>
 
-        {/* Right Search, Quick Filter, Theme & Settings */}
+        {/* Right Controls: Search, Quick Filter, Palette & Settings */}
         <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap">
-          {/* Search Bar */}
+          {/* Search Bar with Keyboard Hint */}
           <div className="relative flex-1 sm:w-64 lg:w-60">
             <Search className="absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-[var(--theme-text-muted)] pointer-events-none" />
             <input
@@ -257,9 +254,9 @@ const Header = memo(function Header({
                 backgroundColor: "var(--theme-surface)",
                 borderColor: "var(--theme-border-subtle)",
               }}
-              className="h-9 w-full rounded-xl border pl-9 pr-7 text-xs text-white placeholder-neutral-500 transition-all duration-200 focus:outline-none focus:ring-1 focus:ring-[var(--theme-border-strong)] focus:border-transparent"
+              className="h-9 w-full rounded-xl border pl-9 pr-7 text-xs text-white placeholder-neutral-500 transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-[var(--theme-border-strong)] focus:border-transparent font-medium"
             />
-            {searchQuery && (
+            {searchQuery ? (
               <button
                 type="button"
                 onClick={handleClearSearch}
@@ -268,7 +265,7 @@ const Header = memo(function Header({
               >
                 <X size={13} />
               </button>
-            )}
+            ) : null}
           </div>
 
           {/* Random Game Launcher Button */}
@@ -280,7 +277,7 @@ const Header = memo(function Header({
                 backgroundColor: "var(--theme-surface)",
                 borderColor: "var(--theme-border-subtle)",
               }}
-              className="h-9 px-3 rounded-xl border text-xs font-bold text-neutral-300 hover:text-white hover:border-[var(--theme-border)] transition-all cursor-pointer flex items-center gap-1.5 shrink-0 shadow-sm active:scale-95"
+              className="h-9 px-3 rounded-xl border text-xs font-semibold text-neutral-300 hover:text-white hover:border-[var(--theme-border-strong)] transition-all cursor-pointer flex items-center gap-1.5 shrink-0 shadow-sm active:scale-95"
               title="Play a random game"
             >
               <Shuffle size={13} className="text-amber-400" />
@@ -297,24 +294,24 @@ const Header = memo(function Header({
               backgroundColor: selectedTag === "favorites" ? "rgba(244, 63, 94, 0.2)" : "var(--theme-surface)",
               borderColor: selectedTag === "favorites" ? "rgba(244, 63, 94, 0.6)" : "var(--theme-border-subtle)",
             }}
-            className={`h-9 px-3 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`h-9 px-3 rounded-xl border text-xs font-semibold transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
               selectedTag === "favorites"
-                ? "text-rose-300 ring-1 ring-rose-500/40 shadow-md shadow-rose-950/40"
+                ? "text-rose-200 ring-1 ring-rose-500/30 shadow-sm font-bold"
                 : "text-neutral-300 hover:text-white hover:border-white/20"
             }`}
             title="Favorites"
           >
             <Heart
               size={13}
-              className={`transition-transform duration-200 ${
+              className={`transition-transform duration-150 ${
                 selectedTag === "favorites"
                   ? "fill-rose-400 text-rose-400 scale-110"
-                  : "text-rose-400/80"
+                  : "text-rose-400"
               }`}
             />
             <span className="hidden sm:inline">Favorites</span>
             <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-extrabold ${
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
                 selectedTag === "favorites"
                   ? "bg-rose-500 text-white"
                   : "bg-white/10 text-neutral-300"
@@ -334,7 +331,7 @@ const Header = memo(function Header({
                 backgroundColor: "var(--theme-surface)",
                 borderColor: "var(--theme-border-subtle)",
               }}
-              className="h-9 rounded-xl border px-3 text-xs text-neutral-200 focus:outline-none focus:ring-1 focus:ring-[var(--theme-border-strong)] cursor-pointer transition-all duration-200 font-medium"
+              className="h-9 rounded-xl border px-3 text-xs text-neutral-200 focus:outline-none focus:ring-1 focus:ring-[var(--theme-border-strong)] cursor-pointer transition-all duration-150 font-medium"
             >
               <option value="all" style={{ backgroundColor: "var(--theme-darkest)" }} className="text-white">
                 All Genres
@@ -350,7 +347,7 @@ const Header = memo(function Header({
             </select>
           </div>
 
-          {/* Theme Color Wheel Button */}
+          {/* Theme Palette Button */}
           <button
             id="frosted-theme-btn"
             type="button"
@@ -359,7 +356,7 @@ const Header = memo(function Header({
               backgroundColor: "var(--theme-surface)",
               borderColor: "var(--theme-border-subtle)",
             }}
-            className="h-9 px-3 rounded-xl border text-white transition-all duration-200 cursor-pointer flex items-center gap-2 shadow-sm hover:border-[var(--theme-border-strong)] active:scale-95 shrink-0"
+            className="h-9 px-3 rounded-xl border text-white transition-all duration-150 cursor-pointer flex items-center gap-2 shadow-sm hover:border-[var(--theme-border-strong)] active:scale-95 shrink-0"
             title="Palette & Atmosphere"
             aria-label="Palette & Atmosphere"
           >
@@ -367,7 +364,7 @@ const Header = memo(function Header({
               className="w-3.5 h-3.5 rounded-full border border-white/80 shadow-sm shrink-0 ring-1 ring-white/20"
               style={{
                 background:
-                  "conic-gradient(from 0deg, #00ffff, #00ff66, #80ff00, #ffff00, #ff0000, #ff00ff, #0000ff, #00ffff)",
+                  "conic-gradient(from 0deg, #60a5fa, #34d399, #f59e0b, #f43f5e, #a855f7, #60a5fa)",
               }}
             />
             <span className="text-xs font-semibold hidden md:inline">Theme</span>
@@ -382,11 +379,11 @@ const Header = memo(function Header({
               backgroundColor: "var(--theme-surface)",
               borderColor: "var(--theme-border-subtle)",
             }}
-            className="h-9 w-9 rounded-xl border text-white transition-all duration-200 cursor-pointer flex items-center justify-center shadow-sm hover:border-[var(--theme-border-strong)] active:scale-95 shrink-0"
+            className="h-9 w-9 rounded-xl border text-white transition-all duration-150 cursor-pointer flex items-center justify-center shadow-sm hover:border-[var(--theme-border-strong)] active:scale-95 shrink-0"
             title="Settings & Tab Cloaking"
             aria-label="Settings"
           >
-            <SlidersHorizontal size={15} className="text-neutral-300 hover:text-white" />
+            <SlidersHorizontal size={14} className="text-neutral-300 hover:text-white" />
           </button>
         </div>
       </div>

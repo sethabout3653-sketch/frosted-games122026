@@ -104,43 +104,29 @@ const GameCard = memo(function GameCard({
 
         {/* Top Reaction Badge if any */}
         {topReaction && (
-          <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-lg bg-black/85 px-1.5 py-0.5 text-[9px] font-bold text-white border border-white/10 shadow-md">
+          <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-medium text-white border border-white/10 shadow-sm backdrop-blur-sm">
             <span>{topReaction.key}</span>
             <span className="text-[8px] text-neutral-300 font-mono">{topReaction.count}</span>
           </div>
         )}
-
-        {/* Tags Overlay */}
-        <div className="absolute bottom-2 left-2 right-2 z-10 flex flex-wrap gap-1">
-          {isMod ? (
-            <span className="rounded-md bg-indigo-600/95 text-white px-1.5 py-0.5 text-[8px] font-extrabold uppercase tracking-wider shadow-sm border border-indigo-400/40">
-              FNF Mod
-            </span>
-          ) : isFnf ? (
-            <span className="rounded-md bg-black/90 px-1.5 py-0.5 text-[8px] font-extrabold uppercase tracking-wider text-indigo-200 border border-white/10">
-              FNF
-            </span>
-          ) : null}
-
-          {tagsToShow.map((tag) => (
-            <span
-              key={tag}
-              className="rounded-md bg-black/85 px-1.5 py-0.5 text-[8px] font-bold text-neutral-200 uppercase tracking-wider border border-white/10"
-            >
-              {formatTagLabel(tag)}
-            </span>
-          ))}
-        </div>
       </div>
 
       {/* Meta Text */}
-      <div className="mt-2.5 px-1 pb-1">
-        <h3 className="truncate text-xs font-bold tracking-tight text-neutral-100 group-hover:text-[var(--theme-text-accent)] transition-colors">
+      <div className="mt-2 px-1 pb-0.5">
+        <h3 className="truncate text-xs sm:text-sm font-semibold tracking-tight text-neutral-100 group-hover:text-white transition-colors">
           {game.name}
         </h3>
-        <p className="mt-0.5 truncate text-[10px] text-neutral-400 font-medium">
-          {game.author || (isMod ? "FNF Community Mod" : isFnf ? "Friday Night Funkin" : tagsToShow.length > 0 ? formatTagLabel(tagsToShow[0]) : "Arcade")}
-        </p>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--theme-text-muted)] font-normal truncate">
+          <span className="truncate">
+            {game.author || (isMod ? "FNF Mod" : isFnf ? "FNF" : tagsToShow.length > 0 ? formatTagLabel(tagsToShow[0]) : "Arcade")}
+          </span>
+          {tagsToShow.length > 0 && game.author && (
+            <>
+              <span className="text-neutral-600" aria-hidden="true">·</span>
+              <span className="truncate text-neutral-400 font-normal">{formatTagLabel(tagsToShow[0])}</span>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
