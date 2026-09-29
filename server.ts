@@ -5489,392 +5489,212 @@ Platform context:
     return cachedLuminSessionId || "60919094aa4265e2fd2bc9e9b1874e4e";
   }
 
-  // Proxies Lumin session creation
-  app.all(["/api/lumin/session", "/api/lumin-session"], async (_req, res) => {
+  // 100% Server-side unblocked proxy routes for school Wi-Fi bypass (e.g. GoGuardian, Securly, "greatkids")
+  app.post("/api/lumin-session", async (req, res) => {
     try {
       const sessionId = await getLuminSessionId();
       return res.json({ session_id: sessionId });
     } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message || "Session error" });
     }
   });
 
-  // Proxies full Lumin game catalog
-  app.get(["/api/lumin/games", "/api/lumin-games"], async (_req, res) => {
+  app.get("/api/lumin-games", async (req, res) => {
     try {
       const sessionId = await getLuminSessionId();
       const response = await fetch("https://a.luminsdk.com/api/v1/games?limit=5000", {
         headers: { "X-Session": sessionId },
       });
       if (!response.ok) {
-        return res.status(response.status).json({ error: "Failed to fetch games from Lumin" });
+        throw new Error("Lumin API returned non-OK status");
       }
       const data = await response.json();
       return res.json(data);
     } catch (err: any) {
-      console.error("Error proxying lumin games:", err);
-      return res.status(500).json({ error: err.message });
+      console.error("Error proxying lumin games list:", err);
+      return res.status(500).json({ error: err.message || "Failed to fetch games list" });
     }
   });
 
-  // Resolves a single Lumin game's playable frame and asset tokens
-  app.get(["/api/lumin/game/*", "/api/lumin-game/*"], async (req, res) => {
+  app.get("/api/lumin-game-url/*", async (req, res) => {
     try {
-      let gameId = (req.params as any)[0] || req.path.replace(/^\/api\/(lumin\/game|lumin-game)\//, "");
+      const gameId = (req.params as any)[0] || req.path.replace("/api/lumin-game-url/", "");
       if (!gameId) {
         return res.status(400).json({ error: "Missing game ID" });
       }
-      gameId = decodeURIComponent(gameId).trim();
       
       const sessionId = await getLuminSessionId();
-      const response = await fetch(`https://a.luminsdk.com/api/v1/games/${encodeURIComponent(gameId)}`, {
+      const response = await fetch(`https://a.luminsdk.com/api/v1/games/${gameId}`, {
         headers: { "X-Session": sessionId },
       });
-      
       if (!response.ok) {
-        // Fallback retry with raw game ID if encode differed
-        const fallbackRes = await fetch(`https://a.luminsdk.com/api/v1/games/${gameId}`, {
-          headers: { "X-Session": sessionId },
-        });
-        if (fallbackRes.ok) {
-          const gameData = await fallbackRes.json();
-          const frameToken = gameData.frame_token || "";
-          const assetToken = gameData.asset_token || "";
-          const directPlayUrl = frameToken ? `https://a.luminsdk.com/g/${frameToken}/${gameData.id || gameId}/` : "";
-          return res.json({
-            ...gameData,
-            direct_play_url: directPlayUrl,
-            frame_url: frameToken ? `/api/lumin/frame/${frameToken}` : "",
-            asset_url: assetToken ? `/api/lumin/assets/${assetToken}` : "",
-          });
-        }
-        return res.status(response.status).json({ error: "Game not found on Lumin" });
+        throw new Error(`Failed to fetch game details from Lumin: ${response.statusText}`);
       }
-      
-      const gameData = await response.json();
-      const frameToken = gameData.frame_token || "";
-      const assetToken = gameData.asset_token || "";
-      const directPlayUrl = frameToken ? `https://a.luminsdk.com/g/${frameToken}/${gameData.id || gameId}/` : "";
-      
-      return res.json({
-        ...gameData,
-        direct_play_url: directPlayUrl,
-        frame_url: frameToken ? `/api/lumin/frame/${frameToken}` : "",
-        asset_url: assetToken ? `/api/lumin/assets/${assetToken}` : "",
-      });
+      const data = await response.json();
+      const directUrl = data.url || data.play_url || data.game_url || (data.game && data.game.url);
+      if (directUrl) {
+        return res.json({ url: directUrl });
+      }
+      return res.status(404).json({ error: "Play URL not found" });
     } catch (err: any) {
-      console.error("Error proxying lumin game:", err);
-      return res.status(500).json({ error: err.message });
+      console.error("Error proxying game url:", err);
+      return res.status(500).json({ error: err.message || "Failed to fetch game URL" });
     }
   });
 
-  // Proxies and renders the playable Lumin frame HTML
-  app.get(["/api/lumin/frame/*", "/api/lumin-frame/*"], async (req, res) => {
+  let luminGamesList: any[] = [];
+  try {
+    const jsonPath = path.join(process.cwd(), "src", "lumin-games.json");
+    if (fs.existsSync(jsonPath)) {
+      luminGamesList = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
+    }
+  } catch (e) {
+    console.warn("Could not load lumin-games.json on server startup", e);
+  }
+
+  function generateGorgeousGameSvg(gameName: string): string {
+    let hash = 0;
+    for (let i = 0; i < gameName.length; i++) {
+      hash = gameName.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    hash = Math.abs(hash);
+
+    const gradients = [
+      { start: "#1e1b4b", middle: "#312e81", end: "#4338ca", accent: "#818cf8" }, // Indigo Night
+      { start: "#2e1065", middle: "#4c1d95", end: "#6d28d9", accent: "#a78bfa" }, // Deep Purple
+      { start: "#4c051e", middle: "#881337", end: "#be123c", accent: "#fb7185" }, // Rose Velvet
+      { start: "#022c22", middle: "#064e3b", end: "#047857", accent: "#34d399" }, // Emerald Forest
+      { start: "#172554", middle: "#1e3a8a", end: "#1d4ed8", accent: "#60a5fa" }, // Classic Blue
+      { start: "#451a03", middle: "#7c2d12", end: "#c2410c", accent: "#fb923c" }  // Autumn Fire
+    ];
+
+    const theme = gradients[hash % gradients.length];
+    const title = gameName.trim() || "Unblocked Game";
+    
+    const words = title.split(/\s+/);
+    let line1 = title;
+    let line2 = "";
+    
+    if (words.length > 2 && title.length > 14) {
+      const splitIndex = Math.ceil(words.length / 2);
+      line1 = words.slice(0, splitIndex).join(" ");
+      line2 = words.slice(splitIndex).join(" ");
+    }
+
+    let fontSize1 = 38;
+    if (line1.length > 12) fontSize1 = 30;
+    if (line1.length > 18) fontSize1 = 24;
+
+    let fontSize2 = 38;
+    if (line2.length > 12) fontSize2 = 30;
+    if (line2.length > 18) fontSize2 = 24;
+
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+      <defs>
+        <linearGradient id="grad-${hash}" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="${theme.start}" />
+          <stop offset="50%" stop-color="${theme.middle}" />
+          <stop offset="100%" stop-color="${theme.end}" />
+        </linearGradient>
+        <linearGradient id="glow" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="white" stop-opacity="0.15" />
+          <stop offset="100%" stop-color="white" stop-opacity="0.0" />
+        </linearGradient>
+        <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+          <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="black" flood-opacity="0.6"/>
+        </filter>
+      </defs>
+
+      <rect width="512" height="512" rx="40" fill="url(#grad-${hash})" />
+      <rect width="512" height="512" rx="40" fill="url(#glow)" />
+
+      <g opacity="0.05">
+        <path d="M 0,64 L 512,64 M 0,128 L 512,128 M 0,192 L 512,192 M 0,256 L 512,256 M 0,320 L 512,320 M 0,384 L 512,384 M 0,448 L 512,448" stroke="white" stroke-width="2" />
+        <path d="M 64,0 L 64,512 M 128,0 L 128,512 M 192,0 L 192,512 M 256,0 L 256,512 M 320,0 L 320,512 M 384,0 L 384,512 M 448,0 L 448,512" stroke="white" stroke-width="2" />
+      </g>
+
+      <circle cx="80" cy="80" r="140" fill="none" stroke="${theme.accent}" stroke-width="1.5" opacity="0.15" />
+      <circle cx="440" cy="440" r="180" fill="none" stroke="${theme.accent}" stroke-width="1" stroke-dasharray="8 8" opacity="0.2" />
+      
+      <g transform="translate(146, 90)" filter="url(#shadow)">
+        <path d="M 20,40 C 20,20 40,15 60,15 L 60,15 C 80,15 100,20 120,20 C 140,20 160,15 180,15 L 180,15 C 200,15 220,20 220,40 C 220,65 240,110 210,125 C 195,132 170,110 160,100 C 140,95 100,95 80,100 C 70,110 45,132 30,125 C 0,110 20,65 20,40 Z" fill="white" opacity="0.9" />
+        <path d="M 55,42 L 65,42 L 65,32 L 71,32 L 71,42 L 81,42 L 81,48 L 71,48 L 71,58 L 65,58 L 65,48 L 55,48 Z" fill="${theme.middle}" opacity="0.75" />
+        <circle cx="160" cy="38" r="7" fill="${theme.middle}" opacity="0.75" />
+        <circle cx="178" cy="48" r="7" fill="${theme.middle}" opacity="0.75" />
+        <circle cx="160" cy="58" r="7" fill="${theme.middle}" opacity="0.75" />
+        <circle cx="142" cy="48" r="7" fill="${theme.middle}" opacity="0.75" />
+        <circle cx="95" cy="70" r="12" fill="${theme.start}" opacity="0.4" />
+        <circle cx="145" cy="70" r="12" fill="${theme.start}" opacity="0.4" />
+      </g>
+
+      <g transform="translate(256, 360)">
+        ${line2 ? `
+          <text x="0" y="-15" font-family="'Inter', -apple-system, system-ui, sans-serif" font-weight="900" font-size="${fontSize1}" fill="white" text-anchor="middle" letter-spacing="-0.5">${line1}</text>
+          <text x="0" y="25" font-family="'Inter', -apple-system, system-ui, sans-serif" font-weight="900" font-size="${fontSize2}" fill="${theme.accent}" text-anchor="middle" letter-spacing="-0.5">${line2}</text>
+        ` : `
+          <text x="0" y="5" font-family="'Inter', -apple-system, system-ui, sans-serif" font-weight="900" font-size="${fontSize1}" fill="white" text-anchor="middle" letter-spacing="-0.5">${line1}</text>
+        `}
+      </g>
+
+      <g transform="translate(256, 450)">
+        <rect x="-65" y="-14" width="130" height="28" rx="14" fill="black" fill-opacity="0.3" stroke="white" stroke-opacity="0.15" stroke-width="1" />
+        <text x="0" y="4" font-family="'Inter', -apple-system, system-ui, sans-serif" font-weight="bold" font-size="10" fill="white" fill-opacity="0.8" text-anchor="middle" letter-spacing="2">UNBLOCKED</text>
+      </g>
+    </svg>`;
+  }
+
+  app.get("/api/lumin-icon/*", async (req, res) => {
     try {
-      let token = (req.params as any)[0] || req.path.replace(/^\/api\/(lumin\/frame|lumin-frame)\//, "");
+      let token = (req.params as any)[0] || req.path.replace("/api/lumin-icon/", "");
       if (!token) {
-        return res.status(400).send("Missing frame token");
-      }
-      token = decodeURIComponent(token).trim();
-      
-      const targetUrl = `https://a.luminsdk.com/api/v1/frames/${token}`;
-      const response = await fetch(targetUrl);
-      
-      if (!response.ok) {
-        return res.status(response.status).send(`Failed to fetch frame from Lumin: ${response.statusText}`);
+        return res.status(400).send("Missing token");
       }
       
-      const contentType = response.headers.get("content-type") || "text/html; charset=utf-8";
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-      
-      const text = await response.text();
-      return res.send(text);
-    } catch (err: any) {
-      console.error("Error proxying lumin frame:", err);
-      return res.status(500).send(err.message);
-    }
-  });
-
-  // Proxies Lumin game assets and raw tokens
-  app.get(["/api/lumin/assets/*", "/api/lumin-asset/*", "/api/v1/assets/*"], async (req, res) => {
-    try {
-      let token = (req.params as any)[0] || req.path.replace(/^\/api\/(lumin\/assets|lumin-asset|v1\/assets)\//, "");
-      if (!token) {
-        return res.status(400).send("Missing asset token");
-      }
-      
-      const targetUrl = `https://a.luminsdk.com/api/v1/assets/${token}`;
-      const response = await fetch(targetUrl);
-      
-      if (!response.ok) {
-        return res.status(response.status).send(`Failed to fetch asset from Lumin: ${response.statusText}`);
-      }
-      
-      const contentType = response.headers.get("content-type");
-      if (contentType) {
-        res.setHeader("Content-Type", contentType);
-      }
-      
-      res.setHeader("Cache-Control", "public, max-age=31536000");
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      return res.send(buffer);
-    } catch (err: any) {
-      console.error("Error proxying lumin asset:", err);
-      return res.status(500).send(err.message);
-    }
-  });
-
-  // In-memory cache for resolved Lumin game images
-  const luminIconMemoryCache = new Map<string, { buffer: Buffer; contentType: string }>();
-
-  // Proxies Lumin cover images using authentic https://a.luminsdk.com/g/{frame_token}/{game_id}/icons/web-icon.png
-  app.get(["/api/lumin-icon/*", "/api/lumin/image/*", "/api/lumin-image/*"], async (req, res) => {
-    try {
-      res.header("Access-Control-Allow-Origin", "*");
-      res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-
-      let rawParam = (req.params as any)[0] || req.path.replace(/^\/api\/(lumin-icon|lumin\/image|lumin-image)\//, "");
-      if (!rawParam) {
-        return res.status(400).send("Missing game ID or token");
-      }
-      rawParam = decodeURIComponent(rawParam).trim();
-
-      // Check in-memory cache
-      const cached = luminIconMemoryCache.get(rawParam);
-      if (cached) {
-        res.setHeader("Content-Type", cached.contentType);
-        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-        return res.send(cached.buffer);
-      }
-
-      // Extract gameId from token if it starts with numbers-hash
-      // e.g., "1790715958-tNMJtR3h9U0Ml77WpI1CHwHapmu3k_vC3LTLnmZDy7k/selenite/ddlc" -> "selenite/ddlc"
-      let gameId = rawParam;
-      const matchSlug = rawParam.match(/(selenite\/[^/]+|[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)$/);
-      if (matchSlug && matchSlug[1]) {
-        gameId = matchSlug[1];
-      }
-
       const sessionId = await getLuminSessionId();
-
-      // Fetch game details to get fresh frame_token and image_token
-      let frameToken = "";
-      let imageToken = "";
+      const freshToken = token.replace(/^[^/]+/, sessionId);
+      const targetUrl = `https://a.luminsdk.com/api/v1/assets/${freshToken}`;
+      
       try {
-        const gameRes = await fetch(`https://a.luminsdk.com/api/v1/games/${gameId}`, {
-          headers: { "X-Session": sessionId },
-          signal: AbortSignal.timeout(4000)
-        });
-        if (gameRes.ok) {
-          const gameData = await gameRes.json();
-          frameToken = gameData.frame_token || "";
-          imageToken = gameData.image_token || "";
-          if (gameData.id) gameId = gameData.id;
+        const response = await fetch(targetUrl);
+        const contentType = response.headers.get("content-type") || "";
+        
+        // If the fetch succeeds and actually returns an image file, proxy it!
+        if (response.ok && !contentType.includes("text/html")) {
+          res.setHeader("Content-Type", contentType);
+          res.setHeader("Cache-Control", "public, max-age=31536000"); // Cache for 1 year
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          return res.send(buffer);
         }
-      } catch (e) {}
-
-      const candidates: string[] = [];
-
-      // 1. Direct playable web-icon.png URL pattern
-      if (frameToken) {
-        candidates.push(`https://a.luminsdk.com/g/${frameToken}/${gameId}/icons/web-icon.png`);
-        candidates.push(`https://a.luminsdk.com/g/${frameToken}/${gameId}/icon.png`);
-        candidates.push(`https://a.luminsdk.com/g/${frameToken}/${gameId}/icons/icon.png`);
+      } catch (fetchErr) {
+        // Continue to fallback SVG generation
       }
-
-      // 2. Official Lumin SDK API icon endpoint
-      if (imageToken) {
-        candidates.push(`https://a.luminsdk.com/api/v1/icon/${imageToken}`);
-      } else if (rawParam.includes("-") && rawParam.includes("/")) {
-        const freshToken = rawParam.replace(/^[^/]+/, sessionId);
-        candidates.push(`https://a.luminsdk.com/api/v1/icon/${freshToken}`);
-        candidates.push(`https://a.luminsdk.com/api/v1/icon/${rawParam}`);
+      
+      // FALLBACK: Generate a gorgeous custom un-themed game cover SVG dynamically!
+      let gameName = "";
+      const matchedGame = luminGamesList.find(g => 
+        token.includes(g.id) || 
+        g.image_token === token || 
+        token.includes(g.image_token)
+      );
+      
+      if (matchedGame) {
+        gameName = matchedGame.name;
+      } else {
+        const parts = token.split("/");
+        const lastPart = parts[parts.length - 1] || "Game";
+        gameName = lastPart.replace(/[-_]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
       }
-
-      // 3. Frame favicons
-      if (frameToken) {
-        candidates.push(`https://a.luminsdk.com/g/${frameToken}/${gameId}/favicon.png`);
-        candidates.push(`https://a.luminsdk.com/g/${frameToken}/${gameId}/favicon.ico`);
-      }
-
-      for (const candidateUrl of candidates) {
-        try {
-          const resp = await fetch(candidateUrl, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-              "X-Session": sessionId
-            },
-            signal: AbortSignal.timeout(3500)
-          });
-          if (resp.ok) {
-            const ct = (resp.headers.get("content-type") || "").toLowerCase();
-            if (ct.includes("image") || ct.includes("icon")) {
-              const arrayBuffer = await resp.arrayBuffer();
-              const buffer = Buffer.from(arrayBuffer);
-              const contentType = ct || "image/png";
-              luminIconMemoryCache.set(rawParam, { buffer, contentType });
-              luminIconMemoryCache.set(gameId, { buffer, contentType });
-              res.setHeader("Content-Type", contentType);
-              res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-              return res.send(buffer);
-            }
-          }
-        } catch (e) {}
-      }
-
-      // Fallback: try raw assets token if it was an asset token
-      if (rawParam.includes("/")) {
-        const freshToken = rawParam.replace(/^[^/]+/, sessionId);
-        try {
-          const assetRes = await fetch(`https://a.luminsdk.com/api/v1/assets/${freshToken}`, {
-            signal: AbortSignal.timeout(3500)
-          });
-          if (assetRes.ok) {
-            const ct = (assetRes.headers.get("content-type") || "").toLowerCase();
-            if (ct.includes("image")) {
-              const arrayBuffer = await assetRes.arrayBuffer();
-              const buffer = Buffer.from(arrayBuffer);
-              res.setHeader("Content-Type", ct);
-              res.setHeader("Cache-Control", "public, max-age=31536000");
-              return res.send(buffer);
-            }
-          }
-        } catch (e) {}
-      }
-
-      return res.status(404).send("Lumin game image not found");
+      
+      const svg = generateGorgeousGameSvg(gameName);
+      res.setHeader("Content-Type", "image/svg+xml");
+      res.setHeader("Cache-Control", "public, max-age=31536000");
+      return res.send(svg);
     } catch (err: any) {
       console.error("Error proxying lumin icon:", err);
-      return res.status(500).send(err.message);
-    }
-  });
-
-  // Generic Image Proxy Endpoint for LuminSDK and Web Games (bypasses CORS and restricted WiFis)
-  app.get(["/proxy-image", "/api/proxy-image"], async (req, res) => {
-    try {
-      res.header("Access-Control-Allow-Origin", "*");
-      res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-
-      const gameImageUrl = req.query.url as string;
-      if (!gameImageUrl) {
-        return res.status(400).send("Missing 'url' parameter.");
-      }
-
-      // Fetch the actual game image as arraybuffer
-      const response = await fetch(gameImageUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
-        }
-      });
-
-      if (!response.ok) {
-        return res.status(response.status).send(`Failed to fetch image: ${response.statusText}`);
-      }
-
-      const contentType = response.headers.get("content-type") || "image/png";
-      res.set("Content-Type", contentType);
-      res.set("Cache-Control", "public, max-age=31536000, immutable");
-
-      const arrayBuffer = await response.arrayBuffer();
-      return res.send(Buffer.from(arrayBuffer));
-    } catch (error: any) {
-      console.error("Error retrieving game image through proxy:", error);
-      return res.status(500).send("Error retrieving game image through proxy.");
-    }
-  });
-
-  // Game Favicon Resolver (uses the game URL's favicon for the game cover)
-  app.get(["/api/game-favicon", "/api/favicon"], async (req, res) => {
-    try {
-      res.header("Access-Control-Allow-Origin", "*");
-      res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-
-      let gameUrl = req.query.url as string;
-      if (!gameUrl) {
-        return res.status(400).send("Missing 'url' parameter.");
-      }
-
-      if (gameUrl.startsWith("http://")) gameUrl = gameUrl.replace("http://", "https://");
-      if (!gameUrl.startsWith("http")) {
-        return res.status(400).send("Invalid URL protocol.");
-      }
-
-      const parsedUrl = new URL(gameUrl);
-      let faviconUrl: string | null = null;
-
-      // Try fetching HTML of game page to locate <link rel="icon">
-      try {
-        const pageRes = await fetch(gameUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/*,*/*;q=0.8"
-          },
-          signal: AbortSignal.timeout(3500)
-        });
-
-        if (pageRes.ok) {
-          const contentType = pageRes.headers.get("content-type") || "";
-          if (contentType.includes("image/")) {
-            faviconUrl = gameUrl;
-          } else {
-            const html = await pageRes.text();
-            const iconMatch =
-              html.match(/<link[^>]+rel=["\x27][^"\x27]*icon[^"\x27]*["\x27][^>]+href=["\x27]([^"\x27]+)["\x27]/i) ||
-              html.match(/<link[^>]+href=["\x27]([^"\x27]+)["\x27][^>]+rel=["\x27][^"\x27]*icon[^"\x27]*["\x27]/i);
-            if (iconMatch && iconMatch[1]) {
-              faviconUrl = new URL(iconMatch[1], gameUrl).href;
-            }
-          }
-        }
-      } catch (e) {
-        // Fall back to direct favicon
-      }
-
-      if (!faviconUrl) {
-        // Try origin /favicon.ico
-        faviconUrl = `${parsedUrl.origin}/favicon.ico`;
-      }
-
-      // Fetch the actual favicon image
-      try {
-        const favRes = await fetch(faviconUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
-          },
-          signal: AbortSignal.timeout(3500)
-        });
-
-        if (favRes.ok) {
-          const mime = (favRes.headers.get("content-type") || "").toLowerCase();
-          if (mime.startsWith("image/") || mime.includes("icon") || (!mime.includes("text/html") && !mime.includes("text/plain"))) {
-            res.set("Content-Type", mime || "image/x-icon");
-            res.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
-            const buf = Buffer.from(await favRes.arrayBuffer());
-            return res.send(buf);
-          }
-        }
-      } catch (e) {}
-
-      // Fallback to Google favicon service (always returns reliable high-res png)
-      try {
-        const googleFavicon = `https://www.google.com/s2/favicons?domain=${parsedUrl.hostname}&sz=128`;
-        const gRes = await fetch(googleFavicon);
-        if (gRes.ok) {
-          const gMime = gRes.headers.get("content-type") || "image/png";
-          res.set("Content-Type", gMime);
-          res.set("Cache-Control", "public, max-age=86400");
-          return res.send(Buffer.from(await gRes.arrayBuffer()));
-        }
-      } catch (e) {}
-
-      return res.status(404).send("Favicon not found");
-    } catch (error: any) {
-      console.error("Error retrieving game favicon:", error);
-      return res.status(500).send("Error retrieving game favicon.");
+      const fallbackSvg = generateGorgeousGameSvg("Lumin Game");
+      res.setHeader("Content-Type", "image/svg+xml");
+      return res.send(fallbackSvg);
     }
   });
 

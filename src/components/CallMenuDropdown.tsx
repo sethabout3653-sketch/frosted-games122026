@@ -269,14 +269,32 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, posi
 
             {/* Contact List */}
             {onlineUsers.length === 0 ? (
-              <div className="p-4 rounded-xl border border-white/5 bg-black/20 text-center space-y-2">
+              <div className="p-4 rounded-xl border border-white/5 bg-black/20 text-center space-y-3">
                 <div className="w-9 h-9 rounded-full bg-white/5 text-neutral-400 flex items-center justify-center mx-auto">
                   <User size={16} />
                 </div>
-                <p className="text-xs text-neutral-300 font-medium">No contacts online right now</p>
-                <p className="text-[11px] text-neutral-500 leading-relaxed max-w-xs mx-auto">
-                  When other people open the app, they appear here for direct voice and video calls.
-                </p>
+                <div>
+                  <p className="text-xs text-neutral-300 font-medium">No contacts online right now</p>
+                  <p className="text-[11px] text-neutral-500 leading-relaxed max-w-xs mx-auto mt-0.5">
+                    When other people open the app, they appear here for direct voice and video calls.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    unlockMobileAudio();
+                    startDirectCall({
+                      uid: "echo_bot_assistant",
+                      username: "Echo Companion Bot",
+                      photoURL: "https://api.dicebear.com/7.x/bottts/svg?seed=EchoCompanion"
+                    }, "audio");
+                    onClose();
+                  }}
+                  className="w-full py-2 px-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:scale-[1.01]"
+                >
+                  <Phone size={13} className="text-emerald-400" />
+                  <span>Test Echo Direct Call</span>
+                </button>
               </div>
             ) : filteredUsers.length === 0 ? (
               <div className="p-3 text-center text-xs text-neutral-400">

@@ -80,10 +80,10 @@ export default function Chat({
   const [notification, setNotification] = useState<ChatMessage | null>(null);
   const messageSoundRef = useRef<HTMLAudioElement | null>(null);
 
-  // Sync tab when initialTab changes
+  // Sync tab when initialTab changes from parent
   useEffect(() => {
     if (initialTab) {
-      setActiveTab(initialTab);
+      setActiveTabState(initialTab);
     }
   }, [initialTab]);
 

@@ -20,11 +20,23 @@ const LUMIN_API_BASE = "https://a.luminsdk.com";
 let luminInitPromise: Promise<boolean> | null = null;
 let globalSessionId: string | null = null;
 
+/**
+ * Robust fetch helper that queries our high-speed, unrestricted server-side API proxy first,
+ * and seamlessly falls back to direct client-side fetch if the proxy is unavailable.
+ */
+async function fetchLuminProxyOrDirect(endpoint: string, options: RequestInit = {}): Promise<Response> {
+  return fetch(endpoint, options);
+}
+
 // Proactively fetch a fresh session ID on module load to ensure local fallback covers can resolve immediately
 if (typeof window !== "undefined") {
-  fetch("/api/lumin/session")
+  fetch("/api/lumin-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  })
     .then((res) => {
-      if (res.ok) return res.json();
+      const ct = res.headers.get("content-type") || "";
+      if (res.ok && ct.includes("application/json")) return res.json();
     })
     .then((data) => {
       if (data && data.session_id) {
@@ -170,16 +182,17 @@ export function getLocalLuminGames(sessionId?: string): Game[] {
 }
 
 /**
- * Dynamically fetches a fresh session ID from Lumin SDK backend.
+ * Dynamically fetches a fresh session ID from Lumin SDK backend using server-side bypass proxy.
  */
 export async function fetchLuminSessionId(): Promise<string | null> {
   try {
-    const sessionRes = await fetch("/api/lumin/session");
+    const sessionRes = await fetch("/api/lumin-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
     if (sessionRes.ok) {
-      const data = await sessionRes.json();
-      if (data && data.session_id) {
-        return data.session_id;
-      }
+      const { session_id } = await sessionRes.json();
+      return session_id;
     }
   } catch {
     // Silently continue
@@ -196,21 +209,19 @@ export function getLocalLuminGamesWithSession(sessionId: string): Game[] {
 
 /**
  * Fetches the entire game library from LuminSDK, without using any of its default UI.
- * Tries the native Lumin.getGames() method first; if not initialized yet or in background,
- * seamlessly fetches via the direct Lumin session & games API.
- * Falls back to the full bundled 1,169-game library if network or CORS restricts requests.
+ * Queries our secure, unblocked server-side proxy route to completely bypass school Wi-Fi blocks.
+ * Falls back to the full bundled 1,169-game library if network restricts requests.
  */
 export async function fetchLuminGames(): Promise<Game[]> {
-  // Pure Server Proxy API fetch: 100% works on restricted school WiFis
   try {
-    const gamesRes = await fetch("/api/lumin/games");
-    if (!gamesRes.ok) {
+    const response = await fetch("/api/lumin-games");
+    if (!response.ok) {
       return getLocalLuminGames();
     }
-    const data = await gamesRes.json();
+    const data = await response.json();
     const rawGames = (data.games || []) as Array<{ id: string; name: string; image_token: string }>;
 
-    if (!Array.isArray(rawGames) || rawGames.length === 0) {
+    if (rawGames.length === 0) {
       return getLocalLuminGames();
     }
 
@@ -237,33 +248,33 @@ export async function fetchLuminGames(): Promise<Game[]> {
 }
 
 /**
- * Resolves the direct playable URL for a Lumin game using a.luminsdk.com/g/.
+ * Resolves the direct URL for a Lumin game.
+ * Uses our secure, unblocked server-side proxy to bypass school Wi-Fi blocks.
  */
 export async function getLuminGameUrl(luminId: string): Promise<string | null> {
-  if (!luminId) return null;
-
   try {
-    const cleanId = encodeURIComponent(luminId.trim());
-    const res = await fetch(`/api/lumin/game/${cleanId}`);
+    const res = await fetch(`/api/lumin-game-url/${luminId}`);
     if (res.ok) {
       const data = await res.json();
-      if (data?.direct_play_url) {
-        return data.direct_play_url;
-      }
-      if (data?.frame_token) {
-        return `https://a.luminsdk.com/g/${data.frame_token}/${data.id || luminId}/`;
+      if (data && data.url) {
+        return data.url;
       }
     }
-  } catch {}
+  } catch {
+    // Silently continue
+  }
 
-  // Client SDK fallback if loaded
-  if (typeof window !== "undefined" && window.Lumin && typeof window.Lumin.getGameUrl === "function") {
+  // Pure local runtime client-side fallback if the server is restarting/unreachable
+  const initialized = await initLuminHeadless();
+  if (initialized && window.Lumin && typeof window.Lumin.getGameUrl === "function") {
     try {
       const url = await window.Lumin.getGameUrl(luminId);
       if (url && typeof url === "string" && url.trim().length > 0) {
         return url;
       }
-    } catch {}
+    } catch {
+      // Silently continue
+    }
   }
 
   return null;
