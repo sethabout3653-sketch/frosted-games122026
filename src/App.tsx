@@ -363,24 +363,22 @@ function AppContent() {
         style={{ background: background.type === "image" ? `url(${background.value}) center / cover fixed` : background.value }}
       >
         {/* Next-Gen Collapsible Left Sidebar Rail */}
-        {!(currentView === "game" && !isSoundboardActive) && (
-          <SidebarNav
-            currentView={currentView}
-            onSelectView={(v) => {
-              if (v === "home") handleBackToHub();
-              else setCurrentView(v);
-            }}
-            onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-            onOpenTheme={() => setIsThemeOpen(true)}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            onRandomGame={handleRandomGame}
-            onFilterFavorites={handleFilterFavorites}
-            onOpenSoundboard={handleOpenSoundboard}
-            favoritesCount={favoriteIds.size}
-            totalGamesCount={games.length}
-            isSoundboardActive={isSoundboardActive}
-          />
-        )}
+        <SidebarNav
+          currentView={currentView}
+          onSelectView={(v) => {
+            if (v === "home") handleBackToHub();
+            else setCurrentView(v);
+          }}
+          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+          onOpenTheme={() => setIsThemeOpen(true)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onRandomGame={handleRandomGame}
+          onFilterFavorites={handleFilterFavorites}
+          onOpenSoundboard={handleOpenSoundboard}
+          favoritesCount={favoriteIds.size}
+          totalGamesCount={games.length}
+          isSoundboardActive={isSoundboardActive}
+        />
 
         {/* Right Main Content Column */}
         <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">

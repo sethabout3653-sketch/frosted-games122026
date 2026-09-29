@@ -88,41 +88,51 @@ export default function SidebarNav({
         backgroundColor: "var(--theme-surface)",
         borderColor: "var(--theme-border-subtle)",
       }}
-      className={`hidden md:flex flex-col border-r shrink-0 transition-all duration-300 z-30 select-none shadow-xl ${
+      className={`hidden md:flex flex-col h-screen sticky top-0 border-r shrink-0 transition-all duration-300 z-30 select-none shadow-xl ${
         collapsed ? "w-16" : "w-60"
       }`}
     >
       {/* Sidebar Header Brand Lockup */}
-      <div className="flex items-center justify-between p-3.5 border-b border-[var(--theme-border-subtle)]">
-        <button
-          onClick={() => onSelectView("home")}
-          className="flex items-center gap-2.5 text-left group cursor-pointer focus:outline-none min-w-0"
-        >
-          <div
-            style={{
-              backgroundColor: "var(--theme-accent)",
-              borderColor: "var(--theme-border-strong)",
-            }}
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-white border shadow-md shrink-0 group-hover:scale-105 transition-transform"
+      <div className={`flex items-center border-b border-[var(--theme-border-subtle)] ${collapsed ? "justify-center p-2 h-14" : "justify-between p-3.5"}`}>
+        {collapsed ? (
+          <button
+            onClick={toggleCollapsed}
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10 shadow-sm transition-all duration-150 cursor-pointer"
+            title="Expand Sidebar"
           >
-            <Snowflake size={18} className="text-white transition-transform duration-300 group-hover:rotate-45" />
-          </div>
-          {!collapsed && (
-            <div className="min-w-0">
-              <span className="text-sm font-bold tracking-tight text-white group-hover:text-[var(--theme-text-accent)] transition-colors truncate block">
-                Frosted
-              </span>
-            </div>
-          )}
-        </button>
+            <ChevronRight size={18} />
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => onSelectView("home")}
+              className="flex items-center gap-2.5 text-left group cursor-pointer focus:outline-none min-w-0"
+            >
+              <div
+                style={{
+                  backgroundColor: "var(--theme-accent)",
+                  borderColor: "var(--theme-border-strong)",
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-white border shadow-md shrink-0 group-hover:scale-105 transition-transform"
+              >
+                <Snowflake size={18} className="text-white transition-transform duration-300 group-hover:rotate-45" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-sm font-bold tracking-tight text-white group-hover:text-[var(--theme-text-accent)] transition-colors truncate block">
+                  Frosted
+                </span>
+              </div>
+            </button>
 
-        <button
-          onClick={toggleCollapsed}
-          className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
-          title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-        >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-        </button>
+            <button
+              onClick={toggleCollapsed}
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0 border border-transparent hover:border-white/5"
+              title="Collapse Sidebar"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          </>
+        )}
       </div>
 
       {/* Main Navigation Stack */}
