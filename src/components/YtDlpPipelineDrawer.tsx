@@ -25,7 +25,7 @@ export default function YtDlpPipelineDrawer({
   onClose,
 }: YtDlpPipelineDrawerProps) {
   const { resolveAndPlayUrl, currentTrack } = useMusicPlayer();
-  const [testUrl, setTestUrl] = useState("https://music.youtube.com/watch?v=5qap5aO4i9A");
+  const [testUrl, setTestUrl] = useState("https://soundcloud.com/chillhopdotcom/sets/chillhop-essentials-spring-2024");
   const [audioFormat, setAudioFormat] = useState<"mp3" | "flac" | "wav" | "m4a" | "opus">("mp3");
   const [audioQuality, setAudioQuality] = useState<string>("0");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -158,15 +158,14 @@ def play_track(url):
 
             {/* Quick Source Platform Presets */}
             <div className="space-y-1.5 pt-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Supported yt-dlp Extraction Sources:</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Featured SoundCloud Tracks:</span>
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {[
-                  { name: "SoundCloud", url: "https://soundcloud.com/chillhopdotcom/distantdays" },
-                  { name: "YouTube Music", url: "https://www.youtube.com/watch?v=5qap5aO4i9A" },
-                  { name: "Bandcamp", url: "https://chillhop.bandcamp.com/track/distant-days" },
-                  { name: "Audiomack", url: "https://audiomack.com/chillhop-music/song/distant-days" },
-                  { name: "Mixcloud", url: "https://www.mixcloud.com/ChillhopMusic/chillhop-essentials-spring-2024/" },
-                  { name: "Direct Stream URL", url: "https://stream.chillhop.com/mp3/1000" },
+                  { name: "Kupla & DJ Nada", url: "https://soundcloud.com/chillhopdotcom/distantdays" },
+                  { name: "80s Drive", url: "https://soundcloud.com/synthwavenation/80s-drive-retrowave-outrun" },
+                  { name: "Flamingosis", url: "https://soundcloud.com/flamingosis/mood-provider-13-1" },
+                  { name: "Tycho - A Walk", url: "https://soundcloud.com/tycho/a-walk" },
+                  { name: "Petit Biscuit", url: "https://soundcloud.com/petitbiscuit/sunset-lover" },
                 ].map((src) => (
                   <button
                     key={src.name}

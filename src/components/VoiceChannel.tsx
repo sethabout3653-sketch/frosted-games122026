@@ -1576,12 +1576,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
         localStreamRef.current = stream;
 
-        // Register self as active participant (strictly reject anonymous/empty username)
-        const myCleanUsername = (profile.username || "").trim();
+        // Register self as active participant (strictly assign Guest if anonymous/empty username)
+        let myCleanUsername = (profile.username || "").trim();
         if (!myCleanUsername || myCleanUsername.toLowerCase() === "anonymous") {
-          console.warn("Cannot join voice channel with anonymous username.");
-          stopAllMediaTracks();
-          return;
+          myCleanUsername = `Guest_${profile.uid.slice(0, 5)}`;
         }
 
         setVoiceState({
@@ -1640,9 +1638,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           // 1. Process voice_users collection
           latestVoiceDocs.forEach((d) => {
             const u = d.data() as Participant;
-            const uName = (u?.username || "").trim();
+            const uName = (u?.username || "").trim() || `Guest_${(u?.uid || "").slice(0, 5)}`;
             const uUid = u?.uid || "";
-            if (!uUid || !uName || uName.toLowerCase() === "anonymous") {
+            if (!uUid) {
               return;
             }
             let ts = toTimestampMs(u.timestamp || (u as any).lastSeen);
@@ -1659,9 +1657,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           // 2. Process presence collection for any user marked inVoice
           latestPresenceDocs.forEach((d) => {
             const pData = d.data();
-            const uName = (pData?.username || "").trim();
+            const uName = (pData?.username || "").trim() || `Guest_${(pData?.uid || "").slice(0, 5)}`;
             const uUid = pData?.uid || "";
-            if (!uUid || !uName || uName.toLowerCase() === "anonymous") {
+            if (!uUid) {
               return;
             }
             if (pData.inVoice) {

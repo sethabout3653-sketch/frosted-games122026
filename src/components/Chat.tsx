@@ -75,6 +75,12 @@ export default function Chat({
     onTabChange?.(tab);
   }, [onTabChange]);
   const [activeChannel, setActiveChannel] = useState<string>("general");
+
+  const handleDisconnectVoice = useCallback(() => {
+    leaveGeneralVoice();
+    setActiveTab("chat");
+    setActiveChannel("general");
+  }, [leaveGeneralVoice, setActiveTab]);
   const [channelSearch, setChannelSearch] = useState<string>("");
   const [showMembersSidebar, setShowMembersSidebar] = useState<boolean>(true);
   const [notification, setNotification] = useState<ChatMessage | null>(null);
@@ -727,9 +733,7 @@ export default function Chat({
                   </div>
                 </button>
                 <button
-                  onClick={() => {
-                    leaveGeneralVoice();
-                  }}
+                  onClick={handleDisconnectVoice}
                   className="p-1.5 text-neutral-400 hover:text-rose-400 rounded-md hover:bg-white/10 transition-colors cursor-pointer flex-shrink-0 ml-1"
                   title="Disconnect from Voice"
                 >
@@ -840,6 +844,12 @@ export default function Chat({
                   </button>
                 </div>
               </div>
+            ) : activeTab === "voice" && isInVoiceSession ? (
+              <VoiceChannel
+                profile={profile}
+                onLeave={handleDisconnectVoice}
+                showMembersSidebar={showMembersSidebar}
+              />
             ) : (
               <ChatPanel
                 profile={profile}

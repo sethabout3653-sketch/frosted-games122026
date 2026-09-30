@@ -115,7 +115,7 @@ export default function MusicPlayer({ onBack }: MusicPlayerProps) {
   };
 
   const handleShare = () => {
-    const url = currentTrack.mediaUrl || window.location.href;
+    const url = currentTrack.permalinkUrl || currentTrack.mediaUrl || window.location.href;
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);

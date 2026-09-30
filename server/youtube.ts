@@ -934,8 +934,14 @@ youtubeRouter.get("/trending", async (req, res) => {
 
   let videos: VideoItem[] = [];
 
-  let searchQuery = "top music hits 2026 charts";
-  if (category === "study" || category === "lofi") searchQuery = "lofi hip hop radio beats to relax study to";
+  let searchQuery = "trending videos youtube";
+  if (category === "all" || category === "trending") searchQuery = "trending videos youtube";
+  else if (category === "gaming") searchQuery = "trending gaming videos youtube";
+  else if (category === "entertainment") searchQuery = "trending entertainment videos youtube";
+  else if (category === "tech") searchQuery = "trending technology science gadgets";
+  else if (category === "podcasts") searchQuery = "trending podcast episodes full";
+  else if (category === "music" || category === "charts") searchQuery = "top music hits billboard charts";
+  else if (category === "study" || category === "lofi") searchQuery = "lofi hip hop radio beats to relax study to";
   else if (category === "pop") searchQuery = "top pop music hits songs";
   else if (category === "hiphop") searchQuery = "top hip hop rap music songs";
   else if (category === "electronic" || category === "edm") searchQuery = "top electronic edm dance music";
@@ -1007,6 +1013,20 @@ youtubeRouter.get("/search", async (req, res) => {
 
   cacheMap.set(cacheKey, { timestamp: Date.now(), data: musicVideos });
   return res.json({ success: true, query, videos: musicVideos });
+});
+
+// GET /api/youtube/stream?v=<id> - Redirect or forward query parameter to stream handler
+youtubeRouter.get("/stream", (req, res) => {
+  const v = ((req.query.v as string) || (req.query.id as string) || "").trim();
+  if (!v) return res.status(400).json({ success: false, error: "Missing v param" });
+  return res.redirect(302, `/api/youtube/stream/${encodeURIComponent(v)}`);
+});
+
+// GET /api/youtube/audio?v=<id> - Audio query endpoint
+youtubeRouter.get("/audio", (req, res) => {
+  const v = ((req.query.v as string) || (req.query.id as string) || "").trim();
+  if (!v) return res.status(400).json({ success: false, error: "Missing v param" });
+  return res.redirect(302, `/api/youtube/stream/${encodeURIComponent(v)}`);
 });
 
 // 3. GET /api/youtube/stream/:videoId - Stream resolution via yt-dlp / Invidious / Piped

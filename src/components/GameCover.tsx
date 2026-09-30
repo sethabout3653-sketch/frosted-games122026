@@ -92,6 +92,7 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
 interface GameCoverProps {
   name: string;
   cover: string;
+  url?: string;
   className?: string;
 }
 
