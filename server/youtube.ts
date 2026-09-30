@@ -898,6 +898,29 @@ interface FeedCache {
 const cacheMap = new Map<string, FeedCache>();
 const FEED_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+async function searchWithYtSearch(query: string): Promise<VideoItem[]> {
+  try {
+    const searchRes = await ytsSearch(query);
+    if (searchRes && searchRes.videos && searchRes.videos.length > 0) {
+      return searchRes.videos.map((v) => ({
+        id: v.videoId,
+        title: v.title,
+        channelTitle: v.author?.name || "YouTube Artist",
+        artist: v.author?.name || "YouTube Artist",
+        views: v.views ? `${(v.views / 1000000).toFixed(1)}M views` : "Popular",
+        duration: v.timestamp || "3:30",
+        thumbnail: v.thumbnail || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+        mediaType: "audio",
+        isMusic: true,
+        descriptionSnippet: v.description || "",
+      }));
+    }
+  } catch (err) {
+    console.warn("ytsSearch error:", err);
+  }
+  return [];
+}
+
 // 1. GET /api/youtube/trending
 youtubeRouter.get("/trending", async (req, res) => {
   const category = (req.query.category as string) || "all";
@@ -911,54 +934,29 @@ youtubeRouter.get("/trending", async (req, res) => {
 
   let videos: VideoItem[] = [];
 
+  let searchQuery = "top music hits 2026 charts";
+  if (category === "study" || category === "lofi") searchQuery = "lofi hip hop radio beats to relax study to";
+  else if (category === "pop") searchQuery = "top pop music hits songs";
+  else if (category === "hiphop") searchQuery = "top hip hop rap music songs";
+  else if (category === "electronic" || category === "edm") searchQuery = "top electronic edm dance music";
+  else if (category === "rock") searchQuery = "top rock alternative music songs";
+  else if (category === "rnb") searchQuery = "top r&b soul music songs";
+
   try {
-    if (category === "all" || category === "charts") {
+    videos = await searchWithYtSearch(searchQuery);
+
+    if (videos.length === 0) {
       const exploreItems = await browseYouTubeMusicInnertube("FEmusic_explore");
-      if (exploreItems.length > 0) {
-        videos = exploreItems;
-      }
-    }
-
-    if (videos.length < 6) {
-      let searchQuery = "trending music hits top charts";
-      if (category === "study" || category === "lofi") searchQuery = "lofi study beats chillhop";
-      else if (category === "pop") searchQuery = "pop music hits";
-      else if (category === "hiphop") searchQuery = "hip hop rap hits";
-      else if (category === "electronic" || category === "edm") searchQuery = "electronic edm dance";
-      else if (category === "rock") searchQuery = "rock alternative indie";
-      else if (category === "rnb") searchQuery = "r&b soul hits";
-
-      const musicItems = await searchYouTubeMusicInnertube(
-        searchQuery,
-        filter === "songs" ? "songs" : (filter === "videos" ? "videos" : undefined)
-      );
-
-      if (musicItems.length > 0) {
-        const seen = new Set(videos.map((v) => v.id));
-        for (const item of musicItems) {
-          if (!seen.has(item.id)) {
-            seen.add(item.id);
-            videos.push(item);
-          }
-        }
-      }
+      if (exploreItems.length > 0) videos = exploreItems;
     }
   } catch (err) {
-    console.warn("Innertube trending fetch error:", err);
+    console.warn("Trending fetch error:", err);
   }
 
   // Fallback to curated catalog if needed
   if (videos.length === 0) {
     const fallbackList = CURATED_MUSIC_CATALOG[category] || CURATED_MUSIC_CATALOG.all || [];
     videos = [...fallbackList];
-  }
-
-  if (filter === "songs" || filter === "audio") {
-    const audioOnly = videos.filter((v) => v.mediaType === "audio");
-    if (audioOnly.length > 0) videos = audioOnly;
-  } else if (filter === "videos") {
-    const videoOnly = videos.filter((v) => v.mediaType === "video");
-    if (videoOnly.length > 0) videos = videoOnly;
   }
 
   cacheMap.set(cacheKey, { timestamp: Date.now(), data: videos });
@@ -980,13 +978,14 @@ youtubeRouter.get("/search", async (req, res) => {
   let musicVideos: VideoItem[] = [];
 
   try {
-    musicVideos = await searchYouTubeMusicInnertube(
-      query,
-      filter === "songs" ? "songs" : (filter === "videos" ? "videos" : undefined)
-    );
+    // 1. Primary fast YouTube Music search engine
+    musicVideos = await searchWithYtSearch(query);
 
+    // 2. Fallbacks if needed
     if (musicVideos.length === 0) {
-      // Invidious fallback
+      musicVideos = await searchYouTubeMusicInnertube(query);
+    }
+    if (musicVideos.length === 0) {
       musicVideos = await searchInvidiousMusic(query);
     }
   } catch (err) {
@@ -1004,14 +1003,6 @@ youtubeRouter.get("/search", async (req, res) => {
         (v.channelTitle && v.channelTitle.toLowerCase().includes(qLower))
     );
     musicVideos = matches.length > 0 ? matches : allCurated.slice(0, 8);
-  }
-
-  if (filter === "songs" || filter === "audio") {
-    const filtered = musicVideos.filter((v) => v.mediaType === "audio");
-    if (filtered.length > 0) musicVideos = filtered;
-  } else if (filter === "videos") {
-    const filtered = musicVideos.filter((v) => v.mediaType === "video");
-    if (filtered.length > 0) musicVideos = filtered;
   }
 
   cacheMap.set(cacheKey, { timestamp: Date.now(), data: musicVideos });
