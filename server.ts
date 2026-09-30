@@ -24,6 +24,7 @@ import { createPool, db } from "./src/db/index";
 import { records, webrtcSignals } from "./src/db/schema";
 import { eq, and, gt, ne, or } from "drizzle-orm";
 import { youtubeRouter } from "./server/youtube";
+import { soundcloudRouter } from "./server/soundcloud";
 import Database from "better-sqlite3";
 
 // Initialize dedicated ultra-fast synchronous better-sqlite3 database for WebRTC signaling (0ms delay)
@@ -451,6 +452,7 @@ const PORT = Number(process.env.PORT) || 3000;
   app.use("/x8rr", express.static(path.join(process.cwd(), "x8rr-music", "public")));
 
   app.use("/api/youtube", youtubeRouter);
+  app.use("/api/soundcloud", soundcloudRouter);
 
   // =========================================================================
   // UNIFIED STREAMING API ENDPOINTS (For YouTube Music & SoundCloud)

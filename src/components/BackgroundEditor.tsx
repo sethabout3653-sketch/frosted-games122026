@@ -6,10 +6,10 @@ import { applyTheme, getSavedTheme, DEFAULT_NAVY_THEME, ThemeRgb, rgbToHex, hexT
 
 export type AppBackground = { type: "solid" | "gradient" | "image"; value: string };
 
-// Default frosted background (Frosted Aurora)
+// Default frosted background (Frosted Obsidian Signature)
 export const DEFAULT_BACKGROUND: AppBackground = {
   type: "gradient",
-  value: "radial-gradient(circle at 50% 25%, #0b1f3b 0%, #051020 50%, #02060e 100%)"
+  value: "radial-gradient(circle at 50% 15%, #0d1b2e 0%, #060e1a 55%, #02050a 100%)"
 };
 
 export interface ThemePreset {
@@ -22,73 +22,73 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: ThemePreset[] = [
   {
-    name: "Frosted Studying (Default)",
+    name: "Frosted Obsidian (Signature)",
     type: "gradient",
-    value: "radial-gradient(circle at 50% 25%, #0b1f3b 0%, #051020 50%, #02060e 100%)",
-    preview: "radial-gradient(circle at 50% 25%, #0b1f3b 0%, #051020 50%, #02060e 100%)",
-    rgb: { r: 10, g: 34, b: 74 },
+    value: "radial-gradient(circle at 50% 15%, #0d1b2e 0%, #060e1a 55%, #02050a 100%)",
+    preview: "radial-gradient(circle at 50% 15%, #0d1b2e 0%, #060e1a 55%, #02050a 100%)",
+    rgb: { r: 56, g: 189, b: 248 },
   },
   {
-    name: "Midnight Abyss",
+    name: "Cyberpunk Onyx",
     type: "gradient",
-    value: "radial-gradient(circle at 50% 50%, #0e122b 0%, #040612 100%)",
-    preview: "radial-gradient(circle at 50% 50%, #0e122b 0%, #040612 100%)",
-    rgb: { r: 18, g: 24, b: 64 },
+    value: "radial-gradient(circle at 50% 20%, #081622 0%, #040c14 55%, #010408 100%)",
+    preview: "radial-gradient(circle at 50% 20%, #081622 0%, #040c14 55%, #010408 100%)",
+    rgb: { r: 6, g: 182, b: 212 },
   },
   {
-    name: "Cyber Amethyst",
+    name: "Nordic Aurora",
     type: "gradient",
-    value: "linear-gradient(135deg, #18092e 0%, #29104d 50%, #080210 100%)",
-    preview: "linear-gradient(135deg, #18092e 0%, #29104d 50%, #080210 100%)",
-    rgb: { r: 130, g: 45, b: 215 },
+    value: "radial-gradient(circle at 50% 25%, #081a14 0%, #040e0b 55%, #010604 100%)",
+    preview: "radial-gradient(circle at 50% 25%, #081a14 0%, #040e0b 55%, #010604 100%)",
+    rgb: { r: 52, g: 211, b: 153 },
   },
   {
-    name: "Emerald Matrix",
+    name: "Royal Amethyst",
     type: "gradient",
-    value: "linear-gradient(135deg, #021208 0%, #07381b 50%, #010804 100%)",
-    preview: "linear-gradient(135deg, #021208 0%, #07381b 50%, #010804 100%)",
-    rgb: { r: 18, g: 175, b: 85 },
+    value: "radial-gradient(circle at 50% 25%, #1a0f2e 0%, #0e071a 55%, #04020a 100%)",
+    preview: "radial-gradient(circle at 50% 25%, #1a0f2e 0%, #0e071a 55%, #04020a 100%)",
+    rgb: { r: 168, g: 85, b: 247 },
   },
   {
-    name: "Crimson Inferno",
+    name: "Solar Ember",
     type: "gradient",
-    value: "linear-gradient(135deg, #1f0508 0%, #3e0b12 50%, #080102 100%)",
-    preview: "linear-gradient(135deg, #1f0508 0%, #3e0b12 50%, #080102 100%)",
-    rgb: { r: 210, g: 35, b: 55 },
+    value: "radial-gradient(circle at 50% 25%, #24140b 0%, #130a05 55%, #050201 100%)",
+    preview: "radial-gradient(circle at 50% 25%, #24140b 0%, #130a05 55%, #050201 100%)",
+    rgb: { r: 245, g: 158, b: 11 },
   },
   {
-    name: "Electric Cyan",
+    name: "Crimson Twilight",
     type: "gradient",
-    value: "radial-gradient(circle at 30% 30%, #042533 0%, #021118 60%, #010609 100%)",
-    preview: "linear-gradient(135deg, #042533, #021118, #010609)",
-    rgb: { r: 0, g: 215, b: 245 },
+    value: "radial-gradient(circle at 50% 25%, #240b12 0%, #130408 55%, #050102 100%)",
+    preview: "radial-gradient(circle at 50% 25%, #240b12 0%, #130408 55%, #050102 100%)",
+    rgb: { r: 244, g: 63, b: 94 },
   },
   {
-    name: "Sunset Amber",
+    name: "Oceanic Abyss",
     type: "gradient",
-    value: "linear-gradient(135deg, #241103 0%, #4a2106 50%, #0a0401 100%)",
-    preview: "linear-gradient(135deg, #241103, #4a2106, #0a0401)",
-    rgb: { r: 235, g: 130, b: 25 },
+    value: "radial-gradient(circle at 50% 20%, #101c42 0%, #070d24 55%, #030612 100%)",
+    preview: "radial-gradient(circle at 50% 20%, #101c42 0%, #070d24 55%, #030612 100%)",
+    rgb: { r: 79, g: 125, b: 243 },
   },
   {
-    name: "OLED Stealth Monolith",
+    name: "Stealth Titanium",
     type: "solid",
-    value: "#030305",
-    preview: "#030305",
-    rgb: { r: 12, g: 14, b: 20 },
+    value: "#060709",
+    preview: "#060709",
+    rgb: { r: 226, g: 232, b: 240 },
   },
 ];
 
 // Quick color presets
 const COLOR_PRESETS: { name: string; r: number; g: number; b: number; desc: string }[] = [
-  { name: "Frosted Arctic", r: 14, g: 22, b: 54, desc: "Classic Frosted Navy" },
-  { name: "Electric Cyan", r: 0, g: 215, b: 245, desc: "Radiant Cyan" },
-  { name: "Royal Amethyst", r: 130, g: 45, b: 215, desc: "Neon Violet" },
-  { name: "Emerald Matrix", r: 18, g: 175, b: 85, desc: "Bioluminescent Jade" },
-  { name: "Crimson Inferno", r: 210, g: 35, b: 55, desc: "Vibrant Ruby Red" },
-  { name: "Cyberpunk Pink", r: 240, g: 40, b: 145, desc: "Hot Neon Magenta" },
-  { name: "Sunset Amber", r: 235, g: 130, b: 25, desc: "Warm Golden Glow" },
-  { name: "OLED Stealth", r: 12, g: 14, b: 20, desc: "Pure Stealth Black" },
+  { name: "Arctic Glacier", r: 56, g: 189, b: 248, desc: "Signature Ice Sky" },
+  { name: "Electric Cyan", r: 6, g: 182, b: 212, desc: "Cyberpunk Glow" },
+  { name: "Emerald Aurora", r: 52, g: 211, b: 153, desc: "Scandinavian Pine" },
+  { name: "Royal Amethyst", r: 168, g: 85, b: 247, desc: "Atmospheric Lavender" },
+  { name: "Solar Amber", r: 245, g: 158, b: 11, desc: "Warm Golden Ember" },
+  { name: "Crimson Twilight", r: 244, g: 63, b: 94, desc: "Rich Velvet Ruby" },
+  { name: "Oceanic Cobalt", r: 79, g: 125, b: 243, desc: "Deep Atlantic Blue" },
+  { name: "Stealth Titanium", r: 226, g: 232, b: 240, desc: "Minimalist Silver" },
 ];
 
 function extractColorFromBackground(bg: AppBackground): { r: number; g: number; b: number; mode: "glow" | "solid" } {
@@ -238,24 +238,6 @@ export default function BackgroundEditor({
 
   return (
     <>
-      {/* Floating Launcher Button */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label="Customize theme"
-        title="Customize theme"
-        className="fixed bottom-5 left-5 z-30 flex h-10 px-3.5 items-center gap-2 rounded-xl border border-white/15 bg-[#121420]/90 text-white shadow-xl backdrop-blur-md transition-all hover:bg-[#181b2c] hover:border-white/25 active:scale-95 cursor-pointer group"
-      >
-        <div
-          className="w-3.5 h-3.5 rounded-full border border-white/60 shadow-sm flex-shrink-0"
-          style={{
-            background:
-              "conic-gradient(from 0deg, #38bdf8, #818cf8, #c084fc, #f472b6, #fb7185, #f59e0b, #34d399, #38bdf8)",
-          }}
-        />
-        <span className="text-xs font-semibold tracking-normal text-neutral-200 group-hover:text-white">Theme</span>
-      </button>
-
       <AnimatePresence>
         {open && (
           <motion.div
@@ -263,32 +245,42 @@ export default function BackgroundEditor({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-4 sm:items-center backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-4 sm:items-center"
             onClick={() => setOpen(false)}
           >
             <motion.section
               role="dialog"
               aria-modal="true"
               aria-labelledby="background-editor-title"
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#121420] p-5 sm:p-6 text-white shadow-2xl custom-scrollbar"
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border-strong)",
+              }}
+              className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border p-5 sm:p-6 text-white shadow-2xl custom-scrollbar"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
-              <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="mb-4 flex items-center justify-between border-b border-[var(--theme-border-subtle)] pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
+                  <div
+                    style={{
+                      backgroundColor: "var(--theme-darkest)",
+                      borderColor: "var(--theme-border)",
+                    }}
+                    className="flex h-8 w-8 items-center justify-center rounded-xl border text-[var(--theme-text-accent)]"
+                  >
                     <Palette size={16} />
                   </div>
                   <div>
-                    <h2 id="background-editor-title" className="text-sm font-semibold tracking-tight text-white">
-                      Theme & Appearance
+                    <h2 id="background-editor-title" className="text-sm font-bold tracking-tight text-white">
+                      Palette & Atmosphere
                     </h2>
-                    <p className="text-xs text-neutral-400">
-                      Personalize your background and accent colors
+                    <p className="text-xs text-[var(--theme-text-muted)] font-normal">
+                      Personalize your environment and accent colors
                     </p>
                   </div>
                 </div>
@@ -304,45 +296,72 @@ export default function BackgroundEditor({
 
               <div className="flex flex-col gap-4">
                 {/* Main Color Picker Card */}
-                <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                <div
+                  style={{
+                    backgroundColor: "var(--theme-darkest)",
+                    borderColor: "var(--theme-border-subtle)",
+                  }}
+                  className="rounded-xl border p-4"
+                >
                   {/* Top Bar: Selector Tabs & Glow/Solid Switch */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3.5">
                     {/* Picker Type: Wheel vs Sliders */}
-                    <div className="inline-flex rounded-lg bg-white/5 p-0.5 border border-white/10 text-xs">
+                    <div
+                      style={{
+                        backgroundColor: "var(--theme-surface)",
+                        borderColor: "var(--theme-border-subtle)",
+                      }}
+                      className="inline-flex rounded-lg p-0.5 border text-xs"
+                    >
                       <button
                         type="button"
                         onClick={() => setPickerTab("wheel")}
-                        className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                        style={{
+                          backgroundColor: pickerTab === "wheel" ? "var(--theme-accent)" : "transparent",
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-semibold transition-all cursor-pointer ${
                           pickerTab === "wheel"
-                            ? "bg-white/20 text-white shadow-sm"
+                            ? "text-white shadow-sm font-bold"
                             : "text-neutral-400 hover:text-white"
                         }`}
                       >
-                        <Disc size={13} className="text-pink-400" />
+                        <Disc size={13} className={pickerTab === "wheel" ? "text-white" : "text-pink-400"} />
                         <span>Color Wheel</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setPickerTab("sliders")}
-                        className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                        style={{
+                          backgroundColor: pickerTab === "sliders" ? "var(--theme-accent)" : "transparent",
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-semibold transition-all cursor-pointer ${
                           pickerTab === "sliders"
-                            ? "bg-white/20 text-white shadow-sm"
+                            ? "text-white shadow-sm font-bold"
                             : "text-neutral-400 hover:text-white"
                         }`}
                       >
-                        <Sliders size={13} className="text-indigo-400" />
+                        <Sliders size={13} className={pickerTab === "sliders" ? "text-white" : "text-indigo-400"} />
                         <span>RGB Sliders</span>
                       </button>
                     </div>
 
                     {/* Mode Switcher: Glow vs Solid */}
-                    <div className="flex rounded-lg bg-white/5 p-0.5 border border-white/10 text-xs">
+                    <div
+                      style={{
+                        backgroundColor: "var(--theme-surface)",
+                        borderColor: "var(--theme-border-subtle)",
+                      }}
+                      className="flex rounded-lg p-0.5 border text-xs"
+                    >
                       <button
                         type="button"
                         onClick={() => applyColor(r, g, b, "glow")}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-all cursor-pointer ${
+                        style={{
+                          backgroundColor: colorMode === "glow" ? "var(--theme-accent)" : "transparent",
+                        }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-semibold transition-all cursor-pointer ${
                           colorMode === "glow"
-                            ? "bg-indigo-600 text-white shadow-sm"
+                            ? "text-white shadow-sm font-bold"
                             : "text-neutral-400 hover:text-neutral-200"
                         }`}
                         title="Ambient radial glow"
@@ -353,9 +372,12 @@ export default function BackgroundEditor({
                       <button
                         type="button"
                         onClick={() => applyColor(r, g, b, "solid")}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-all cursor-pointer ${
+                        style={{
+                          backgroundColor: colorMode === "solid" ? "var(--theme-accent)" : "transparent",
+                        }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-semibold transition-all cursor-pointer ${
                           colorMode === "solid"
-                            ? "bg-indigo-600 text-white shadow-sm"
+                            ? "text-white shadow-sm font-bold"
                             : "text-neutral-400 hover:text-neutral-200"
                         }`}
                         title="Solid background"

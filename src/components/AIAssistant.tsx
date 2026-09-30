@@ -1195,12 +1195,12 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
         method: "POST",
         headers: fetchHeaders,
         body: JSON.stringify({
-          model: selectedModel,
+          model: "llama-3.3-70b-versatile",
           messages: apiMessages,
           systemPrompt: personaDirectives,
           temperature: temperature,
           stream: true,
-          enableWebSearch: webSearchEnabled,
+          enableWebSearch: true,
           customKey: effectiveKey || undefined,
         }),
         signal: controller.signal,
@@ -1211,12 +1211,12 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
           method: "POST",
           headers: fetchHeaders,
           body: JSON.stringify({
-            model: selectedModel,
+            model: "llama-3.3-70b-versatile",
             messages: apiMessages,
             systemPrompt: personaDirectives,
             temperature: temperature,
             stream: false,
-            enableWebSearch: webSearchEnabled,
+            enableWebSearch: true,
             customKey: effectiveKey || undefined,
           }),
           signal: controller.signal,
@@ -1299,7 +1299,7 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
       }
 
       if (!accumulatedContent.trim()) {
-        const fallbackMsg = "Here is what you need. Let me know what you'd like to explore next!";
+        const fallbackMsg = "The AI engine is currently busy or experiencing high demand. Please verify your connection status, ensure your custom API keys are entered correctly in Settings, or try resending your question in a moment.";
         setThreads((prev) =>
           prev.map((t) => {
             if (t.id === currentTargetThreadId) {
@@ -1307,7 +1307,7 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
                 ...t,
                 messages: t.messages.map((m) =>
                   m.id === assistantMsgId
-                    ? { ...m, content: fallbackMsg }
+                    ? { ...m, content: fallbackMsg, isError: true }
                     : m
                 ),
               };
@@ -1507,71 +1507,9 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
               </button>
             )}
 
-            {/* Model Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setShowModelDropdown(!showModelDropdown)}
-                style={{
-                  backgroundColor: "var(--theme-surface)",
-                  borderColor: "var(--theme-border)",
-                }}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold text-white hover:border-[var(--theme-border-strong)] transition-all shadow-sm cursor-pointer"
-              >
-                <Sparkles size={13} className="text-[var(--theme-text-accent)]" />
-                <span className="max-w-[130px] sm:max-w-[180px] truncate">
-                  {currentModelDisplayName}
-                </span>
-                <ChevronDown size={13} className="text-neutral-400" />
-              </button>
-
-              {showModelDropdown && (
-                <>
-                  <div className="fixed inset-0 z-50" onClick={() => setShowModelDropdown(false)} />
-                  <div
-                    style={{
-                      backgroundColor: "var(--theme-darkest)",
-                      borderColor: "var(--theme-border)",
-                    }}
-                    className="absolute top-full left-0 mt-1.5 w-64 sm:w-72 z-50 p-1.5 rounded-2xl border shadow-2xl backdrop-blur-2xl space-y-1 max-h-80 overflow-y-auto custom-scrollbar"
-                  >
-                    <div className="px-2.5 py-1 text-[10px] uppercase font-bold tracking-wider text-[var(--theme-text-muted)] flex items-center justify-between">
-                      <span>Inference Engines</span>
-                    </div>
-                    {availableModels.map((model) => (
-                      <button
-                        key={model.id}
-                        onClick={() => {
-                          setSelectedModel(model.id);
-                          localStorage.setItem("frosted_ai_model", model.id);
-                          setShowModelDropdown(false);
-                        }}
-                        className={`w-full flex flex-col text-left px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer ${
-                          selectedModel === model.id
-                            ? "bg-[var(--theme-accent)] text-white font-bold"
-                            : "text-neutral-300 hover:bg-white/5 hover:text-white"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold">{model.name}</span>
-                          {model.badge && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-[var(--theme-text-accent)]">
-                              {model.badge}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[10px] text-neutral-400 font-normal mt-0.5 line-clamp-1">
-                          {model.description}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Clean branding title instead of active persona pill */}
-            <span className="text-xs font-black text-cyan-400 tracking-wider hidden sm:inline select-none uppercase px-1">
-              FROSTED AI
+            {/* Clean Persona Name Title */}
+            <span className="text-xs font-black text-cyan-400 tracking-wider select-none uppercase px-1">
+              {activePersona.name}
             </span>
           </div>
 
@@ -1696,8 +1634,6 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
                     {/* Message Actions */}
                     {!isUser && message.content && (
                       <div className="flex items-center gap-2 mt-1.5 px-12 text-[10px] text-neutral-500">
-                        <span>{message.modelUsed || selectedModel}</span>
-                        <span>&bull;</span>
                         <button
                           onClick={() => {
                             const parsed = parseThoughtAndContent(message.content);
@@ -1798,9 +1734,8 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
 
             <div className="flex items-center justify-between text-[11px] text-neutral-400 px-2">
               <div className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
                 <span className="font-semibold text-neutral-200">
-                  {activePersona.name} &bull; {currentModelDisplayName}
+                  {activePersona.name}
                 </span>
               </div>
 

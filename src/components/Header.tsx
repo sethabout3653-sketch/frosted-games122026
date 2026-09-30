@@ -1,5 +1,5 @@
 import React, { memo } from "react";
-import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart, Music, Shuffle } from "lucide-react";
+import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart, Music, Shuffle, Image as ImageIcon } from "lucide-react";
 import { formatTagLabel } from "../utils";
 import { useCall } from "../context/CallContext";
 import { useFavorites } from "../lib/favorites";
@@ -19,6 +19,7 @@ interface HeaderProps {
   onOpenSettings?: () => void;
   onOpenTheme?: () => void;
   onRandomGame?: () => void;
+  onOpenLuminImages?: () => void;
 }
 
 const Header = memo(function Header({
@@ -35,6 +36,7 @@ const Header = memo(function Header({
   onOpenSettings,
   onOpenTheme,
   onRandomGame,
+  onOpenLuminImages,
 }: HeaderProps) {
   const { isCallMenuOpen, setIsCallMenuOpen, onlineUsers } = useCall();
   const { count: favoriteCount } = useFavorites();
@@ -372,6 +374,25 @@ const Header = memo(function Header({
             />
             <span className="text-xs font-semibold hidden md:inline">Theme</span>
           </button>
+
+          {/* Lumin Raw Images Extractor Button */}
+          {onOpenLuminImages && (
+            <button
+              id="frosted-lumin-images-btn"
+              type="button"
+              onClick={onOpenLuminImages}
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border-subtle)",
+              }}
+              className="h-9 px-3 rounded-xl border text-white transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:border-[var(--theme-border-strong)] active:scale-95 shrink-0"
+              title="LuminSDK Raw Game Images Extractor"
+              aria-label="LuminSDK Raw Images"
+            >
+              <ImageIcon size={15} className="text-cyan-400" />
+              <span className="text-xs font-bold text-cyan-300 hidden xl:inline">Raw Images</span>
+            </button>
+          )}
 
           {/* Settings Button */}
           <button

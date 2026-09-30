@@ -123,5 +123,6 @@ export interface YouTubeVideo {
   album?: string;
   isrc?: string;
   source?: string;
+  permalinkUrl?: string;
 }
 

@@ -55,8 +55,24 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
   const cached = coverSourceCache.get(cacheKey);
   if (cached) return cached;
 
-  const source = formatCoverUrl(cover);
   const sources: string[] = [];
+  const gameName = name || "Game";
+  const source = formatCoverUrl(cover);
+
+  // Route through our server proxy first to bypass school Wi-Fi blocks (raw.githubusercontent.com, etc.)
+  if (source) {
+    sources.push(`/api/proxy-cover?url=${encodeURIComponent(source)}&name=${encodeURIComponent(gameName)}`);
+  }
+
+  if (name) {
+    const luminToken = findLuminIconForGame(name);
+    if (luminToken) {
+      sources.push(`/api/lumin-icon/${luminToken}`);
+    } else {
+      const cleanSlug = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+      sources.push(`/api/lumin-icon/selenite/${cleanSlug}`);
+    }
+  }
 
   if (source) {
     sources.push(source);
@@ -65,14 +81,6 @@ export const getCoverSources = (cover: string, name?: string): string[] => {
       const [owner, repo, branch, ...rest] = path.split("/");
       sources.push(`https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${rest.join("/")}`);
       sources.push(`https://raw.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
-    }
-  }
-
-  // Inject LuminSDK proxy cover search as fallback
-  if (name) {
-    const luminToken = findLuminIconForGame(name);
-    if (luminToken) {
-      sources.push(`/api/lumin-icon/${luminToken}`);
     }
   }
 
@@ -106,7 +114,6 @@ const GameCover = memo(function GameCover({ name, cover, className = "" }: GameC
         <img
           src={currentUrl}
           alt={`${name} cover`}
-          loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
           className="h-full w-full object-cover"

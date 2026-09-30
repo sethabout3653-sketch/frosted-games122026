@@ -363,16 +363,23 @@ const CURATED_MUSIC_CATALOG: Record<string, VideoItem[]> = {
 // Helper to find yt-dlp binary
 function getYtDlpPath(): string {
   const candidates = [
+    path.join(process.cwd(), "bin", "yt-dlp"),
+    "/bin/yt-dlp",
     "/usr/local/bin/yt-dlp",
     "/usr/bin/yt-dlp",
-    path.join(process.cwd(), "bin", "yt-dlp"),
     path.join(process.cwd(), "yt-dlp"),
     "yt-dlp",
   ];
-  return candidates.find((p) => fs.existsSync(p)) || "yt-dlp";
+  return candidates.find((p) => {
+    try {
+      return fs.existsSync(p);
+    } catch {
+      return false;
+    }
+  }) || "yt-dlp";
 }
 
-// Extract direct audio & video stream URLs using yt-dlp
+// Extract direct audio & video stream URLs using yt-dlp with android/ios client spoofing to bypass bot checks
 function extractYtDlpStreams(videoId: string): Promise<{ audioUrl: string; videoUrl: string; duration: number; title: string; uploader: string } | null> {
   return new Promise((resolve) => {
     const binPath = getYtDlpPath();
@@ -382,12 +389,13 @@ function extractYtDlpStreams(videoId: string): Promise<{ audioUrl: string; video
       "--no-playlist",
       "--force-ipv4",
       "--no-check-certificates",
+      "--extractor-args", "youtube:player_client=android,ios,web",
       "-f", "bestaudio[ext=m4a]/bestaudio/best",
       `https://www.youtube.com/watch?v=${videoId}`,
     ];
 
     try {
-      execFile(binPath, args, { timeout: 6000 }, (err, stdout) => {
+      execFile(binPath, args, { timeout: 8000 }, (err, stdout) => {
         if (err || !stdout || !stdout.trim()) {
           return resolve(null);
         }
@@ -399,40 +407,87 @@ function extractYtDlpStreams(videoId: string): Promise<{ audioUrl: string; video
           return resolve(null);
         }
 
-        execFile(binPath, ["--dump-json", "--no-warnings", "--no-playlist", `https://www.youtube.com/watch?v=${videoId}`], { timeout: 6000 }, (jErr, jStdout) => {
-          let duration = 0;
-          let title = "";
-          let uploader = "";
-          let videoUrl = audioUrl;
+        execFile(
+          binPath,
+          [
+            "--dump-json",
+            "--no-warnings",
+            "--no-playlist",
+            "--extractor-args", "youtube:player_client=android,ios,web",
+            `https://www.youtube.com/watch?v=${videoId}`,
+          ],
+          { timeout: 6000 },
+          (jErr, jStdout) => {
+            let duration = 0;
+            let title = "";
+            let uploader = "";
+            let videoUrl = audioUrl;
 
-          if (!jErr && jStdout) {
-            try {
-              const data = JSON.parse(jStdout);
-              duration = data.duration || 0;
-              title = data.title || "";
-              uploader = data.uploader || data.channel || "";
+            if (!jErr && jStdout) {
+              try {
+                const data = JSON.parse(jStdout);
+                duration = data.duration || 0;
+                title = data.title || "";
+                uploader = data.uploader || data.channel || "";
 
-              const fmts = data.formats || [];
-              const prog = fmts.find((f: any) => f.vcodec !== "none" && f.acodec !== "none" && f.url);
-              const bestVid = fmts.filter((f: any) => f.vcodec !== "none" && f.url).slice(-1)[0];
-              if (prog?.url) videoUrl = prog.url;
-              else if (bestVid?.url) videoUrl = bestVid.url;
-            } catch {}
+                const fmts = data.formats || [];
+                const prog = fmts.find((f: any) => f.vcodec !== "none" && f.acodec !== "none" && f.url);
+                const bestVid = fmts.filter((f: any) => f.vcodec !== "none" && f.url).slice(-1)[0];
+                if (prog?.url) videoUrl = prog.url;
+                else if (bestVid?.url) videoUrl = bestVid.url;
+              } catch {}
+            }
+
+            resolve({
+              audioUrl,
+              videoUrl,
+              duration,
+              title,
+              uploader,
+            });
           }
-
-          resolve({
-            audioUrl,
-            videoUrl,
-            duration,
-            title,
-            uploader,
-          });
-        });
+        );
       });
     } catch {
       resolve(null);
     }
   });
+}
+
+// Extract direct audio & video streams via Piped API instances
+async function extractPipedStreams(videoId: string): Promise<{ audioUrl: string; videoUrl: string; duration: number; title: string; uploader: string } | null> {
+  const instances = [
+    "https://api.piped.privacydev.net",
+    "https://pipedapi.kavin.rocks",
+    "https://piped-api.lunar.icu",
+    "https://pipedapi.tokhmi.xyz",
+  ];
+
+  for (const inst of instances) {
+    try {
+      const res = await fetch(`${inst}/streams/${videoId}`, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+        signal: AbortSignal.timeout(3500),
+      });
+      if (!res.ok) continue;
+      const data: any = await res.json();
+      const audioStreams = data.audioStreams || [];
+      const bestAudio = audioStreams.find((s: any) => s.mimeType?.includes("audio/mp4") || s.mimeType?.includes("audio/webm")) || audioStreams[0];
+      const videoStreams = data.videoStreams || [];
+      const bestVideo = videoStreams.slice(-1)[0];
+
+      if (bestAudio?.url || bestVideo?.url) {
+        return {
+          audioUrl: bestAudio?.url || bestVideo?.url,
+          videoUrl: bestVideo?.url || bestAudio?.url,
+          duration: data.duration || 0,
+          title: data.title || "",
+          uploader: data.uploader || "",
+        };
+      }
+    } catch {}
+  }
+  return null;
 }
 
 // Extract direct audio & video streams via Invidious public APIs as fallback
@@ -481,7 +536,7 @@ async function extractInvidiousStreams(videoId: string): Promise<{ audioUrl: str
   return null;
 }
 
-// Extract direct audio & video stream URLs using yt-dlp with Invidious fallback
+// Extract direct audio & video stream URLs using yt-dlp with Piped & Invidious fallbacks
 async function extractDirectStreams(videoId: string): Promise<{ audioUrl: string; videoUrl: string; duration: number; title: string; uploader: string; source: string } | null> {
   const cached = streamCache.get(videoId);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
@@ -495,13 +550,31 @@ async function extractDirectStreams(videoId: string): Promise<{ audioUrl: string
     };
   }
 
-  // 1. Try yt-dlp first
+  // 1. Try yt-dlp with android client first
   const ytdl = await extractYtDlpStreams(videoId);
   if (ytdl && ytdl.audioUrl) {
+    streamCache.set(videoId, {
+      audioUrl: ytdl.audioUrl,
+      videoUrl: ytdl.videoUrl,
+      duration: ytdl.duration,
+      timestamp: Date.now(),
+    });
     return { ...ytdl, source: "yt-dlp" };
   }
 
-  // 2. Try Invidious
+  // 2. Try Piped API
+  const piped = await extractPipedStreams(videoId);
+  if (piped && (piped.audioUrl || piped.videoUrl)) {
+    streamCache.set(videoId, {
+      audioUrl: piped.audioUrl,
+      videoUrl: piped.videoUrl,
+      duration: piped.duration,
+      timestamp: Date.now(),
+    });
+    return { ...piped, source: "piped" };
+  }
+
+  // 3. Try Invidious
   const inv = await extractInvidiousStreams(videoId);
   if (inv && (inv.audioUrl || inv.videoUrl)) {
     streamCache.set(videoId, {
@@ -510,7 +583,7 @@ async function extractDirectStreams(videoId: string): Promise<{ audioUrl: string
       duration: inv.duration,
       timestamp: Date.now(),
     });
-    return { ...inv, source: "invidious-piped" };
+    return { ...inv, source: "invidious" };
   }
 
   return null;
@@ -1080,19 +1153,38 @@ youtubeRouter.get("/yt/id/:id", async (req, res) => {
   const videoId = req.params.id;
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   try {
-    const info = (await youtubeDl(videoUrl, {
-      format: "bestaudio",
-      getUrl: true,
-    } as Record<string, string | boolean>)) as unknown as string;
-    const cdnUrl = info.trim();
+    let cdnUrl = "";
+    const streamData = await extractDirectStreams(videoId);
+    if (streamData && streamData.audioUrl) {
+      cdnUrl = streamData.audioUrl;
+    } else {
+      const binPath = getYtDlpPath();
+      const info = await runYtDlp([
+        "-g",
+        "--no-warnings",
+        "--no-playlist",
+        "-f",
+        "bestaudio[ext=m4a]/bestaudio/best",
+        videoUrl,
+      ]);
+      const lines = info.trim().split("\n").filter(Boolean);
+      cdnUrl = lines[0] || "";
+    }
+
+    if (!cdnUrl || !cdnUrl.startsWith("http")) {
+      return res.status(404).send({ error: "Audio stream unavailable" });
+    }
+
     const range = req.headers.range;
     const upstream = await fetch(cdnUrl, {
       headers: {
         ...(range ? { range } : {}),
-        "user-agent": "Mozilla/5.0",
-        referer: "https://www.youtube.com",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        referer: "https://music.youtube.com/",
+        origin: "https://music.youtube.com",
       },
     });
+
     res.status(upstream.status);
     res.setHeader("Content-Type", upstream.headers.get("content-type") || "audio/mp4");
     res.setHeader("Accept-Ranges", "bytes");
@@ -1112,8 +1204,8 @@ youtubeRouter.get("/yt/id/:id", async (req, res) => {
 
 function runYtDlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Set a strict 12-second timeout to prevent any hanging connections
-    execFile("yt-dlp", args, { timeout: 12000 }, (error, stdout, stderr) => {
+    const binPath = getYtDlpPath();
+    execFile(binPath, args, { timeout: 15000 }, (error, stdout, stderr) => {
       if (error) {
         console.error("yt-dlp error:", error, stderr);
         return reject(error);
@@ -1129,20 +1221,85 @@ function extractYoutubeId(url: string): string | null {
 }
 
 async function resolveUrlWithYtDlp(url: string) {
-  const stdout = await runYtDlp(["-j", "--no-playlist", "--no-warnings", "--no-call-home", url]);
-  return JSON.parse(stdout);
+  const ytId = extractYoutubeId(url);
+  if (ytId) {
+    const direct = await extractDirectStreams(ytId);
+    if (direct) {
+      return {
+        id: ytId,
+        title: direct.title || "Audio Stream",
+        artist: direct.uploader || "YouTube Music",
+        duration: direct.duration || 0,
+        thumbnail: `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
+      };
+    }
+  }
+
+  try {
+    const stdout = await runYtDlp([
+      "-j",
+      "--no-playlist",
+      "--no-warnings",
+      "--no-call-home",
+      "--extractor-args", "youtube:player_client=android,ios,web",
+      url,
+    ]);
+    return JSON.parse(stdout);
+  } catch (err) {
+    console.warn("yt-dlp JSON dump failed:", err);
+    if (ytId) {
+      return {
+        id: ytId,
+        title: "YouTube Audio Stream",
+        artist: "YouTube Music",
+        duration: 0,
+        thumbnail: `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
+      };
+    }
+    return null;
+  }
 }
 
 async function getStreamUrlWithYtDlp(url: string) {
+  const ytId = extractYoutubeId(url);
+  if (ytId) {
+    const direct = await extractDirectStreams(ytId);
+    if (direct && direct.audioUrl) {
+      return direct.audioUrl;
+    }
+  }
+
   try {
-    // Try bestaudio format first
-    const stdout = await runYtDlp(["-g", "--format", "bestaudio", "--no-playlist", "--no-warnings", "--no-call-home", url]);
+    // Try bestaudio format with android client
+    const stdout = await runYtDlp([
+      "-g",
+      "--format", "bestaudio[ext=m4a]/bestaudio/best",
+      "--no-playlist",
+      "--no-warnings",
+      "--no-call-home",
+      "--extractor-args", "youtube:player_client=android,ios,web",
+      url,
+    ]);
     return stdout;
   } catch (err) {
-    console.warn("yt-dlp bestaudio failed, falling back to default format:", err);
-    // Fallback to default
-    const stdout = await runYtDlp(["-g", "--no-playlist", "--no-warnings", "--no-call-home", url]);
-    return stdout;
+    console.warn("yt-dlp bestaudio failed, trying direct extraction:", err);
+    if (ytId) {
+      const fallback = await extractPipedStreams(ytId) || await extractInvidiousStreams(ytId);
+      if (fallback?.audioUrl) return fallback.audioUrl;
+    }
+    try {
+      const stdout = await runYtDlp([
+        "-g",
+        "--no-playlist",
+        "--no-warnings",
+        "--no-call-home",
+        "--extractor-args", "youtube:player_client=android,ios,web",
+        url,
+      ]);
+      return stdout;
+    } catch {
+      return "";
+    }
   }
 }
 

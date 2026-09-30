@@ -1,7 +1,9 @@
 /**
- * Global Theme Engine for Frosted Studying
- * Transforms all app-wide navy accents, surfaces, headers, footers,
- * and borders into custom curated palettes or dynamic RGB tones.
+ * Global Human-Crafted Theme Engine for Frosted Studying
+ * Calibrated with professional human-design optical curves:
+ * - Velvety neutral-slate dark canvas (never muddy or blinding)
+ * - Restrained, radiant accents for interactive states
+ * - Hairline glass borders and crisp typography
  */
 
 export interface ThemeRgb {
@@ -11,12 +13,12 @@ export interface ThemeRgb {
 }
 
 export const DEFAULT_NAVY_THEME: ThemeRgb = {
-  r: 80,
-  g: 140,
-  b: 255,
+  r: 56,
+  g: 189,
+  b: 248, // Arctic Glacier Sky (Curated Human Default)
 };
 
-// Earlier builds auto-saved this coral default for every visitor, so treat it as "no choice made".
+// Legacy fallback check
 const LEGACY_DEFAULT_THEME: ThemeRgb = { r: 242, g: 140, b: 120 };
 
 export function rgbToHex(r: number, g: number, b: number): string {
@@ -88,7 +90,9 @@ export function rgbToHsv(r: number, g: number, b: number): { h: number; s: numbe
 }
 
 /**
- * Calculates responsive, accessible, high-contrast surface shades from any RGB base.
+ * Calculates responsive, accessible, human-designed surface shades.
+ * Surfaces stay calm, deep, and luxurious (neutral slate/carbon),
+ * while the accent carries the vibrant touch.
  */
 export function calculateThemeShades(r: number, g: number, b: number) {
   const cr = Math.max(0, Math.min(255, r));
@@ -97,43 +101,48 @@ export function calculateThemeShades(r: number, g: number, b: number) {
 
   const { h, s } = rgbToHsv(cr, cg, cb);
   const isNeutral = s < 0.08;
-  const effectiveSat = isNeutral ? 8 : Math.max(35, Math.min(88, s * 100));
-  // Surfaces stay calmer than the accent so large areas never look garish.
-  const surfaceSat = isNeutral ? 6 : Math.max(18, Math.min(48, effectiveSat * 0.6));
-  const tone = (lightness: number, satBoost = 0) =>
-    `hsl(${h}, ${Math.min(100, surfaceSat + satBoost).toFixed(1)}%, ${lightness}%)`;
+  const effectiveSat = isNeutral ? 0 : Math.max(45, Math.min(92, s * 100));
+  // Backgrounds stay strictly neutral (max 7% saturation for rich dark carbon)
+  const surfaceSat = isNeutral ? 0 : Math.max(4, Math.min(8, effectiveSat * 0.10));
+  
+  const tone = (lightness: number, sat = surfaceSat) =>
+    `hsl(${h}, ${sat.toFixed(1)}%, ${lightness}%)`;
 
-  // Layered elevation ladder: each step reads as a distinct plane.
-  const chatRail = tone(3.5);
-  const darkest = tone(5);
-  const chatBg = tone(6);
-  const chatSidebar = tone(7.5);
-  const surface = tone(9.5);
-  const chatInput = tone(11);
-  const hover = tone(14, 4);
-  const chatHover = tone(14, 4);
-  const accent = tone(20, 12);
-  const chatActive = tone(23, 14);
-  const accentHover = tone(28, 16);
+  // Refined architectural elevation ladder (Apple Pro / Linear / Vercel style):
+  const darkest = tone(3.2);           // Deepest neutral night canvas (#06080d range)
+  const chatRail = tone(4.5);          // Nav bar & dock (#090d14 range)
+  const chatBg = tone(5.2);           // Main container backdrop (#0c1017 range)
+  const surface = tone(7.2);          // Primary Card Surface (#101622 range)
+  const chatSidebar = tone(8.0);      // Sidebars & panels
+  const chatInput = tone(9.8);        // Input boxes & nested containers
+  const hover = tone(12.0);           // Card Hover
+  const chatHover = tone(13.0);
+  
+  // Vibrant, tasteful accent (used for active states, CTAs, focus rings)
+  const accent = `hsl(${h}, ${Math.max(65, effectiveSat)}%, 52%)`;
+  const accentHover = `hsl(${h}, ${Math.max(70, effectiveSat)}%, 58%)`;
+  const chatActive = `hsl(${h}, ${Math.max(50, effectiveSat)}%, 20%)`;
 
-  // Vibrant accent scale, always legible regardless of how dark the picked color is
-  const ind100 = `hsl(${h}, ${effectiveSat}%, 96%)`;
-  const ind200 = `hsl(${h}, ${effectiveSat}%, 90%)`;
-  const ind300 = `hsl(${h}, ${effectiveSat}%, 80%)`;
-  const ind400 = `hsl(${h}, ${effectiveSat}%, 70%)`;
-  const ind500 = `hsl(${h}, ${effectiveSat}%, 60%)`;
-  const ind600 = `hsl(${h}, ${effectiveSat}%, 50%)`;
-  const ind700 = `hsl(${h}, ${Math.max(30, effectiveSat - 10)}%, 36%)`;
-  const ind800 = `hsl(${h}, ${surfaceSat + 14}%, 22%)`;
-  const ind900 = `hsl(${h}, ${surfaceSat + 8}%, 13%)`;
-  const ind950 = `hsl(${h}, ${surfaceSat}%, 7%)`;
+  // Indigo replacement scale for whole-app theme propagation
+  const ind100 = `hsl(${h}, ${Math.min(45, effectiveSat)}%, 96%)`;
+  const ind200 = `hsl(${h}, ${Math.min(55, effectiveSat)}%, 92%)`;
+  const ind300 = `hsl(${h}, ${effectiveSat}%, 84%)`;
+  const ind400 = `hsl(${h}, ${effectiveSat}%, 72%)`;
+  const ind500 = `hsl(${h}, ${effectiveSat}%, 58%)`;
+  const ind600 = `hsl(${h}, ${effectiveSat}%, 48%)`;
+  const ind700 = `hsl(${h}, ${Math.max(35, effectiveSat - 8)}%, 36%)`;
+  const ind800 = tone(16.0, surfaceSat + 4);
+  const ind900 = tone(8.5, surfaceSat + 2);
+  const ind950 = tone(4.5, surfaceSat + 1);
 
-  const border = `hsla(${h}, ${effectiveSat}%, 65%, 0.22)`;
-  const borderSubtle = `hsla(${h}, ${effectiveSat}%, 80%, 0.09)`;
-  const borderStrong = `hsla(${h}, ${effectiveSat}%, 68%, 0.6)`;
+  // Hairline glass borders
+  const border = `hsla(${h}, ${Math.min(30, effectiveSat)}%, 80%, 0.12)`;
+  const borderSubtle = `hsla(${h}, ${Math.min(30, effectiveSat)}%, 85%, 0.06)`;
+  const borderStrong = `hsla(${h}, ${effectiveSat}%, 70%, 0.35)`;
 
-  const textAccent = `hsl(${h}, ${Math.min(60, effectiveSat)}%, 92%)`;
-  const textMuted = `hsl(${h}, ${Math.max(12, Math.min(30, effectiveSat * 0.4))}%, 70%)`;
+  // High-legibility typography
+  const textAccent = `hsl(215, 20%, 98%)`;
+  const textMuted = `hsl(215, 12%, 65%)`;
   const glow = ind500;
 
   return {
@@ -257,4 +266,5 @@ export function getSavedTheme(): ThemeRgb {
   } catch {}
   return DEFAULT_NAVY_THEME;
 }
+
 

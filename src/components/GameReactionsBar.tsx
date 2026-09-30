@@ -30,6 +30,7 @@ export default function GameReactionsBar({
   // Close popover on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
+      if (event.target && !document.contains(event.target as Node)) return;
       if (
         popoverRef.current &&
         !popoverRef.current.contains(event.target as Node)

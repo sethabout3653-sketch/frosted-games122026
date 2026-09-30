@@ -17,20 +17,22 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { getSavedProfile } from "../lib/activity-tracker";
-import { getAllRingtones, getSavedRingtone } from "../lib/ringtone-synthesizer";
+import { getAllRingtones, getSavedRingtone, setSavedRingtone } from "../lib/ringtone-synthesizer";
 import { unlockMobileAudio } from "../lib/webrtc-config";
 
 interface CallMenuDropdownProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenSettings?: () => void;
+  positionMode?: "absolute" | "fixed";
 }
 
-export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: CallMenuDropdownProps) {
+export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, positionMode = "absolute" }: CallMenuDropdownProps) {
   const { onlineUsers, voiceUserCount, startDirectCall, joinGeneralVoice } = useCall();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const myProfile = getSavedProfile();
   const [searchQuery, setSearchQuery] = useState("");
+  const [showRingtonePicker, setShowRingtonePicker] = useState(false);
 
   const [ringtoneState, setRingtoneState] = useState(() => {
     const saved = getSavedRingtone();
@@ -59,14 +61,30 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
+    const timer = setTimeout(() => {
+      const handleClickOutside = (e: MouseEvent) => {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+        
+        // If target was detached/unmounted during the click event, it was inside the menu. Do not close!
+        if (!document.contains(target)) return;
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+        if (
+          menuRef.current &&
+          !menuRef.current.contains(target) &&
+          !target.closest?.("#sidebar-voice-lounge-btn") &&
+          !target.closest?.("#header-voice-lounge-btn") &&
+          !target.closest?.("#nav-call-btn")
+        ) {
+          onClose();
+        }
+      };
+
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, 50);
+
+    return () => clearTimeout(timer);
   }, [isOpen, onClose]);
 
   // Filter users by search
@@ -92,7 +110,11 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 8, scale: 0.96 }}
         transition={{ duration: 0.16 }}
-        className="absolute top-full right-0 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 mt-2 w-84 sm:w-96 rounded-2xl border border-white/15 bg-neutral-900/95 text-white shadow-2xl backdrop-blur-xl z-50 overflow-hidden"
+        className={`${
+          positionMode === "fixed"
+            ? "fixed left-16 md:left-64 bottom-24 w-80 sm:w-96"
+            : "absolute top-full right-0 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 mt-2 w-84 sm:w-96"
+        } rounded-2xl border border-white/15 bg-neutral-900/95 text-white shadow-2xl backdrop-blur-xl z-50 overflow-hidden`}
         style={{
           boxShadow: "0 20px 50px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(16, 185, 129, 0.12)",
         }}
@@ -113,22 +135,56 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
           </div>
 
           <div className="flex items-center gap-1.5">
-            {onOpenSettings && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenSettings();
-                }}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-[11px] transition-colors cursor-pointer"
-                title="Customize Incoming Call Ringtone"
-              >
-                <Music size={12} className="text-emerald-400" />
-                <span>Ringtone</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setShowRingtonePicker((prev) => !prev)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-[11px] font-semibold transition-colors cursor-pointer shadow-sm"
+              title="Customize Incoming Call Ringtone"
+            >
+              <Music size={12} className="text-emerald-400" />
+              <span>Ringtone</span>
+            </button>
           </div>
         </div>
+
+        {/* INLINE RINGTONE PICKER PANEL */}
+        {showRingtonePicker && (
+          <div className="p-3 bg-neutral-950/90 border-b border-white/10 space-y-2 animate-in fade-in slide-in-from-top-2 duration-150">
+            <div className="flex items-center justify-between pb-1 border-b border-white/10">
+              <span className="text-xs font-bold text-emerald-400">Select Incoming Ringtone</span>
+              <button
+                type="button"
+                onClick={() => setShowRingtonePicker(false)}
+                className="p-1 hover:bg-white/10 rounded-lg text-neutral-400 hover:text-white transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+              {getAllRingtones().map((rt) => (
+                <button
+                  key={rt.id}
+                  type="button"
+                  onClick={() => {
+                    setSavedRingtone(rt.id);
+                    setRingtoneState(rt);
+                  }}
+                  className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-medium transition-all ${
+                    currentRingtone.id === rt.id
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : "hover:bg-white/5 text-neutral-300 hover:text-white"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Music size={12} className={currentRingtone.id === rt.id ? "text-emerald-400" : "text-neutral-400"} />
+                    <span>{rt.name}</span>
+                  </div>
+                  {currentRingtone.id === rt.id && <UserCheck size={12} className="text-emerald-400" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Scrollable Content */}
         <div className="max-h-[420px] overflow-y-auto p-3 space-y-3.5">
@@ -165,8 +221,8 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
               type="button"
               onClick={() => {
                 unlockMobileAudio();
-                onClose();
                 joinGeneralVoice();
+                onClose();
               }}
               className="mt-3 w-full flex items-center justify-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white transition-all cursor-pointer shadow-sm shadow-emerald-950/40 hover:scale-[1.01] active:scale-[0.99]"
             >
@@ -213,14 +269,32 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings }: Ca
 
             {/* Contact List */}
             {onlineUsers.length === 0 ? (
-              <div className="p-4 rounded-xl border border-white/5 bg-black/20 text-center space-y-2">
+              <div className="p-4 rounded-xl border border-white/5 bg-black/20 text-center space-y-3">
                 <div className="w-9 h-9 rounded-full bg-white/5 text-neutral-400 flex items-center justify-center mx-auto">
                   <User size={16} />
                 </div>
-                <p className="text-xs text-neutral-300 font-medium">No contacts online right now</p>
-                <p className="text-[11px] text-neutral-500 leading-relaxed max-w-xs mx-auto">
-                  When other people open the app, they appear here for direct voice and video calls.
-                </p>
+                <div>
+                  <p className="text-xs text-neutral-300 font-medium">No contacts online right now</p>
+                  <p className="text-[11px] text-neutral-500 leading-relaxed max-w-xs mx-auto mt-0.5">
+                    When other people open the app, they appear here for direct voice and video calls.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    unlockMobileAudio();
+                    startDirectCall({
+                      uid: "echo_bot_assistant",
+                      username: "Echo Companion Bot",
+                      photoURL: "https://api.dicebear.com/7.x/bottts/svg?seed=EchoCompanion"
+                    }, "audio");
+                    onClose();
+                  }}
+                  className="w-full py-2 px-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm hover:scale-[1.01]"
+                >
+                  <Phone size={13} className="text-emerald-400" />
+                  <span>Test Echo Direct Call</span>
+                </button>
               </div>
             ) : filteredUsers.length === 0 ? (
               <div className="p-3 text-center text-xs text-neutral-400">

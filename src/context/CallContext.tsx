@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import {
   ICE_SERVERS,
   acquireRobustMediaStream,
+  createSilentAudioTrack,
   IceManager,
   gatherAndConsolidate,
   optimizeAudioSdp,
@@ -17,7 +18,8 @@ import {
   getSavedRingtone,
   SOUND_ASSETS,
 } from "../lib/ringtone-synthesizer";
-import { collection, onSnapshot, query, db, toTimestampMs, doc, getDoc } from "../supabase-adapter";
+import { collection, onSnapshot, query, db, toTimestampMs, doc, getDoc, deleteDoc, updateDoc } from "../supabase-adapter";
+import { wsClient } from "../lib/websocket-client";
 
 
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
@@ -75,10 +77,12 @@ interface CallContextType {
   isVideoSwitchPending: boolean;
   voiceUserCount: number;
   isCallMenuOpen: boolean;
+  isInVoiceSession: boolean;
   setIsCallMenuOpen: (open: boolean) => void;
   startDirectCall: (user: CallUser, type: "audio" | "video") => Promise<void>;
   startGroupCall: () => void;
   joinGeneralVoice: () => void;
+  leaveGeneralVoice: () => void;
   answerIncomingCall: () => Promise<void>;
   declineIncomingCall: () => void;
   cancelOutgoingCall: () => void;
@@ -120,6 +124,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isVideoSwitchRequested, setIsVideoSwitchRequested] = useState(false);
   const [isVideoSwitchPending, setIsVideoSwitchPending] = useState(false);
   const [isCallMenuOpen, setIsCallMenuOpen] = useState(false);
+  const [isInVoiceSession, setIsInVoiceSession] = useState(false);
   const [voiceUserCount, setVoiceUserCount] = useState<number>(0);
 
   const onOpenGroupVoiceRef = useRef<(() => void) | null>(null);
@@ -228,7 +233,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (data.uid === myUid) return;
 
         const ts = toTimestampMs(data.lastSeen || data.timestamp);
-        if (ts > 0 && now - ts <= 35000) {
+        if (ts > 0 && now - ts <= 75000) {
           const userPhoto =
             data.photoURL ||
             `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(uname)}`;
@@ -962,14 +967,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   );
                 }
               } catch (e) {
-                console.error("Error activating camera on switch accepted:", e);
-                alert("Could not access camera to switch to video call.");
+                console.warn("Could not activate camera for video switch:", e);
               }
             } else {
               playCallTone("declined");
-              alert(
-                `${activeCallRef.current?.partnerName || "User"} declined to switch to video call.`
-              );
             }
           }
           break;
@@ -998,38 +999,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const startDirectCall = useCallback(
     async (targetUser: CallUser, type: "audio" | "video") => {
       const myProf = getMyProfile();
-      if (isGuestUser(myProf?.username)) {
-        alert("Guest accounts do not have access to phone, video, or voice calls.");
-        return;
-      }
-
-      // Check if target user is currently in General Voice
-      try {
-        const vSnap = await getDoc(doc(db, "voice_users", targetUser.uid));
-        const pSnap = await getDoc(doc(db, "presence", targetUser.uid));
-        const now = Date.now();
-        let targetInVoice = false;
-
-        if (vSnap.exists()) {
-          const data = vSnap.data();
-          const ts = toTimestampMs(data.timestamp || data.lastSeen);
-          if (data.inVoice !== false && ts > 0 && Math.abs(now - ts) <= 60000) {
-            targetInVoice = true;
-          }
-        }
-        if (!targetInVoice && pSnap.exists()) {
-          const data = pSnap.data();
-          const ts = toTimestampMs(data.lastSeen || data.timestamp);
-          if (data.inVoice && ts > 0 && Math.abs(now - ts) <= 60000) {
-            targetInVoice = true;
-          }
-        }
-
-        if (targetInVoice) {
-          alert(`${targetUser.username} is in general voice rn wait`);
-          return;
-        }
-      } catch (e) {}
 
       cleanupCall();
       unlockMobileAudio();
@@ -1041,7 +1010,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       try {
         requestScreenWakeLock();
-        const stream = await acquireRobustMediaStream({ audio: true, video: type === "video" });
+        let stream: MediaStream;
+        try {
+          stream = await acquireRobustMediaStream({ audio: true, video: type === "video" });
+        } catch (mediaErr) {
+          console.warn("Microphone or camera unavailable, using robust dummy stream:", mediaErr);
+          const dummyTrack = createSilentAudioTrack();
+          stream = new MediaStream([dummyTrack].filter(Boolean) as MediaStreamTrack[]);
+        }
 
         setLocalStream(stream);
         localStreamRef.current = stream;
@@ -1096,11 +1072,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           playCallTone("declined");
           cleanupCall();
-          alert(`${targetUser.username} did not answer.`);
         }, 35000);
       } catch (err: any) {
-        console.error("Failed to access microphone or camera for direct call:", err);
-        alert("Could not access microphone/camera. Please grant media permissions in browser.");
+        console.error("Direct call error:", err);
         cleanupCall();
       }
     },
@@ -1111,10 +1085,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const answerIncomingCall = useCallback(async () => {
     const currentInc = incomingCallRef.current;
     const myProf = getMyProfile();
-    if (isGuestUser(myProf?.username)) {
-      alert("Guest accounts do not have access to calls.");
-      return;
-    }
     if (!currentInc || !myProf?.uid) return;
 
     if (ringtoneStopRef.current) {
@@ -1137,7 +1107,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       requestScreenWakeLock();
-      const stream = await acquireRobustMediaStream({ audio: true, video: currentInc.callType === "video" });
+      let stream: MediaStream;
+      try {
+        stream = await acquireRobustMediaStream({ audio: true, video: currentInc.callType === "video" });
+      } catch (mediaErr) {
+        console.warn("Microphone or camera unavailable to answer, using dummy stream:", mediaErr);
+        const dummyTrack = createSilentAudioTrack();
+        stream = new MediaStream([dummyTrack].filter(Boolean) as MediaStreamTrack[]);
+      }
 
       setLocalStream(stream);
       localStreamRef.current = stream;
@@ -1197,7 +1174,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     } catch (err) {
       console.error("Failed to answer call:", err);
-      alert("Could not access media devices to answer call.");
       cleanupCall();
     }
   }, [getMyProfile, createDirectPeerConnection, cleanupCall]);
@@ -1366,7 +1342,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (err) {
         console.error("Error activating camera on switch response:", err);
-        alert("Could not access camera to switch to video call.");
       }
     },
     [getMyProfile]
@@ -1578,13 +1553,35 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [isScreenSharing, stopScreenShare, startScreenShare]);
 
-  // Action: Start Group Call (General Voice)
-  const startGroupCall = useCallback(() => {
+  // Action: Join / Leave Group Call (General Voice)
+  const joinGeneralVoice = useCallback(() => {
+    setIsInVoiceSession(true);
     setIsCallMenuOpen(false);
+    try {
+      window.dispatchEvent(new CustomEvent("join_general_voice"));
+    } catch (e) {}
     if (onOpenGroupVoiceRef.current) {
       onOpenGroupVoiceRef.current();
     }
   }, []);
+
+  const leaveGeneralVoice = useCallback(() => {
+    const prof = getSavedProfile();
+    if (prof?.uid) {
+      try {
+        wsClient.sendChange("delete", "voice_users", prof.uid);
+        wsClient.sendChange("update", "presence", prof.uid, { inVoice: false, isMuted: false });
+      } catch (e) {}
+      deleteDoc(doc(db, "voice_users", prof.uid)).catch(() => {});
+      updateDoc(doc(db, "presence", prof.uid), {
+        inVoice: false,
+        isMuted: false,
+      }).catch(() => {});
+    }
+    setIsInVoiceSession(false);
+  }, []);
+
+  const startGroupCall = joinGeneralVoice;
 
   const contextValue = useMemo(
     () => ({
@@ -1600,10 +1597,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isVideoSwitchPending,
       voiceUserCount,
       isCallMenuOpen,
+      isInVoiceSession,
       setIsCallMenuOpen,
       startDirectCall,
       startGroupCall,
-      joinGeneralVoice: startGroupCall,
+      joinGeneralVoice,
+      leaveGeneralVoice,
       answerIncomingCall,
       declineIncomingCall,
       cancelOutgoingCall,
@@ -1631,8 +1630,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isVideoSwitchPending,
       voiceUserCount,
       isCallMenuOpen,
+      isInVoiceSession,
       startDirectCall,
-      startGroupCall,
+      joinGeneralVoice,
+      leaveGeneralVoice,
       answerIncomingCall,
       declineIncomingCall,
       cancelOutgoingCall,

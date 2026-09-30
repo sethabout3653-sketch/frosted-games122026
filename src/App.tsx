@@ -17,8 +17,10 @@ import { useActivityTracker } from "./lib/activity-tracker";
 import { applyTheme, getSavedTheme } from "./utils/theme";
 import localZones from "./zones.json";
 import { CallProvider, useCall } from "./context/CallContext";
+import { MusicPlayerProvider, useMusicPlayer } from "./context/MusicPlayerContext";
 import IncomingCallNotification from "./components/IncomingCallNotification";
 import ActiveCallModal from "./components/ActiveCallModal";
+import MiniPlayerDock from "./components/MiniPlayerDock";
 import { useFavorites } from "./lib/favorites";
 import { purgeNonAllowedUsers } from "./lib/user-filter";
 import { Sparkles, Gamepad2, Shuffle, Heart, Flame, Compass, Play } from "lucide-react";
@@ -401,8 +403,8 @@ function AppContent() {
               />
 
               <div className="flex-1 space-y-2.5 z-10 text-center sm:text-left">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase text-amber-300 bg-amber-500/15 border border-amber-500/30">
-                  <Flame size={13} className="text-amber-400" />
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase text-indigo-300 bg-indigo-500/15 border border-indigo-500/30">
+                  <Flame size={13} className="text-indigo-400" />
                   <span>Featured Quick Launch</span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
@@ -433,7 +435,7 @@ function AppContent() {
                     }}
                     className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border text-xs font-bold text-neutral-200 hover:text-white hover:border-[var(--theme-border)] hover:bg-white/5 active:scale-98 transition-all cursor-pointer"
                   >
-                    <Shuffle size={14} className="text-amber-400" />
+                    <Shuffle size={14} className="text-indigo-400" />
                     <span>Surprise Me</span>
                   </button>
                 </div>
@@ -618,6 +620,9 @@ function AppContent() {
   <IncomingCallNotification />
   <ActiveCallModal />
   
+  {/* Global Persistent Audio Player */}
+  <MiniPlayerDock onExpand={() => setCurrentView("youtube")} />
+  
   </div>
   </>
   );
@@ -626,7 +631,9 @@ function AppContent() {
 export default function App() {
   return (
     <CallProvider>
-      <AppContent />
+      <MusicPlayerProvider>
+        <AppContent />
+      </MusicPlayerProvider>
     </CallProvider>
   );
 }

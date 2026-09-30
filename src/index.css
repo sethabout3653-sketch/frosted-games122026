@@ -98,6 +98,43 @@ select option {
   scrollbar-width: thin;
 }
 
+/* Custom Audio Scrubber Slider Thumb Styling */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #6366f1;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.9);
+  cursor: pointer;
+  border: 2px solid #ffffff;
+  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+
+input[type="range"]::-webkit-slider-thumb:hover,
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(1.35);
+  box-shadow: 0 0 14px rgba(99, 102, 241, 1);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #6366f1;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.9);
+  cursor: pointer;
+  border: 2px solid #ffffff;
+  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+
+input[type="range"]::-moz-range-thumb:hover,
+input[type="range"]::-moz-range-thumb:active {
+  transform: scale(1.35);
+  box-shadow: 0 0 14px rgba(99, 102, 241, 1);
+}
+
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;

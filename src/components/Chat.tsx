@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   MessageSquare,
   Gamepad2,
@@ -12,6 +12,7 @@ import {
   LogOut,
   X,
   PhoneOff,
+  Headphones,
   User as UserIcon,
 } from "lucide-react";
 import ProfileSetup from "./ProfileSetup";
@@ -20,9 +21,10 @@ import VoiceChannel from "./VoiceChannel";
 import FriendsPanel from "./FriendsPanel";
 import { ChatProfile, ChatMessage } from "../types";
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
-import { saveUserProfile, setVoiceState } from "../lib/activity-tracker";
+import { saveUserProfile, setVoiceState, getSavedProfile } from "../lib/activity-tracker";
 import { wsClient } from "../lib/websocket-client";
 import { getOrCreateUserTag } from "../lib/friends";
+import { useCall } from "../context/CallContext";
 import { SOUND_ASSETS } from "../lib/ringtone-synthesizer";
 import {
   collection,
@@ -50,84 +52,58 @@ export default function Chat({
   initialTab = "chat",
   autoJoinVoice = false,
   onVoiceSessionStarted,
+  onTabChange,
 }: {
   isOpen?: boolean;
   onClose?: () => void;
   onOpenVoiceChat?: () => void;
   persistent?: boolean;
-  initialTab?: "chat" | "voice" | "profile";
+  initialTab?: "chat" | "voice" | "profile" | "friends";
+  onTabChange?: (tab: "chat" | "voice" | "profile" | "friends") => void;
   autoJoinVoice?: boolean;
   onVoiceSessionStarted?: () => void;
 }) {
   const [profile, setProfile] = useState<ChatProfile | null>(() => {
-    try {
-      // Optional url query for immediate multi-user testing (e.g. ?user=Alice)
-      const params = new URLSearchParams(window.location.search);
-      const urlUser = params.get("user");
-      if (urlUser) {
-        return {
-          uid: "user_" + urlUser.toLowerCase().replace(/[^a-z0-9]/g, ""),
-          username: urlUser.trim(),
-          photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(urlUser.trim())}`,
-        };
-      }
-
-      const sessionSaved = sessionStorage.getItem("frosted_chat_profile");
-      if (sessionSaved) {
-        const parsed = JSON.parse(sessionSaved);
-        if (parsed && parsed.username) {
-          return parsed;
-        }
-      }
-
-      const saved = localStorage.getItem("frosted_chat_profile");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.username) {
-          let tabId = sessionStorage.getItem("frosted_tab_id");
-          if (!tabId) {
-            tabId = Math.random().toString(36).substring(2, 6);
-            sessionStorage.setItem("frosted_tab_id", tabId);
-          }
-          const tabProfile = {
-            ...parsed,
-            uid: parsed.uid.includes("_tab_") ? parsed.uid : `${parsed.uid}_tab_${tabId}`,
-          };
-          sessionStorage.setItem("frosted_chat_profile", JSON.stringify(tabProfile));
-          return tabProfile;
-        }
-        localStorage.removeItem("frosted_chat_profile");
-      }
-    } catch (e) {}
-    return null;
+    return getSavedProfile();
   });
 
-  const [activeTab, setActiveTab] = useState<"chat" | "voice" | "profile" | "friends">(initialTab || "chat");
-  const [isInVoiceSession, setIsInVoiceSession] = useState(autoJoinVoice);
+  const { isInVoiceSession, joinGeneralVoice, leaveGeneralVoice } = useCall();
+  const [activeTab, setActiveTabState] = useState<"chat" | "voice" | "profile" | "friends">(initialTab || "chat");
+
+  const setActiveTab = useCallback((tab: "chat" | "voice" | "profile" | "friends") => {
+    setActiveTabState(tab);
+    onTabChange?.(tab);
+  }, [onTabChange]);
   const [activeChannel, setActiveChannel] = useState<string>("general");
   const [channelSearch, setChannelSearch] = useState<string>("");
   const [showMembersSidebar, setShowMembersSidebar] = useState<boolean>(true);
   const [notification, setNotification] = useState<ChatMessage | null>(null);
   const messageSoundRef = useRef<HTMLAudioElement | null>(null);
 
-  // Sync tab when initialTab changes
+  // Sync tab when initialTab changes from parent
   useEffect(() => {
     if (initialTab) {
-      setActiveTab(initialTab);
+      setActiveTabState(initialTab);
     }
   }, [initialTab]);
 
   // Handle immediate joining to General Voice
   useEffect(() => {
-    // Wait for the profile to be ready before consuming the auto-join request.
-    // Chat stays mounted across view changes, so this also covers profiles that
-    // finish loading after the call menu is clicked.
-    if (autoJoinVoice && profile) {
+    if (autoJoinVoice) {
       setActiveTab("voice");
-      setIsInVoiceSession(true);
+      joinGeneralVoice();
       onVoiceSessionStarted?.();
     }
-  }, [autoJoinVoice, onVoiceSessionStarted, profile]);
+  }, [autoJoinVoice, onVoiceSessionStarted, joinGeneralVoice]);
+
+  // Global event listener for instant joining to General Voice from anywhere
+  useEffect(() => {
+    const handleGlobalJoinVoice = () => {
+      setActiveTab("voice");
+    };
+    window.addEventListener("join_general_voice", handleGlobalJoinVoice);
+    return () => window.removeEventListener("join_general_voice", handleGlobalJoinVoice);
+  }, []);
 
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
   const [rawVoiceUsers, setRawVoiceUsers] = useState<
@@ -629,7 +605,7 @@ export default function Chat({
                   <button
                     onClick={() => {
                       setActiveTab("voice");
-                      setIsInVoiceSession(true);
+                      joinGeneralVoice();
                     }}
                     style={{
                       backgroundColor: activeTab === "voice" ? "var(--theme-accent)" : "transparent",
@@ -673,7 +649,7 @@ export default function Chat({
                           key={`${vUser.uid || "vuser"}-${vIdx}`}
                           onClick={() => {
                             setActiveTab("voice");
-                            setIsInVoiceSession(true);
+                            joinGeneralVoice();
                           }}
                           className="flex items-center justify-between py-1 px-1.5 rounded text-xs text-neutral-300 hover:bg-[#080d28] transition-colors cursor-pointer"
                         >
@@ -752,15 +728,7 @@ export default function Chat({
                 </button>
                 <button
                   onClick={() => {
-                    if (profile?.uid) {
-                      deleteDoc(doc(db, "voice_users", profile.uid)).catch(() => {});
-                      updateDoc(doc(db, "presence", profile.uid), {
-                        inVoice: false,
-                        isMuted: false,
-                      }).catch(() => {});
-                      setRawVoiceUsers((prev) => prev.filter((u) => u.uid !== profile.uid));
-                    }
-                    setIsInVoiceSession(false);
+                    leaveGeneralVoice();
                   }}
                   className="p-1.5 text-neutral-400 hover:text-rose-400 rounded-md hover:bg-white/10 transition-colors cursor-pointer flex-shrink-0 ml-1"
                   title="Disconnect from Voice"
@@ -821,9 +789,57 @@ export default function Chat({
                 profile={profile}
                 onOpenVoiceChat={() => {
                   setActiveTab("voice");
-                  setIsInVoiceSession(true);
+                  joinGeneralVoice();
                 }}
               />
+            ) : activeTab === "voice" && !isInVoiceSession ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#020617] via-[#080d28] to-[#020617] text-white overflow-y-auto">
+                <div className="max-w-md w-full bg-[#0a1033]/80 border border-indigo-500/30 rounded-3xl p-8 shadow-2xl backdrop-blur-xl space-y-6">
+                  <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mx-auto shadow-lg shadow-emerald-950/50">
+                    <Volume2 size={32} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-extrabold text-white tracking-tight">General Voice Lounge</h2>
+                    <p className="text-xs text-neutral-400 mt-1.5 leading-relaxed">
+                      Connect with everyone online for low-latency HD audio, webcam video, and screen sharing.
+                    </p>
+                  </div>
+
+                  {/* Connected Users Status */}
+                  <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <span className="text-neutral-300">Connected Members</span>
+                      <span className="text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 text-[10px]">
+                        {voiceUsers.length} Active
+                      </span>
+                    </div>
+                    {voiceUsers.length === 0 ? (
+                      <p className="text-[11px] text-neutral-500 italic py-1">No one is currently in voice. Be the first to join!</p>
+                    ) : (
+                      <div className="flex items-center justify-center gap-2 flex-wrap pt-1">
+                        {voiceUsers.map((u, i) => (
+                          <div key={u.uid || i} className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-xs">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                            <span className="font-medium text-neutral-200">{u.username || "User"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Join Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      joinGeneralVoice();
+                    }}
+                    className="w-full py-3.5 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-sm transition-all cursor-pointer shadow-lg shadow-emerald-950/60 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+                  >
+                    <Headphones size={18} />
+                    <span>Join General Voice</span>
+                  </button>
+                </div>
+              </div>
             ) : (
               <ChatPanel
                 profile={profile}
@@ -831,7 +847,7 @@ export default function Chat({
                 voiceUsers={voiceUsers}
                 onSelectVoice={() => {
                   setActiveTab("voice");
-                  setIsInVoiceSession(true);
+                  joinGeneralVoice();
                 }}
                 showMembersSidebar={showMembersSidebar}
                 setShowMembersSidebar={setShowMembersSidebar}
@@ -843,49 +859,7 @@ export default function Chat({
     </div>
   )}
 
-  {/* 2. Persistent Single VoiceChannel Instance: stays alive continuously across text/voice tabs and chat open/close */}
-  {profile && isInVoiceSession && (
-    <VoiceChannel
-      profile={profile}
-      isPip={!isOpen || activeTab !== "voice"}
-      showMembersSidebar={showMembersSidebar}
-      onExpand={() => {
-        setActiveTab("voice");
-        onOpenVoiceChat?.();
-      }}
-      onLeave={() => {
-        if (profile?.uid) {
-          // 1. Immediately clear local global voice state
-          setVoiceState({
-            inVoice: false,
-            isMuted: false,
-            isVideoOn: false,
-            isVideoLoading: false,
-            isScreenSharing: false,
-            isScreenAudioOn: false,
-          });
-
-          // 2. Broadcast deletion over WebSocket immediately (0ms)
-          try {
-            wsClient.sendChange("delete", "voice_users", profile.uid);
-            wsClient.sendChange("update", "presence", profile.uid, { inVoice: false, isMuted: false });
-          } catch (e) {}
-
-          // 3. Cleanup database records
-          deleteDoc(doc(db, "voice_users", profile.uid)).catch(() => {});
-          updateDoc(doc(db, "presence", profile.uid), {
-            inVoice: false,
-            isMuted: false,
-          }).catch(() => {});
-          setRawVoiceUsers((prev) => prev.filter((u) => u.uid !== profile.uid));
-        }
-        setIsInVoiceSession(false);
-        setActiveTab("chat");
-      }}
-    />
-  )}
-
-  {/* 3. Toast notification when chat is closed */}
+  {/* 2. Toast notification when chat is closed */}
   {!isOpen && notification && (
     <div className="fixed top-6 right-6 z-50 bg-[#060b24] border border-indigo-800/40 rounded-2xl p-4 shadow-2xl shadow-black/80 flex items-center gap-4 animate-in slide-in-from-top fade-in hover:bg-[#0b143c] transition-colors cursor-pointer">
       <div
