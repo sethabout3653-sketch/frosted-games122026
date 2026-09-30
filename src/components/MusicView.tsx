@@ -38,26 +38,29 @@ interface MusicViewProps {
   onBackToHome?: () => void;
 }
 
-const SOUNDCLOUD_GENRES = [
-  { id: "all", label: "Trending", icon: Flame },
-  { id: "study", label: "Lofi & Chillhop", icon: Headphones },
-  { id: "electronic", label: "Electronic / EDM", icon: Radio },
+const YOUTUBE_MUSIC_GENRES = [
+  { id: "all", label: "YouTube Music Charts", icon: Flame },
+  { id: "pop", label: "Pop Hits", icon: Radio },
   { id: "hiphop", label: "Hip-Hop & Rap", icon: TrendingUp },
+  { id: "electronic", label: "Electronic / EDM", icon: Radio },
+  { id: "rock", label: "Rock & Alt", icon: Radio },
+  { id: "study", label: "Lofi & Study", icon: Headphones },
   { id: "favorites", label: "Favorites", icon: Heart },
   { id: "history", label: "Recently Played", icon: History },
   { id: "local", label: "Local Files", icon: Upload },
 ];
 
-const SOUNDCLOUD_SUGGESTIONS = [
-  "Chillhop Music",
-  "Synthwave",
-  "Flamingosis",
-  "ODESZA",
-  "San Holo",
-  "Kudasai",
-  "idealism",
-  "SwuM",
-  "MrSuicideSheep",
+const YOUTUBE_MUSIC_SUGGESTIONS = [
+  "Billie Jean Michael Jackson",
+  "Drake",
+  "Taylor Swift",
+  "The Weeknd",
+  "Kendrick Lamar",
+  "Coldplay",
+  "Lofi Girl",
+  "Daft Punk",
+  "Bruno Mars",
+  "Eminem",
 ];
 
 export default function MusicView({
@@ -88,11 +91,11 @@ export default function MusicView({
   const [urlStatus, setUrlStatus] = useState<string | null>(null);
   const [isFullPlayerMode, setIsFullPlayerMode] = useState<boolean>(false);
 
-  const isDirectUrl = /^(https?:\/\/)?(www\.)?(soundcloud\.com|snd\.sc)\/.+$/i.test(
+  const isDirectUrl = /^(https?:\/\/)?(www\.|music\.)?(youtube\.com|youtu\.be|soundcloud\.com|snd\.sc)\/.+$/i.test(
     searchQuery.trim()
   );
 
-  // Exclusively query SoundCloud Search & Trending
+  // Exclusively query music.youtube.com Search & Trending
   useEffect(() => {
     let isCancelled = false;
 
@@ -103,7 +106,7 @@ export default function MusicView({
           ...v,
           mediaType: "audio",
           isMusic: true,
-          sourceType: "soundcloud",
+          sourceType: "youtube",
         }))
       );
       return;
@@ -116,7 +119,7 @@ export default function MusicView({
           ...h.video,
           mediaType: "audio",
           isMusic: true,
-          sourceType: "soundcloud",
+          sourceType: "youtube",
         }))
       );
       return;
@@ -126,16 +129,16 @@ export default function MusicView({
       return;
     }
 
-    async function fetchSoundCloudTracks() {
+    async function fetchYouTubeMusicTracks() {
       setIsLoading(true);
       setUrlStatus(null);
       try {
         const query = deferredSearch.trim();
 
         if (query) {
-          // 1. Direct SoundCloud URL Extraction
+          // 1. Direct URL Stream Extraction
           if (isDirectUrl) {
-            setUrlStatus("Resolving audio stream...");
+            setUrlStatus("Resolving music.youtube.com audio stream...");
             try {
               const res = await fetch(`/api/soundcloud/resolve?url=${encodeURIComponent(query)}`);
               if (res.ok) {
@@ -143,16 +146,16 @@ export default function MusicView({
                 if (!isCancelled && item && item.id) {
                   const resolved: AudioTrack = {
                     id: item.id,
-                    title: item.title || "Audio Track",
-                    channelTitle: item.artist || "Artist",
-                    artist: item.artist || "Artist",
+                    title: item.title || "YouTube Music Track",
+                    channelTitle: item.artist || item.channelTitle || "YouTube Artist",
+                    artist: item.artist || "YouTube Artist",
                     thumbnail: item.thumbnail || "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&q=80",
                     duration: item.duration || "3:30",
                     mediaType: "audio",
                     isMusic: true,
                     permalinkUrl: item.permalinkUrl || query,
-                    mediaUrl: item.mediaUrl || `/api/soundcloud/stream?url=${encodeURIComponent(query)}`,
-                    sourceType: "soundcloud",
+                    mediaUrl: item.mediaUrl || `/api/youtube/stream?v=${item.id.replace("yt-", "")}`,
+                    sourceType: "youtube",
                   };
                   setTracks([resolved]);
                   setUrlStatus("Audio stream ready!");
@@ -163,32 +166,58 @@ export default function MusicView({
             } catch (e) {}
           }
 
-          // 2. SoundCloud Search
-          const searchRes = await fetch(`/api/soundcloud/search?q=${encodeURIComponent(query)}`).catch(() => null);
+          // 2. YouTube Music Search
+          const searchRes = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}&filter=songs`).catch(() => null);
           if (searchRes && searchRes.ok) {
             const data = await searchRes.json().catch(() => null);
-            const items = data?.tracks || [];
+            const items = data?.videos || data?.tracks || [];
             if (!isCancelled && Array.isArray(items) && items.length > 0) {
-              setTracks(items);
+              const mapped: AudioTrack[] = items.map((t: any) => ({
+                id: t.id ? (t.id.startsWith("yt-") ? t.id : `yt-${t.id}`) : `yt-${Date.now()}`,
+                title: t.title || "YouTube Music Track",
+                artist: t.artist || t.channelTitle || "YouTube Artist",
+                channelTitle: t.channelTitle || t.artist || "YouTube Artist",
+                duration: t.duration || "3:30",
+                thumbnail: t.thumbnail || "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&q=80",
+                mediaType: "audio",
+                isMusic: true,
+                permalinkUrl: `https://music.youtube.com/watch?v=${(t.id || "").replace("yt-", "")}`,
+                mediaUrl: `/api/youtube/stream?v=${(t.id || "").replace("yt-", "")}`,
+                sourceType: "youtube",
+              }));
+              setTracks(mapped);
               setIsLoading(false);
               return;
             }
           }
         } else {
-          // Fetch SoundCloud trending by category
-          const trendRes = await fetch(`/api/soundcloud/trending?category=${selectedGenre}`).catch(() => null);
+          // Fetch YouTube Music trending & charts by category
+          const trendRes = await fetch(`/api/youtube/trending?category=${selectedGenre}`).catch(() => null);
           if (trendRes && trendRes.ok) {
             const data = await trendRes.json().catch(() => null);
-            const items = data?.tracks || [];
+            const items = data?.videos || data?.tracks || [];
             if (!isCancelled && Array.isArray(items) && items.length > 0) {
-              setTracks(items);
+              const mapped: AudioTrack[] = items.map((t: any) => ({
+                id: t.id ? (t.id.startsWith("yt-") ? t.id : `yt-${t.id}`) : `yt-${Date.now()}`,
+                title: t.title || "YouTube Music Track",
+                artist: t.artist || t.channelTitle || "YouTube Artist",
+                channelTitle: t.channelTitle || t.artist || "YouTube Artist",
+                duration: t.duration || "3:30",
+                thumbnail: t.thumbnail || "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&q=80",
+                mediaType: "audio",
+                isMusic: true,
+                permalinkUrl: `https://music.youtube.com/watch?v=${(t.id || "").replace("yt-", "")}`,
+                mediaUrl: `/api/youtube/stream?v=${(t.id || "").replace("yt-", "")}`,
+                sourceType: "youtube",
+              }));
+              setTracks(mapped);
               setIsLoading(false);
               return;
             }
           }
         }
 
-        // Final curated SoundCloud fallback
+        // Final curated YouTube Music fallback
         if (!isCancelled) {
           setTracks(CURATED_RADIO_STATIONS);
         }
@@ -201,7 +230,7 @@ export default function MusicView({
       }
     }
 
-    fetchSoundCloudTracks();
+    fetchYouTubeMusicTracks();
 
     return () => {
       isCancelled = true;
@@ -269,7 +298,7 @@ export default function MusicView({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search tracks, artists, YouTube, SoundCloud, Bandcamp, or paste any music link..."
+            placeholder="Search tracks, artists, music.youtube.com, or paste any song link..."
             className="flex-1 bg-transparent text-sm text-white placeholder-neutral-500 focus:outline-none px-2"
           />
           {searchQuery && (
@@ -301,8 +330,8 @@ export default function MusicView({
         {/* Quick Suggestion Pills */}
         {!searchQuery && selectedGenre === "all" && (
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar no-scrollbar text-xs text-neutral-400">
-            <span className="text-[11px] font-bold text-neutral-500 mr-1 shrink-0">Featured Artists:</span>
-            {SOUNDCLOUD_SUGGESTIONS.map((sug) => (
+            <span className="text-[11px] font-bold text-neutral-500 mr-1 shrink-0">Featured Artists & Songs:</span>
+            {YOUTUBE_MUSIC_SUGGESTIONS.map((sug) => (
               <button
                 key={sug}
                 type="button"
@@ -325,7 +354,7 @@ export default function MusicView({
 
       {/* Quick Genre Navigation Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar no-scrollbar select-none">
-        {SOUNDCLOUD_GENRES.map((genre) => {
+        {YOUTUBE_MUSIC_GENRES.map((genre) => {
           const Icon = genre.icon;
           const isActive = selectedGenre === genre.id;
           return (

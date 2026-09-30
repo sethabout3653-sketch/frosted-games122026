@@ -25,7 +25,7 @@ export default function YtDlpPipelineDrawer({
   onClose,
 }: YtDlpPipelineDrawerProps) {
   const { resolveAndPlayUrl, currentTrack } = useMusicPlayer();
-  const [testUrl, setTestUrl] = useState("https://soundcloud.com/chillhopdotcom/sets/chillhop-essentials-spring-2024");
+  const [testUrl, setTestUrl] = useState("https://music.youtube.com/watch?v=5qap5aO4i9A");
   const [audioFormat, setAudioFormat] = useState<"mp3" | "flac" | "wav" | "m4a" | "opus">("mp3");
   const [audioQuality, setAudioQuality] = useState<string>("0");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
