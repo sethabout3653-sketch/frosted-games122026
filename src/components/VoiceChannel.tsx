@@ -52,7 +52,6 @@ import ActivityBadge from "./ActivityBadge";
 import {
   ICE_SERVERS,
   acquireRobustMediaStream,
-  createSilentAudioTrack,
   IceManager,
   gatherAndConsolidate,
   optimizeAudioSdp,
@@ -406,11 +405,6 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         const ctx = audioCtxRef.current;
         if (ctx.state === "suspended") {
           await ctx.resume().catch(() => {});
-        }
-
-        if (!sourceStream.getAudioTracks().length) {
-          const silent = createSilentAudioTrack();
-          if (silent) sourceStream.addTrack(silent);
         }
 
         const source = ctx.createMediaStreamSource(sourceStream);

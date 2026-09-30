@@ -11,7 +11,6 @@ import YouTubeView from "./components/YouTubeView";
 import AIAssistant from "./components/AIAssistant";
 import BackgroundEditor, { DEFAULT_BACKGROUND, AppBackground } from "./components/BackgroundEditor";
 import SettingsModal from "./components/SettingsModal";
-import LuminImageExtractorModal from "./components/LuminImageExtractorModal";
 import LoadingScreen from "./components/LoadingScreen";
 import { applyTabCloak, getSavedTabCloak } from "./tabCloaks";
 import { useActivityTracker } from "./lib/activity-tracker";
@@ -114,7 +113,6 @@ function AppContent() {
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isThemeOpen, setIsThemeOpen] = useState(false);
-  const [isLuminImagesOpen, setIsLuminImagesOpen] = useState(false);
 
   useEffect(() => {
     const saved = getSavedTabCloak();
@@ -344,7 +342,6 @@ function AppContent() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenTheme={() => setIsThemeOpen(true)}
         onRandomGame={handleRandomGame}
-        onOpenLuminImages={() => setIsLuminImagesOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -615,10 +612,6 @@ function AppContent() {
       setIsSettingsOpen(false);
       setIsThemeOpen(true);
     }}
-  />
-  <LuminImageExtractorModal
-    isOpen={isLuminImagesOpen}
-    onClose={() => setIsLuminImagesOpen(false)}
   />
 
   {/* Real-time P2P Call Modals & In-App Top Right Notification */}

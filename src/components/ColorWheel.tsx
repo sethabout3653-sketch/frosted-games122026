@@ -200,24 +200,18 @@ export default function ColorWheel({ color, onChange, size = 240 }: ColorWheelPr
       </div>
 
       {/* Compass Spectrum Labels */}
-      <div className="flex items-center justify-between w-full max-w-[260px] px-2 pt-2 text-[10px] font-semibold text-[var(--theme-text-muted)] tracking-wider">
+      <div className="flex items-center justify-between w-full max-w-[260px] px-2 pt-2 text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
         <span className="text-blue-400">Blue</span>
         <span className="text-cyan-400">Cyan</span>
         <span className="text-emerald-400">Green</span>
       </div>
 
       {/* Tone / Depth (Brightness) Slider */}
-      <div
-        style={{
-          backgroundColor: "var(--theme-surface)",
-          borderColor: "var(--theme-border-subtle)",
-        }}
-        className="w-full max-w-[270px] mt-2.5 space-y-1.5 border p-2.5 rounded-xl"
-      >
+      <div className="w-full max-w-[270px] mt-2.5 space-y-1 bg-white/5 border border-white/10 p-2.5 rounded-xl">
         <div className="flex items-center justify-between text-[11px] font-semibold text-neutral-200">
-          <span>Atmosphere Luminance</span>
-          <span className="font-mono text-xs text-[var(--theme-text-accent)] font-bold">
-            {brightness < 0.25 ? "Stealth Obsidian" : brightness < 0.65 ? "Balanced" : "Vibrant"} ({Math.round(brightness * 100)}%)
+          <span>Theme Shade / Depth</span>
+          <span className="font-mono text-xs text-white font-bold">
+            {brightness < 0.25 ? "Deep Navy / Dark" : brightness < 0.65 ? "Medium" : "Vibrant"} ({Math.round(brightness * 100)}%)
           </span>
         </div>
         <div className="relative flex items-center">
@@ -227,13 +221,13 @@ export default function ColorWheel({ color, onChange, size = 240 }: ColorWheelPr
             max={100}
             value={Math.round(brightness * 100)}
             onChange={(e) => handleBrightnessChange(Number(e.target.value) / 100)}
-            className="w-full h-2 cursor-pointer appearance-none rounded-lg accent-white bg-gradient-to-r from-black via-slate-800 to-blue-400"
-            title="Adjust between deep dark shades and vibrant saturated tones"
+            className="w-full h-2 cursor-pointer appearance-none rounded-lg accent-white bg-gradient-to-r from-black via-indigo-900 to-indigo-400"
+            title="Adjust between deep dark shades (great for backgrounds) and vibrant saturated tones"
           />
         </div>
-        <div className="flex justify-between text-[9px] text-[var(--theme-text-muted)] pt-0.5">
-          <span>Deep Dark Matter</span>
-          <span>Radiant Luminescence</span>
+        <div className="flex justify-between text-[9px] text-neutral-400 pt-0.5">
+          <span>Dark Stealth (Navy tone)</span>
+          <span>Full Vibrant</span>
         </div>
       </div>
     </div>
