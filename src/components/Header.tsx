@@ -203,10 +203,11 @@ const Header = memo(function Header({
                   ? "text-white shadow-md ring-1 ring-white/20 bg-[var(--theme-accent)]"
                   : "text-neutral-400 hover:text-white hover:bg-white/5"
               }`}
-              title="Music"
+              title="SoundCloud Music & Lo-Fi"
             >
-              <Music size={15} className={isYouTube ? "text-white" : "text-[var(--theme-text-accent)]"} />
+              <Music size={15} className={isYouTube ? "text-[#ff7700]" : "text-[var(--theme-text-accent)]"} />
               <span>Music</span>
+              <span className="hidden sm:inline text-[8px] font-black px-1 rounded bg-[#ff5500]/25 text-[#ff8800] border border-[#ff5500]/30 tracking-tight">SC</span>
             </button>
 
             {/* Calling & Voice Tab */}
