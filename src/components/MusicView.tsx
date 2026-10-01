@@ -208,19 +208,34 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
     const query = searchQuery.trim();
     if (!query) return;
 
-    if (/^https?:\/\//i.test(query)) {
-      try {
+    setIsLoading(true);
+    try {
+      // If it looks like a URL or an 11-char YouTube ID, resolve it directly
+      if (/^https?:\/\//i.test(query) || /^[a-zA-Z0-9_-]{11}$/.test(query)) {
         const res = await fetch(`/api/music/resolve?url=${encodeURIComponent(query)}`);
         if (res.ok) {
           const track = await res.json();
           if (track && track.id) {
-            playTrack(track);
-            setTracks([track, ...tracks]);
+            setTracks((prev) => [track, ...prev.filter((t) => t.id !== track.id)]);
+            playTrack(track, [track, ...tracks]);
+            return;
           }
         }
-      } catch (err) {}
-    } else if (tracks.length > 0) {
-      playTrack(tracks[0], tracks);
+      }
+
+      // Keyword search
+      const res = await fetch(`/api/music/search?q=${encodeURIComponent(query)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.tracks) && data.tracks.length > 0) {
+          setTracks(data.tracks);
+          playTrack(data.tracks[0], data.tracks);
+        }
+      }
+    } catch (err) {
+      // quiet fallback
+    } finally {
+      setIsLoading(false);
     }
   };
 

@@ -22,7 +22,7 @@ export interface MusicTrack {
   durationSec: number;
   thumbnail: string;
   permalinkUrl: string;
-  source: "youtube_music";
+  source: "youtube_music" | "soundcloud" | "direct";
   genre?: string;
 }
 
@@ -131,13 +131,41 @@ export const CURATED_YOUTUBE_TRACKS: MusicTrack[] = [
   },
 ];
 
-function extractYoutubeId(input: string): string | null {
+// Universal YouTube / YouTube Music video ID extractor
+export function extractYoutubeId(input: string): string | null {
+  if (!input) return null;
   const clean = input.trim();
-  const match = clean.match(
-    /(?:music\.youtube\.com\/watch\?v=|youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i
-  );
-  if (match && match[1]) return match[1];
+
+  // 1. Direct 11-char ID
   if (/^[a-zA-Z0-9_-]{11}$/.test(clean)) return clean;
+
+  // 2. Parse URL standard & mobile query parameters
+  try {
+    const raw = clean.startsWith("http") ? clean : "https://" + clean;
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+
+    if (host.includes("youtube.com") || host.includes("youtube-nocookie.com")) {
+      const v = url.searchParams.get("v");
+      if (v && /^[a-zA-Z0-9_-]{11}$/.test(v)) return v;
+
+      const parts = url.pathname.split("/").filter(Boolean);
+      for (let i = 0; i < parts.length; i++) {
+        if (["shorts", "embed", "v", "e", "watch"].includes(parts[i]) && parts[i + 1]) {
+          const cand = parts[i + 1].split("?")[0].split("&")[0];
+          if (/^[a-zA-Z0-9_-]{11}$/.test(cand)) return cand;
+        }
+      }
+    } else if (host === "youtu.be" || host.endsWith(".youtu.be")) {
+      const cand = url.pathname.replace(/^\/+/, "").split("/")[0].split("?")[0];
+      if (cand && /^[a-zA-Z0-9_-]{11}$/.test(cand)) return cand;
+    }
+  } catch (e) {}
+
+  // 3. Fallback regex matching
+  const m = clean.match(/(?:[?&]v=|\/embed\/|\/shorts\/|\/v\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+  if (m && m[1]) return m[1];
+
   return null;
 }
 
@@ -149,7 +177,7 @@ function withTimeout<T>(promise: Promise<any>, ms: number, fallback: any): Promi
   ]);
 }
 
-// 1. Search YouTube Music catalog
+// 1. Search YouTube Music catalog or Resolve Link
 musicRouter.get("/search", async (req, res) => {
   const query = String(req.query.q || "").trim();
   const limit = Math.min(30, Math.max(1, parseInt(String(req.query.limit || "20"), 10)));
@@ -158,23 +186,17 @@ musicRouter.get("/search", async (req, res) => {
     return res.json({ tracks: CURATED_YOUTUBE_TRACKS });
   }
 
-  // Check cache
-  const cached = searchCache.get(query.toLowerCase());
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return res.json({ tracks: cached.tracks.slice(0, limit) });
-  }
-
-  // Check if query is a direct YouTube / YouTube Music URL or ID
+  // Check if query is a direct YouTube / YouTube Music URL or video ID
   const directId = extractYoutubeId(query);
   if (directId) {
     try {
-      const searchRes: any = await withTimeout(yts({ videoId: directId }), 3000, null);
+      const searchRes: any = await withTimeout(yts({ videoId: directId }), 3500, null);
       if (searchRes && searchRes.videoId) {
         const track: MusicTrack = {
           id: searchRes.videoId,
           youtubeId: searchRes.videoId,
-          title: searchRes.title || "YouTube Music Track",
-          artist: searchRes.author?.name || "Artist",
+          title: searchRes.title || `Track (${directId})`,
+          artist: searchRes.author?.name || "YouTube Music",
           duration: searchRes.timestamp || "3:30",
           durationSec: searchRes.seconds || 210,
           thumbnail: searchRes.thumbnail || `https://i.ytimg.com/vi/${searchRes.videoId}/hqdefault.jpg`,
@@ -184,10 +206,30 @@ musicRouter.get("/search", async (req, res) => {
         return res.json({ tracks: [track] });
       }
     } catch (e) {}
+
+    // Fallback: Return structured track using the direct ID even if metadata lookup timed out
+    const reliableTrack: MusicTrack = {
+      id: directId,
+      youtubeId: directId,
+      title: `YouTube Music Track (${directId})`,
+      artist: "YouTube Music",
+      duration: "3:30",
+      durationSec: 210,
+      thumbnail: `https://i.ytimg.com/vi/${directId}/hqdefault.jpg`,
+      permalinkUrl: `https://music.youtube.com/watch?v=${directId}`,
+      source: "youtube_music",
+    };
+    return res.json({ tracks: [reliableTrack] });
+  }
+
+  // Check cache for keyword searches
+  const cached = searchCache.get(query.toLowerCase());
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return res.json({ tracks: cached.tracks.slice(0, limit) });
   }
 
   try {
-    const searchRes: any = await withTimeout(yts(query), 4000, { videos: [] });
+    const searchRes: any = await withTimeout(yts(query), 4500, { videos: [] });
     const videos = searchRes?.videos || [];
     const tracks: MusicTrack[] = videos.slice(0, limit).map((v: any) => ({
       id: v.videoId,
@@ -260,24 +302,24 @@ musicRouter.get("/trending", async (req, res) => {
   res.json({ tracks: CURATED_YOUTUBE_TRACKS });
 });
 
-// 3. Resolve any YouTube Music URL / ID using yt-dlp & metadata
+// 3. Resolve any link (music.youtube.com, soundcloud.com, direct mp3) using yt-dlp & metadata
 musicRouter.get("/resolve", async (req, res) => {
   const rawUrl = String(req.query.url || "").trim();
   if (!rawUrl) {
     return res.status(400).json({ error: "Missing 'url' parameter" });
   }
 
+  // 1. YouTube & YouTube Music links
   const videoId = extractYoutubeId(rawUrl);
-
   if (videoId) {
     try {
-      const info: any = await withTimeout(yts({ videoId }), 3000, null);
+      const info: any = await withTimeout(yts({ videoId }), 3500, null);
       if (info && info.videoId) {
         return res.json({
           id: info.videoId,
           youtubeId: info.videoId,
-          title: info.title || "YouTube Music Track",
-          artist: info.author?.name || "Artist",
+          title: info.title || `Track (${info.videoId})`,
+          artist: info.author?.name || "YouTube Music",
           duration: info.timestamp || "3:30",
           durationSec: info.seconds || 210,
           thumbnail: info.thumbnail || `https://i.ytimg.com/vi/${info.videoId}/hqdefault.jpg`,
@@ -286,9 +328,22 @@ musicRouter.get("/resolve", async (req, res) => {
         });
       }
     } catch (e) {}
+
+    // Immediate guarantee with the exact videoId
+    return res.json({
+      id: videoId,
+      youtubeId: videoId,
+      title: `YouTube Music Track (${videoId})`,
+      artist: "YouTube Music",
+      duration: "3:30",
+      durationSec: 210,
+      thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      permalinkUrl: `https://music.youtube.com/watch?v=${videoId}`,
+      source: "youtube_music",
+    });
   }
 
-  // Fallback to yt-dlp extractor for generic media URLs
+  // 2. Generic media URLs or SoundCloud via yt-dlp
   if (fs.existsSync(YT_DLP_BIN)) {
     execFile(
       YT_DLP_BIN,
@@ -298,48 +353,42 @@ musicRouter.get("/resolve", async (req, res) => {
         if (!err && stdout) {
           try {
             const data = JSON.parse(stdout);
-            const id = data.id || videoId || "track";
+            const id = data.id || "track_" + Date.now();
             return res.json({
               id,
-              youtubeId: id,
+              youtubeId: data.id || id,
               title: data.title || "Audio Track",
               artist: data.uploader || data.artist || "Artist",
               duration: data.duration_string || "3:30",
               durationSec: data.duration || 210,
-              thumbnail: data.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
-              permalinkUrl: `https://music.youtube.com/watch?v=${id}`,
-              source: "youtube_music",
+              thumbnail: data.thumbnail || "https://i.ytimg.com/vi/5yx6BWlEVcY/hqdefault.jpg",
+              permalinkUrl: rawUrl,
+              source: rawUrl.includes("soundcloud.com") ? "soundcloud" : "youtube_music",
             });
           } catch (e) {}
         }
 
-        const fallbackId = videoId || "5yx6BWlEVcY";
-        return res.json({
-          id: fallbackId,
-          youtubeId: fallbackId,
-          title: "YouTube Music Audio",
-          artist: "Artist",
-          duration: "3:30",
-          durationSec: 210,
-          thumbnail: `https://i.ytimg.com/vi/${fallbackId}/hqdefault.jpg`,
-          permalinkUrl: `https://music.youtube.com/watch?v=${fallbackId}`,
-          source: "youtube_music",
-        });
+        // Direct audio stream fallback
+        if (/\.(mp3|m4a|aac|wav|ogg|flac)($|\?)/i.test(rawUrl)) {
+          const fileName = rawUrl.split("/").pop()?.split("?")[0] || "Direct Audio Stream";
+          return res.json({
+            id: "direct_" + Date.now(),
+            youtubeId: "",
+            title: decodeURIComponent(fileName),
+            artist: "Audio Stream",
+            duration: "3:30",
+            durationSec: 210,
+            thumbnail: "https://i.ytimg.com/vi/5yx6BWlEVcY/hqdefault.jpg",
+            permalinkUrl: rawUrl,
+            source: "direct",
+          });
+        }
+
+        res.status(404).json({ error: "Could not resolve audio link" });
       }
     );
   } else {
-    const fallbackId = videoId || "5yx6BWlEVcY";
-    res.json({
-      id: fallbackId,
-      youtubeId: fallbackId,
-      title: "YouTube Music Audio",
-      artist: "Artist",
-      duration: "3:30",
-      durationSec: 210,
-      thumbnail: `https://i.ytimg.com/vi/${fallbackId}/hqdefault.jpg`,
-      permalinkUrl: `https://music.youtube.com/watch?v=${fallbackId}`,
-      source: "youtube_music",
-    });
+    res.status(404).json({ error: "Extractor unavailable" });
   }
 });
 
