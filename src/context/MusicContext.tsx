@@ -56,7 +56,6 @@ interface MusicContextType {
   toggleFavorite: (track: Track) => void;
   isFavorite: (id: string) => boolean;
   getStreamUrl: (track: Track, mode: MediaMode) => string;
-  playbackEngine: "yt-dlp" | "client";
 }
 
 const MusicContext = createContext<MusicContextType | null>(null);
@@ -430,7 +429,6 @@ export function MusicProvider({ children }: { children: ReactNode }) {
         toggleFavorite,
         isFavorite,
         getStreamUrl,
-        playbackEngine: "yt-dlp",
       }}
     >
       {children}

@@ -11,7 +11,6 @@ import {
   Repeat1,
   Shuffle,
   Maximize2,
-  Download,
 } from "lucide-react";
 import { useMusic } from "../context/MusicContext";
 
@@ -120,19 +119,6 @@ export default function MusicDock({ onExpand }: MusicDockProps) {
             title={fav ? "Saved" : "Favorite"}
           >
             <Heart size={16} className={fav ? "fill-rose-500 text-rose-500" : ""} />
-          </button>
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              const url = `/api/music/download?id=${encodeURIComponent(currentTrack.youtubeId || currentTrack.id)}&title=${encodeURIComponent(currentTrack.title || "")}&artist=${encodeURIComponent(currentTrack.artist || "")}`;
-              window.open(url, "_blank");
-            }}
-            className="hidden sm:flex p-1.5 rounded-lg text-neutral-400 hover:text-cyan-400 transition-colors cursor-pointer shrink-0"
-            title="Download Track (.mp3)"
-          >
-            <Download size={16} />
           </button>
         </div>
 

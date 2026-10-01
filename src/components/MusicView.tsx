@@ -33,7 +33,6 @@ import {
   TrendingUp,
   Clock,
   ExternalLink,
-  Download,
 } from "lucide-react";
 import { useMusic, Track } from "../context/MusicContext";
 
@@ -718,21 +717,6 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                const target = track.youtubeId || track.id;
-                                const name = `${track.artist} - ${track.title}.mp3`;
-                                const downloadUrl = `/api/download?url=${encodeURIComponent(`/api/music/stream?id=${target}`)}&name=${encodeURIComponent(name)}`;
-                                window.location.href = downloadUrl;
-                              }}
-                              className="p-1.5 text-neutral-400 hover:text-white transition-colors cursor-pointer"
-                              title="Download MP3"
-                            >
-                              <Download size={16} />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
                                 toggleFavorite(track);
                               }}
                               className="p-1.5 text-neutral-400 hover:text-rose-400 transition-colors cursor-pointer"
@@ -974,24 +958,6 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
 
                   <button
                     type="button"
-                    onClick={() => {
-                      const target = spotlightTrack.youtubeId || spotlightTrack.id;
-                      const name = `${spotlightTrack.artist} - ${spotlightTrack.title}.mp3`;
-                      const downloadUrl = `/api/download?url=${encodeURIComponent(`/api/music/stream?id=${target}`)}&name=${encodeURIComponent(name)}`;
-                      window.location.href = downloadUrl;
-                    }}
-                    style={{
-                      backgroundColor: "rgba(255,255,255,0.06)",
-                      borderColor: "var(--theme-border-subtle)",
-                    }}
-                    className="p-2.5 rounded-2xl border text-neutral-300 hover:text-white transition-colors cursor-pointer"
-                    title="Download MP3"
-                  >
-                    <Download size={16} />
-                  </button>
-
-                  <button
-                    type="button"
                     onClick={() => toggleFavorite(spotlightTrack)}
                     style={{
                       backgroundColor: "rgba(255,255,255,0.06)",
@@ -1207,21 +1173,6 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          const target = track.youtubeId || track.id;
-                          const name = `${track.artist} - ${track.title}.mp3`;
-                          const downloadUrl = `/api/download?url=${encodeURIComponent(`/api/music/stream?id=${target}`)}&name=${encodeURIComponent(name)}`;
-                          window.location.href = downloadUrl;
-                        }}
-                        className="p-1 hover:text-white transition-colors cursor-pointer"
-                        title="Download MP3"
-                      >
-                        <Download size={14} />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
                           handleShare(track);
                         }}
                         className="p-1 hover:text-white transition-colors cursor-pointer"
@@ -1337,20 +1288,6 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            const target = track.youtubeId || track.id;
-                            const name = `${track.artist} - ${track.title}.mp3`;
-                            const downloadUrl = `/api/download?url=${encodeURIComponent(`/api/music/stream?id=${target}`)}&name=${encodeURIComponent(name)}`;
-                            window.location.href = downloadUrl;
-                          }}
-                          className="p-1 hover:text-white transition-colors cursor-pointer"
-                          title="Download MP3"
-                        >
-                          <Download size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
                             handleShare(track);
                           }}
                           className="p-1 hover:text-white transition-colors cursor-pointer"
@@ -1450,28 +1387,13 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
               </div>
 
               {currentTrack && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const target = currentTrack.youtubeId || currentTrack.id;
-                      const name = `${currentTrack.artist} - ${currentTrack.title}.mp3`;
-                      const downloadUrl = `/api/download?url=${encodeURIComponent(`/api/music/stream?id=${target}`)}&name=${encodeURIComponent(name)}`;
-                      window.location.href = downloadUrl;
-                    }}
-                    className="p-3 rounded-2xl border border-white/10 hover:bg-white/10 text-neutral-300 hover:text-white transition-colors cursor-pointer"
-                    title="Download MP3"
-                  >
-                    <Download size={18} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleFavorite(currentTrack)}
-                    className="p-3 rounded-2xl border border-white/10 hover:bg-white/10 text-neutral-300 hover:text-rose-400 transition-colors cursor-pointer"
-                  >
-                    <Heart size={18} className={isFavorite(currentTrack.id) ? "fill-rose-500 text-rose-500" : ""} />
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => toggleFavorite(currentTrack)}
+                  className="p-3 rounded-2xl border border-white/10 hover:bg-white/10 text-neutral-300 hover:text-rose-400 transition-colors cursor-pointer"
+                >
+                  <Heart size={18} className={isFavorite(currentTrack.id) ? "fill-rose-500 text-rose-500" : ""} />
+                </button>
               )}
             </div>
 
