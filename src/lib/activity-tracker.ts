@@ -108,7 +108,7 @@ let currentGlobalActivity: UserActivity = {
 };
 
 let lastPlayingTimestamp = 0;
-let activeCurrentView: "home" | "game" | "chat" | "youtube" = "home";
+let activeCurrentView: "home" | "game" | "chat" | "assistant" | "music" = "home";
 let cachedSelectedGame: { name: string; cover?: string } | null = null;
 let cachedVideoTitle: string | null = null;
 
@@ -155,7 +155,7 @@ export function updateGlobalActivity(activity: Partial<UserActivity>) {
   // Anti-flicker Hysteresis: Protect active 'playing' state from micro-glitches
   if (activity.type === "playing") {
     lastPlayingTimestamp = now;
-  } else if (prev.type === "playing" && (now - lastPlayingTimestamp < 2500 || activeCurrentView === "game" || activeCurrentView === "youtube")) {
+  } else if (prev.type === "playing" && (now - lastPlayingTimestamp < 2500 || activeCurrentView === "game" || activeCurrentView === "music")) {
     // Hold the playing state to prevent millisecond glitching back to scrolling/chatting
     if (activity.type === "scrolling" || activity.type === "searching") {
       return;
@@ -283,7 +283,7 @@ export function useActivityTracker({
   activeChannel,
   activeVideoTitle,
 }: {
-  currentView: "home" | "game" | "chat" | "youtube" | "assistant";
+  currentView: "home" | "game" | "chat" | "assistant" | "music";
   selectedGame?: { name: string; cover?: string } | null;
   searchQuery?: string;
   selectedTag?: string;
@@ -307,12 +307,11 @@ export function useActivityTracker({
       return;
     }
 
-    if (currentView === "youtube") {
-      const musicTitle = activeVideoTitle || cachedVideoTitle;
+    if (currentView === "music") {
       updateGlobalActivity({
         type: "playing",
-        gameName: musicTitle ? `Frosted Music: ${musicTitle}` : "Frosted Music",
-        text: musicTitle ? `Listening to: ${musicTitle}` : "Listening to Frosted Music",
+        gameName: "Music",
+        text: "Listening to Music",
       });
       return;
     }

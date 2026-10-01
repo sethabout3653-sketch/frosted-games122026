@@ -11,11 +11,11 @@ interface HeaderProps {
   selectedTag: string;
   setSelectedTag: (tag: string) => void;
   tags: string[];
-  currentView?: "home" | "game" | "chat" | "youtube" | "assistant";
+  currentView?: "home" | "game" | "chat" | "assistant" | "music";
   onGoHome?: () => void;
   onChatClick?: () => void;
-  onYouTubeClick?: () => void;
   onAssistantClick?: () => void;
+  onMusicClick?: () => void;
   onOpenSettings?: () => void;
   onOpenTheme?: () => void;
   onRandomGame?: () => void;
@@ -31,8 +31,8 @@ const Header = memo(function Header({
   currentView = "home",
   onGoHome,
   onChatClick,
-  onYouTubeClick,
   onAssistantClick,
+  onMusicClick,
   onOpenSettings,
   onOpenTheme,
   onRandomGame,
@@ -82,8 +82,8 @@ const Header = memo(function Header({
 
   const isHome = currentView === "home" || currentView === "game";
   const isChat = currentView === "chat";
-  const isYouTube = currentView === "youtube";
   const isAssistant = currentView === "assistant";
+  const isMusic = currentView === "music";
 
   return (
     <header
@@ -193,19 +193,19 @@ const Header = memo(function Header({
             <button
               id="nav-music-btn"
               type="button"
-              onClick={onYouTubeClick}
+              onClick={onMusicClick}
               style={{
-                backgroundColor: isYouTube ? "var(--theme-accent)" : "transparent",
-                borderColor: isYouTube ? "var(--theme-border)" : "transparent",
+                backgroundColor: isMusic ? "var(--theme-accent)" : "transparent",
+                borderColor: isMusic ? "var(--theme-border)" : "transparent",
               }}
               className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer ${
-                isYouTube
+                isMusic
                   ? "text-white shadow-md ring-1 ring-white/20 bg-[var(--theme-accent)]"
                   : "text-neutral-400 hover:text-white hover:bg-white/5"
               }`}
               title="Music"
             >
-              <Music size={15} className={isYouTube ? "text-white" : "text-[var(--theme-text-accent)]"} />
+              <Music size={15} className={isMusic ? "text-white" : "text-[var(--theme-text-accent)]"} />
               <span>Music</span>
             </button>
 

@@ -12,14 +12,13 @@ import {
   Shuffle,
   Maximize2,
 } from "lucide-react";
-import { useMusicPlayer } from "../context/MusicPlayerContext";
-import { isVideoSaved, toggleSaveVideo } from "../lib/youtubeStorage";
+import { useMusic } from "../context/MusicContext";
 
-interface MiniPlayerDockProps {
+interface MusicDockProps {
   onExpand?: () => void;
 }
 
-export default function MiniPlayerDock({ onExpand }: MiniPlayerDockProps) {
+export default function MusicDock({ onExpand }: MusicDockProps) {
   const {
     currentTrack,
     isPlaying,
@@ -37,7 +36,10 @@ export default function MiniPlayerDock({ onExpand }: MiniPlayerDockProps) {
     toggleRepeat,
     isShuffle,
     toggleShuffle,
-  } = useMusicPlayer();
+    playbackEngine,
+    toggleFavorite,
+    isFavorite,
+  } = useMusic();
 
   if (!currentTrack) return null;
 
@@ -49,7 +51,7 @@ export default function MiniPlayerDock({ onExpand }: MiniPlayerDockProps) {
   };
 
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
-  const isSaved = isVideoSaved(currentTrack.id);
+  const fav = isFavorite(currentTrack.id);
 
   const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newPercent = parseFloat(e.target.value);
@@ -67,7 +69,7 @@ export default function MiniPlayerDock({ onExpand }: MiniPlayerDockProps) {
       className="fixed bottom-0 inset-x-0 z-50 backdrop-blur-2xl border-t shadow-[0_-8px_32px_rgba(0,0,0,0.6)] px-4 sm:px-6 py-2.5 transition-all duration-300"
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-        {/* Left: Artwork, Track Details & Favorite */}
+        {/* Left: Artwork, Track Info & Favorite */}
         <div
           onClick={onExpand}
           className="flex items-center gap-3 min-w-0 w-1/4 sm:w-1/3 cursor-pointer group"
@@ -93,30 +95,40 @@ export default function MiniPlayerDock({ onExpand }: MiniPlayerDockProps) {
             <h4 className="text-xs sm:text-sm font-bold text-white truncate leading-tight group-hover:underline">
               {currentTrack.title}
             </h4>
-            <p
-              style={{ color: "var(--theme-text-muted)" }}
-              className="text-[11px] truncate mt-0.5 font-medium"
-            >
-              {currentTrack.artist || currentTrack.channelTitle || "Artist"}
-            </p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p
+                style={{ color: "var(--theme-text-muted)" }}
+                className="text-[11px] truncate font-medium"
+              >
+                {currentTrack.artist}
+              </p>
+              <span
+                style={{
+                  backgroundColor: playbackEngine === "yt-dlp" ? "rgba(16, 185, 129, 0.15)" : "rgba(59, 130, 246, 0.15)",
+                  color: playbackEngine === "yt-dlp" ? "#34d399" : "#60a5fa",
+                }}
+                className="text-[9px] font-mono px-1.5 py-0.2 rounded font-semibold uppercase tracking-wider shrink-0"
+              >
+                {playbackEngine === "yt-dlp" ? "yt-dlp audio" : "browser"}
+              </span>
+            </div>
           </div>
 
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              toggleSaveVideo(currentTrack);
+              toggleFavorite(currentTrack);
             }}
             className="hidden sm:flex p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 transition-colors cursor-pointer shrink-0"
-            title={isSaved ? "Saved to Favorites" : "Add to Favorites"}
+            title={fav ? "Saved" : "Favorite"}
           >
-            <Heart size={16} className={isSaved ? "fill-rose-500 text-rose-500" : ""} />
+            <Heart size={16} className={fav ? "fill-rose-500 text-rose-500" : ""} />
           </button>
         </div>
 
         {/* Center: Controls & Scrubber */}
         <div className="flex flex-col items-center gap-1 flex-1 max-w-xl">
-          {/* Audio Buttons */}
           <div className="flex items-center gap-3 sm:gap-4">
             <button
               type="button"
@@ -179,7 +191,6 @@ export default function MiniPlayerDock({ onExpand }: MiniPlayerDockProps) {
             </button>
           </div>
 
-          {/* Time Scrubber */}
           <div
             style={{ color: "var(--theme-text-muted)" }}
             className="w-full flex items-center gap-2 text-[10px] sm:text-xs font-mono"
