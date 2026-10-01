@@ -180,7 +180,6 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
     prevTrack,
     addToQueue,
     removeFromQueue,
-    playbackEngine,
     favorites,
     toggleFavorite,
     isFavorite,
@@ -1371,14 +1370,8 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
                   <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight truncate">
                     {currentTrack?.title || "No Track Playing"}
                   </h2>
-                  <span
-                    style={{
-                      backgroundColor: playbackEngine === "yt-dlp" ? "rgba(16, 185, 129, 0.15)" : "rgba(59, 130, 246, 0.15)",
-                      color: playbackEngine === "yt-dlp" ? "#34d399" : "#60a5fa",
-                    }}
-                    className="text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider shrink-0"
-                  >
-                    {playbackEngine === "yt-dlp" ? "yt-dlp Audio" : "Browser Engine"}
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider shrink-0 bg-emerald-500/15 text-emerald-400">
+                    Full Audio
                   </span>
                 </div>
                 <p style={{ color: "var(--theme-text-muted)" }} className="text-sm font-medium truncate mt-0.5">

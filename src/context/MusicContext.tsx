@@ -152,6 +152,17 @@ export function MusicProvider({ children }: { children: ReactNode }) {
       setCurrentTrack(track);
       setIsPlaying(true);
 
+      // Pre-populate track duration so scrubber displays full music duration immediately
+      let initialDuration = track.durationSec || 0;
+      if (!initialDuration && track.duration) {
+        const parts = track.duration.split(":").map(Number);
+        if (parts.length === 2) initialDuration = (parts[0] || 0) * 60 + (parts[1] || 0);
+        if (parts.length === 3) initialDuration = (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+      }
+      if (initialDuration > 0) {
+        setDuration(initialDuration);
+      }
+
       if (newQueue && newQueue.length > 0) {
         setQueue(newQueue);
       } else {

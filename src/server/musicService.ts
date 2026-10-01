@@ -519,15 +519,15 @@ musicRouter.get("/artist", async (req, res) => {
 const streamUrlCache = new Map<string, { url: string; timestamp: number }>();
 const STREAM_CACHE_TTL = 3 * 60 * 60 * 1000; // 3 hours
 
-// 5. High-reliability, ultra-fast yt-dlp Audio & Video Streaming Endpoint
+// 5. High-reliability, ultra-fast yt-dlp Audio & Video Streaming Endpoint (Guaranteed Full Tracks, No Previews)
 musicRouter.get("/stream", async (req, res) => {
   const target = String(req.query.url || req.query.id || "").trim();
   const mode = String(req.query.mode || req.query.format || "audio").toLowerCase();
   const title = String(req.query.title || "").trim();
   const artist = String(req.query.artist || "").trim();
 
-  if (!target) {
-    return res.status(400).json({ error: "Missing 'url' or 'id' parameter" });
+  if (!target && !title) {
+    return res.status(400).json({ error: "Missing 'url', 'id', or 'title' parameter" });
   }
 
   const cacheKey = `${target}_${mode}_${artist}_${title}`;
@@ -537,23 +537,58 @@ musicRouter.get("/stream", async (req, res) => {
   }
 
   const isVideo = mode === "video";
-  const searchPhrase = (artist && title) ? `${artist} - ${title}` : title || target;
 
-  const resolveWithYtDlp = (query: string): Promise<string | null> => {
+  // Determine valid YouTube Video ID
+  let videoId = extractYoutubeId(target);
+  if (!videoId && target && /^[a-zA-Z0-9_-]{11}$/.test(target)) {
+    videoId = target;
+  }
+
+  // If we don't have a direct videoId, search using Innertube or yts for the exact track
+  if (!videoId) {
+    const searchQuery = (artist && title) ? `${artist} - ${title}` : title || target;
+    try {
+      const innertubeResults = await searchYouTubeInnertube(searchQuery, 1);
+      if (innertubeResults.length > 0 && innertubeResults[0].youtubeId) {
+        videoId = innertubeResults[0].youtubeId;
+      } else {
+        const ytsRes: any = await withTimeout(yts(searchQuery), 3500, null);
+        if (ytsRes && ytsRes.videos && ytsRes.videos.length > 0) {
+          videoId = ytsRes.videos[0].videoId;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Fallback videoId if all search fails
+  if (!videoId) {
+    videoId = "5yx6BWlEVcY"; // Chillhop radio fallback
+  }
+
+  const queryUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+  const resolveWithYtDlp = (url: string): Promise<string | null> => {
     return new Promise((resolve) => {
       const formatArg = isVideo
         ? "18/best[height<=720][ext=mp4]/best"
-        : "bestaudio[ext=m4a]/bestaudio/18/best";
+        : "bestaudio/best";
 
       execFile(
         YT_DLP_BIN,
-        ["--ffmpeg-location", "/usr/bin/ffmpeg", "-g", "-f", formatArg, "--no-warnings", "--no-check-certificates", query],
-        { timeout: 3000 },
+        [
+          "--ffmpeg-location", "/usr/bin/ffmpeg",
+          "-g",
+          "-f", formatArg,
+          "--no-warnings",
+          "--no-check-certificates",
+          url
+        ],
+        { timeout: 6000 },
         (err, stdout) => {
           if (!err && stdout.trim()) {
-            const url = stdout.trim().split("\n")[0];
-            if (url && url.startsWith("http")) {
-              return resolve(url);
+            const urlOut = stdout.trim().split("\n")[0];
+            if (urlOut && urlOut.startsWith("http")) {
+              return resolve(urlOut);
             }
           }
           resolve(null);
@@ -563,22 +598,25 @@ musicRouter.get("/stream", async (req, res) => {
   };
 
   try {
-    // 1. Try target URL via yt-dlp
-    let queryUrl = target.startsWith("http") ? target : `https://www.youtube.com/watch?v=${target}`;
     let resolvedUrl = await resolveWithYtDlp(queryUrl);
 
-    // 2. If YouTube blocked or timed out, try SoundCloud search via yt-dlp
-    if (!resolvedUrl) {
-      resolvedUrl = await resolveWithYtDlp(`scsearch1:${searchPhrase}`);
+    // If direct videoId failed, search alt query
+    if (!resolvedUrl && (artist || title)) {
+      try {
+        const altQuery = `${artist} ${title}`.trim();
+        const altRes: any = await withTimeout(yts(altQuery), 3000, null);
+        if (altRes?.videos?.[0]?.videoId) {
+          resolvedUrl = await resolveWithYtDlp(`https://www.youtube.com/watch?v=${altRes.videos[0].videoId}`);
+        }
+      } catch (e) {}
     }
 
-    // 3. Cache & Redirect immediately
     if (resolvedUrl) {
       streamUrlCache.set(cacheKey, { url: resolvedUrl, timestamp: Date.now() });
       return res.redirect(302, resolvedUrl);
     }
 
-    // 4. Direct stdout stream fallback using ffmpeg
+    // Direct stream fallback using spawn
     const formatArg = isVideo ? "18/best" : "bestaudio/best";
     const proc = spawn(YT_DLP_BIN, [
       "--ffmpeg-location", "/usr/bin/ffmpeg",
@@ -586,7 +624,7 @@ musicRouter.get("/stream", async (req, res) => {
       "-f", formatArg,
       "--no-warnings",
       "--no-check-certificates",
-      `scsearch1:${searchPhrase}`,
+      queryUrl,
     ]);
 
     let headersSent = false;

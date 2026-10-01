@@ -402,14 +402,14 @@ const PORT = Number(process.env.PORT) || 3000;
 
   // Dedicated file download proxy route to guarantee direct downloads with clean filenames
   app.get("/api/download", async (req, res) => {
-    const fileUrl = req.query.url as string;
+    let fileUrl = (req.query.url as string) || "";
     let customName = (req.query.name as string) || (req.query.filename as string) || "download";
     if (!fileUrl) {
       return res.status(400).send("No file URL specified");
     }
 
     try {
-      // Local storage upload
+      // Local storage upload fast path
       if (fileUrl.startsWith("/uploads/")) {
         const fn = path.basename(fileUrl.split("?")[0]);
         const targetPath = resolveStoredFilePath(fn);
@@ -441,11 +441,20 @@ const PORT = Number(process.env.PORT) || 3000;
         }
       }
 
-      // Remote URL
-      if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
-        const remoteRes = await fetch(fileUrl);
-        if (!remoteRes.ok) throw new Error(`Remote fetch failed with status ${remoteRes.status}`);
-        const contentType = remoteRes.headers.get("content-type") || "application/octet-stream";
+      // Convert relative URL (like /api/music/stream?id=...) to local server URL
+      let targetFetchUrl = fileUrl;
+      if (fileUrl.startsWith("/")) {
+        const port = process.env.PORT || "3000";
+        targetFetchUrl = `http://127.0.0.1:${port}${fileUrl}`;
+      }
+
+      // Remote or Relative API Endpoint Fetching
+      if (targetFetchUrl.startsWith("http://") || targetFetchUrl.startsWith("https://")) {
+        const remoteRes = await fetch(targetFetchUrl, { redirect: "follow" });
+        if (!remoteRes.ok) {
+          return res.status(remoteRes.status).send("Download unavailable");
+        }
+        const contentType = remoteRes.headers.get("content-type") || "audio/mpeg";
         res.setHeader("Content-Type", contentType);
         res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(customName)}"`);
         const arrayBuffer = await remoteRes.arrayBuffer();
@@ -454,7 +463,7 @@ const PORT = Number(process.env.PORT) || 3000;
 
       res.status(404).send("File not found");
     } catch (err: any) {
-      res.status(500).send(err.message || "Failed to download file");
+      res.status(500).send("Failed to download file");
     }
   });
 
