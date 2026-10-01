@@ -10,18 +10,21 @@ import {
   History,
   TrendingUp,
   Sliders,
-  Terminal,
   Upload,
   Play,
+  Pause,
   Plus,
   Disc,
   X,
   Volume2,
   FolderPlus,
-  Layers,
-  ArrowRight,
-  Link as LinkIcon,
+  LayoutGrid,
+  List as ListIcon,
+  Shuffle,
+  Share2,
   Check,
+  ListMusic,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   useMusicPlayer,
@@ -30,25 +33,16 @@ import {
 } from "../context/MusicPlayerContext";
 import MusicPlayer from "./MusicPlayer";
 import AudioEqualizerModal from "./AudioEqualizerModal";
-import YtDlpPipelineDrawer from "./YtDlpPipelineDrawer";
-import { getSavedVideos, getWatchHistory, toggleSaveVideo } from "../lib/youtubeStorage";
+import { getSavedVideos, getWatchHistory, toggleSaveVideo, isVideoSaved } from "../lib/youtubeStorage";
 
 interface MusicViewProps {
   isActive?: boolean;
   onBackToHome?: () => void;
 }
 
-const SOUNDCLOUD_GENRES = [
-  { id: "all", label: "Trending", icon: Flame },
-  { id: "study", label: "Lofi & Chillhop", icon: Headphones },
-  { id: "electronic", label: "Electronic / EDM", icon: Radio },
-  { id: "hiphop", label: "Hip-Hop & Rap", icon: TrendingUp },
-  { id: "favorites", label: "Favorites", icon: Heart },
-  { id: "history", label: "Recently Played", icon: History },
-  { id: "local", label: "Local Files", icon: Upload },
-];
+type MainTab = "discover" | "chillhop" | "synthwave" | "collection" | "player";
 
-const SOUNDCLOUD_SUGGESTIONS = [
+const FEATURED_ARTISTS = [
   "Chillhop Music",
   "Synthwave",
   "Flamingosis",
@@ -75,68 +69,84 @@ export default function MusicView({
     importLocalFiles,
     customPlaylists,
     createCustomPlaylist,
-    isResolvingUrl,
     activePreset,
   } = useMusicPlayer();
 
-  const [selectedGenre, setSelectedGenre] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState<MainTab>("discover");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const deferredSearch = useDeferredValue(searchQuery);
   const [tracks, setTracks] = useState<AudioTrack[]>(CURATED_RADIO_STATIONS);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isEqOpen, setIsEqOpen] = useState<boolean>(false);
-  const [isPipelineOpen, setIsPipelineOpen] = useState<boolean>(false);
   const [urlStatus, setUrlStatus] = useState<string | null>(null);
-  const [isFullPlayerMode, setIsFullPlayerMode] = useState<boolean>(false);
+  const [copiedTrackId, setCopiedTrackId] = useState<string | null>(null);
+  const [collectionSubTab, setCollectionSubTab] = useState<"favorites" | "history" | "playlists" | "local">("favorites");
+  const [newPlaylistTitle, setNewPlaylistTitle] = useState("");
+  const [showNewPlaylistModal, setShowNewPlaylistModal] = useState(false);
 
   const isDirectUrl = /^(https?:\/\/)?(www\.)?(soundcloud\.com|snd\.sc)\/.+$/i.test(
     searchQuery.trim()
   );
 
-  // Exclusively query SoundCloud Search & Trending
+  const spotlightTrack = currentTrack || tracks[0] || CURATED_RADIO_STATIONS[0];
+  const isSpotlightSaved = isVideoSaved(spotlightTrack?.id);
+
+  // Fetch tracks based on tab & query
   useEffect(() => {
     let isCancelled = false;
 
-    if (selectedGenre === "favorites") {
-      const saved = getSavedVideos();
-      setTracks(
-        saved.map((v) => ({
-          ...v,
-          mediaType: "audio",
-          isMusic: true,
-          sourceType: "soundcloud",
-        }))
-      );
+    if (activeTab === "collection") {
+      if (collectionSubTab === "favorites") {
+        const saved = getSavedVideos();
+        setTracks(
+          saved.map((v) => ({
+            ...v,
+            mediaType: "audio",
+            isMusic: true,
+            sourceType: "soundcloud",
+          }))
+        );
+        return;
+      }
+
+      if (collectionSubTab === "history") {
+        const history = getWatchHistory();
+        setTracks(
+          history.map((h) => ({
+            ...h.video,
+            mediaType: "audio",
+            isMusic: true,
+            sourceType: "soundcloud",
+          }))
+        );
+        return;
+      }
+
+      if (collectionSubTab === "playlists") {
+        const allPlaylistTracks = customPlaylists.flatMap((p) => p.tracks);
+        setTracks(allPlaylistTracks);
+        return;
+      }
+
+      if (collectionSubTab === "local") {
+        return;
+      }
+    }
+
+    if (activeTab === "player") {
       return;
     }
 
-    if (selectedGenre === "history") {
-      const history = getWatchHistory();
-      setTracks(
-        history.map((h) => ({
-          ...h.video,
-          mediaType: "audio",
-          isMusic: true,
-          sourceType: "soundcloud",
-        }))
-      );
-      return;
-    }
-
-    if (selectedGenre === "local") {
-      return;
-    }
-
-    async function fetchSoundCloudTracks() {
+    async function fetchTracks() {
       setIsLoading(true);
       setUrlStatus(null);
       try {
         const query = deferredSearch.trim();
 
         if (query) {
-          // 1. Direct SoundCloud URL Extraction
           if (isDirectUrl) {
-            setUrlStatus("Resolving audio stream...");
+            setUrlStatus("Connecting to audio stream...");
             try {
               const res = await fetch(`/api/soundcloud/resolve?url=${encodeURIComponent(query)}`);
               if (res.ok) {
@@ -156,7 +166,7 @@ export default function MusicView({
                     sourceType: "soundcloud",
                   };
                   setTracks([resolved]);
-                  setUrlStatus("Audio stream ready!");
+                  setUrlStatus(null);
                   setIsLoading(false);
                   return;
                 }
@@ -164,7 +174,6 @@ export default function MusicView({
             } catch (e) {}
           }
 
-          // 2. SoundCloud Search
           const searchRes = await fetch(`/api/soundcloud/search?q=${encodeURIComponent(query)}`).catch(() => null);
           if (searchRes && searchRes.ok) {
             const data = await searchRes.json().catch(() => null);
@@ -176,8 +185,8 @@ export default function MusicView({
             }
           }
         } else {
-          // Fetch SoundCloud trending by category
-          const trendRes = await fetch(`/api/soundcloud/trending?category=${selectedGenre}`).catch(() => null);
+          const categoryParam = activeTab === "chillhop" ? "study" : activeTab === "synthwave" ? "electronic" : "all";
+          const trendRes = await fetch(`/api/soundcloud/trending?category=${categoryParam}`).catch(() => null);
           if (trendRes && trendRes.ok) {
             const data = await trendRes.json().catch(() => null);
             const items = data?.tracks || [];
@@ -189,9 +198,14 @@ export default function MusicView({
           }
         }
 
-        // Final curated SoundCloud fallback
         if (!isCancelled) {
-          setTracks(CURATED_RADIO_STATIONS);
+          if (activeTab === "chillhop") {
+            setTracks(CURATED_RADIO_STATIONS.filter((t) => t.id.includes("chillhop") || t.id.includes("kudasai") || t.id.includes("idealism") || t.id.includes("potsu") || t.id.includes("sleepy")));
+          } else if (activeTab === "synthwave") {
+            setTracks(CURATED_RADIO_STATIONS.filter((t) => t.id.includes("synthwave") || t.id.includes("tycho") || t.id.includes("odesza") || t.id.includes("bonobo")));
+          } else {
+            setTracks(CURATED_RADIO_STATIONS);
+          }
         }
       } catch (err) {
         if (!isCancelled) {
@@ -202,30 +216,36 @@ export default function MusicView({
       }
     }
 
-    fetchSoundCloudTracks();
+    fetchTracks();
 
     return () => {
       isCancelled = true;
     };
-  }, [selectedGenre, deferredSearch, isDirectUrl]);
+  }, [activeTab, collectionSubTab, deferredSearch, isDirectUrl, customPlaylists]);
 
-  // Handle Form Submit (Search or Direct Link)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const query = searchQuery.trim();
     if (!query) return;
 
     if (isDirectUrl) {
-      setUrlStatus("Connecting to audio stream...");
+      setUrlStatus("Loading track...");
       const res = await resolveAndPlayUrl(query);
       if (res.success && res.track) {
-        setUrlStatus("Playback started!");
+        setUrlStatus(null);
       } else {
-        setUrlStatus(`Error: ${res.error || "Could not resolve audio stream"}`);
+        setUrlStatus(`Could not load audio: ${res.error || "Please try another link"}`);
       }
     } else if (tracks.length > 0) {
       playTrack(tracks[0], tracks);
     }
+  };
+
+  const handleCopyLink = (track: AudioTrack) => {
+    const url = track.permalinkUrl || track.mediaUrl || window.location.href;
+    navigator.clipboard.writeText(url);
+    setCopiedTrackId(track.id);
+    setTimeout(() => setCopiedTrackId(null), 2000);
   };
 
   const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -241,273 +261,881 @@ export default function MusicView({
     }
   };
 
+  const handleCreatePlaylist = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPlaylistTitle.trim()) return;
+    createCustomPlaylist(newPlaylistTitle.trim());
+    setNewPlaylistTitle("");
+    setShowNewPlaylistModal(false);
+  };
+
   return (
-    <div className="w-full max-w-7xl mx-auto p-4 sm:p-6 space-y-6 flex flex-col flex-1 animate-fadeIn">
-      {/* Top Header & Search Bar */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-white/5">
+    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6 flex flex-col flex-1 animate-fadeIn">
+      {/* Top Header & Navigation Bar */}
+      <div
+        style={{ borderColor: "var(--theme-border-subtle)" }}
+        className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-4 border-b"
+      >
+        {/* Brand & Subtitle */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-[#ff5500]/20 border border-[#ff5500]/40 flex items-center justify-center text-[#ff5500] shadow-md">
-            <Radio size={20} />
+          <div
+            style={{
+              backgroundColor: "var(--theme-accent)",
+              color: "#ffffff",
+              boxShadow: "0 4px 20px var(--theme-border-strong)",
+            }}
+            className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+          >
+            <Music size={20} />
           </div>
           <div>
-            <h1 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-              <span>SoundCloud Music</span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#ff5500]/20 text-[#ff7700] border border-[#ff5500]/30 uppercase tracking-wider">
-                SoundCloud
-              </span>
+            <h1 className="text-xl font-bold text-white tracking-tight">
+              Music
             </h1>
-            <p className="text-xs text-neutral-400">
-              High-fidelity music & lo-fi streamed directly from SoundCloud
+            <p
+              style={{ color: "var(--theme-text-muted)" }}
+              className="text-xs mt-0.5"
+            >
+              Lo-fi beats, study sessions, and your personal audio library
             </p>
           </div>
         </div>
-      </div>
 
-      {/* Direct Stream Resolver / Search Input */}
-      <form onSubmit={handleSubmit} className="space-y-2">
-        <div className="flex items-center gap-2 bg-[#121522] p-2 rounded-2xl border border-white/10 shadow-inner focus-within:border-[#ff5500]/60 transition-colors">
-          <div className="pl-3 text-neutral-400">
-            {isDirectUrl ? <LinkIcon size={16} className="text-[#ff5500]" /> : <Search size={16} />}
-          </div>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search SoundCloud tracks, artists, or paste any SoundCloud link..."
-            className="flex-1 bg-transparent text-sm text-white placeholder-neutral-500 focus:outline-none px-2"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery("")}
-              className="p-1.5 text-neutral-400 hover:text-white"
-            >
-              <X size={14} />
-            </button>
-          )}
-
-          <button
-            type="submit"
-            disabled={!searchQuery.trim()}
-            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-md shadow-indigo-600/30 flex items-center gap-1.5"
+        {/* Tab Switcher & View Controls */}
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full lg:w-auto">
+          {/* Main Segmented Control */}
+          <div
+            style={{
+              backgroundColor: "var(--theme-surface)",
+              borderColor: "var(--theme-border-subtle)",
+            }}
+            className="flex items-center gap-1 p-1 border rounded-2xl overflow-x-auto no-scrollbar w-full sm:w-auto"
           >
-            {isDirectUrl ? (
-              <>
-                <Play size={12} className="fill-white" />
-                <span>Play Track</span>
-              </>
-            ) : (
-              <span>Search</span>
-            )}
-          </button>
-        </div>
-
-        {/* Quick Suggestion Pills */}
-        {!searchQuery && selectedGenre === "all" && (
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar no-scrollbar text-xs text-neutral-400">
-            <span className="text-[11px] font-bold text-neutral-500 mr-1 shrink-0">Featured Artists:</span>
-            {SOUNDCLOUD_SUGGESTIONS.map((sug) => (
-              <button
-                key={sug}
-                type="button"
-                onClick={() => setSearchQuery(sug)}
-                className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white text-[11px] whitespace-nowrap transition-colors cursor-pointer shrink-0"
-              >
-                {sug}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {urlStatus && (
-          <div className="px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs font-mono text-indigo-300 flex items-center gap-2">
-            <span className="animate-spin">&bull;</span>
-            <span>{urlStatus}</span>
-          </div>
-        )}
-      </form>
-
-      {/* Quick Genre Navigation Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar no-scrollbar select-none">
-        {SOUNDCLOUD_GENRES.map((genre) => {
-          const Icon = genre.icon;
-          const isActive = selectedGenre === genre.id;
-          return (
             <button
-              key={genre.id}
               type="button"
               onClick={() => {
-                setSelectedGenre(genre.id);
+                setActiveTab("discover");
                 setSearchQuery("");
               }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
-                isActive
-                  ? "bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/30"
-                  : "bg-white/5 border-white/5 text-neutral-400 hover:text-white hover:bg-white/10"
-              }`}
+              style={{
+                backgroundColor: activeTab === "discover" ? "var(--theme-accent)" : "transparent",
+                color: activeTab === "discover" ? "#ffffff" : "var(--theme-text-muted)",
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap"
             >
-              <Icon size={14} className={isActive ? "text-white" : "text-neutral-400"} />
-              <span>{genre.label}</span>
+              <Flame size={14} />
+              <span>Discover</span>
             </button>
-          );
-        })}
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("chillhop");
+                setSearchQuery("");
+              }}
+              style={{
+                backgroundColor: activeTab === "chillhop" ? "var(--theme-accent)" : "transparent",
+                color: activeTab === "chillhop" ? "#ffffff" : "var(--theme-text-muted)",
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap"
+            >
+              <Headphones size={14} />
+              <span>Lo-Fi</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("synthwave");
+                setSearchQuery("");
+              }}
+              style={{
+                backgroundColor: activeTab === "synthwave" ? "var(--theme-accent)" : "transparent",
+                color: activeTab === "synthwave" ? "#ffffff" : "var(--theme-text-muted)",
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap"
+            >
+              <Sparkles size={14} />
+              <span>Synthwave</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("collection");
+                setSearchQuery("");
+              }}
+              style={{
+                backgroundColor: activeTab === "collection" ? "var(--theme-accent)" : "transparent",
+                color: activeTab === "collection" ? "#ffffff" : "var(--theme-text-muted)",
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap"
+            >
+              <Heart size={14} />
+              <span>Collection</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("player")}
+              style={{
+                backgroundColor: activeTab === "player" ? "var(--theme-accent)" : "transparent",
+                color: activeTab === "player" ? "#ffffff" : "var(--theme-text-accent)",
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap"
+            >
+              <Disc size={14} className={isPlaying && activeTab === "player" ? "animate-spin" : ""} />
+              <span>Player</span>
+            </button>
+          </div>
+
+          {/* Quick EQ & View Mode */}
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+            <button
+              type="button"
+              onClick={() => setIsEqOpen(true)}
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border-subtle)",
+                color: "var(--theme-text-accent)",
+              }}
+              className="p-2 rounded-xl border hover:bg-white/10 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-medium"
+              title="Open Audio Equalizer"
+            >
+              <SlidersHorizontal size={14} style={{ color: "var(--theme-accent)" }} />
+              <span className="hidden sm:inline">Equalizer</span>
+            </button>
+
+            {activeTab !== "player" && (
+              <div
+                style={{
+                  backgroundColor: "var(--theme-surface)",
+                  borderColor: "var(--theme-border-subtle)",
+                }}
+                className="flex items-center gap-1 p-1 border rounded-xl"
+              >
+                <button
+                  type="button"
+                  onClick={() => setViewMode("grid")}
+                  style={{
+                    backgroundColor: viewMode === "grid" ? "rgba(255,255,255,0.12)" : "transparent",
+                    color: viewMode === "grid" ? "#ffffff" : "var(--theme-text-muted)",
+                  }}
+                  className="p-1.5 rounded-lg transition-colors cursor-pointer"
+                  title="Grid View"
+                >
+                  <LayoutGrid size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("list")}
+                  style={{
+                    backgroundColor: viewMode === "list" ? "rgba(255,255,255,0.12)" : "transparent",
+                    color: viewMode === "list" ? "#ffffff" : "var(--theme-text-muted)",
+                  }}
+                  className="p-1.5 rounded-lg transition-colors cursor-pointer"
+                  title="List View"
+                >
+                  <ListIcon size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Local Files Dropzone Mode */}
-      {selectedGenre === "local" && (
-        <div
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={handleFileDrop}
-          className="border-2 border-dashed border-indigo-500/30 hover:border-indigo-500/60 bg-indigo-500/5 rounded-3xl p-10 text-center space-y-4 transition-colors cursor-pointer"
-        >
-          <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mx-auto">
-            <Upload size={28} />
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-base font-bold text-white">Drag & Drop Audio Files</h3>
-            <p className="text-xs text-neutral-400 max-w-md mx-auto">
-              Play MP3, WAV, FLAC, M4A, or OGG tracks instantly with zero upload time.
-            </p>
-          </div>
-          <div>
-            <label className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors cursor-pointer shadow-lg shadow-indigo-600/30">
-              <FolderPlus size={14} />
-              <span>Select Audio Files</span>
-              <input
-                type="file"
-                multiple
-                accept="audio/*,.mp3,.wav,.flac,.m4a,.ogg"
-                onChange={handleFileInputChange}
-                className="hidden"
+      {/* Render Dedicated Player Tab */}
+      {activeTab === "player" ? (
+        <MusicPlayer onBack={() => setActiveTab("discover")} />
+      ) : (
+        <>
+          {/* Spotlight Hero Section */}
+          {activeTab === "discover" && !searchQuery && spotlightTrack && (
+            <div
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border-subtle)",
+              }}
+              className="relative overflow-hidden rounded-3xl border p-6 sm:p-8 shadow-xl"
+            >
+              <div
+                style={{ backgroundColor: "var(--theme-accent)" }}
+                className="absolute -top-32 -right-32 w-80 h-80 rounded-full blur-3xl pointer-events-none opacity-15"
               />
-            </label>
+
+              <div className="relative z-10 flex flex-col md:flex-row items-center gap-6">
+                {/* Album Cover */}
+                <div
+                  style={{ borderColor: "var(--theme-border-subtle)" }}
+                  className="relative group shrink-0 w-40 h-40 sm:w-44 sm:h-44 rounded-2xl overflow-hidden shadow-2xl bg-black/50 border"
+                >
+                  <img
+                    src={spotlightTrack.thumbnail}
+                    alt={spotlightTrack.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    referrerPolicy="no-referrer"
+                  />
+
+                  {isPlaying && currentTrack?.id === spotlightTrack.id && (
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center gap-1 px-4">
+                      <div
+                        style={{ backgroundColor: "var(--theme-accent)" }}
+                        className="w-1.5 h-6 rounded-full animate-bounce"
+                      />
+                      <div className="w-1.5 h-10 bg-white rounded-full animate-bounce [animation-delay:0.2s]" />
+                      <div
+                        style={{ backgroundColor: "var(--theme-accent)" }}
+                        className="w-1.5 h-8 rounded-full animate-bounce [animation-delay:0.1s]"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Hero Details */}
+                <div className="flex-1 min-w-0 space-y-3 text-center md:text-left">
+                  <div className="space-y-1">
+                    <div
+                      style={{ color: "var(--theme-text-muted)" }}
+                      className="flex items-center justify-center md:justify-start gap-2 text-xs"
+                    >
+                      <span>Featured</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-mono text-neutral-300">{spotlightTrack.duration || "3:30"}</span>
+                    </div>
+
+                    <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-snug">
+                      {spotlightTrack.title}
+                    </h2>
+                    <p
+                      style={{ color: "var(--theme-text-accent)" }}
+                      className="text-sm font-medium"
+                    >
+                      {spotlightTrack.artist || spotlightTrack.channelTitle || "Artist"}
+                    </p>
+                  </div>
+
+                  {/* Primary Actions */}
+                  <div className="flex items-center justify-center md:justify-start gap-3 pt-1 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (currentTrack?.id === spotlightTrack.id) {
+                          togglePlay();
+                        } else {
+                          playTrack(spotlightTrack, tracks);
+                        }
+                      }}
+                      style={{
+                        backgroundColor: "var(--theme-accent)",
+                        color: "#ffffff",
+                      }}
+                      className="px-6 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer shadow-md hover:opacity-90 active:scale-95 flex items-center gap-2"
+                    >
+                      {isPlaying && currentTrack?.id === spotlightTrack.id ? (
+                        <>
+                          <Pause size={15} className="fill-white" />
+                          <span>Pause</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play size={15} className="fill-white translate-x-0.5" />
+                          <span>Play Now</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => addToQueue(spotlightTrack)}
+                      style={{
+                        backgroundColor: "rgba(255,255,255,0.06)",
+                        borderColor: "var(--theme-border-subtle)",
+                      }}
+                      className="px-4 py-2.5 rounded-xl border text-white font-semibold text-xs transition-colors hover:bg-white/10 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Plus size={14} />
+                      <span>Add to Queue</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleSaveVideo(spotlightTrack)}
+                      style={{
+                        backgroundColor: "rgba(255,255,255,0.06)",
+                        borderColor: "var(--theme-border-subtle)",
+                      }}
+                      className="p-2.5 rounded-xl border text-neutral-300 hover:text-rose-400 transition-colors cursor-pointer"
+                      title={isSpotlightSaved ? "Saved to Favorites" : "Save to Favorites"}
+                    >
+                      <Heart size={16} className={isSpotlightSaved ? "fill-rose-500 text-rose-500" : ""} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("player")}
+                      style={{
+                        backgroundColor: "rgba(255,255,255,0.06)",
+                        borderColor: "var(--theme-border-subtle)",
+                        color: "var(--theme-text-accent)",
+                      }}
+                      className="p-2.5 rounded-xl border hover:bg-white/10 transition-colors cursor-pointer"
+                      title="Open Full Player"
+                    >
+                      <Disc size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Search Bar */}
+          <form onSubmit={handleSubmit} className="space-y-2">
+            <div
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border-subtle)",
+              }}
+              className="flex items-center gap-2 p-2 rounded-2xl border shadow-inner transition-colors focus-within:border-white/30"
+            >
+              <div
+                style={{ color: "var(--theme-text-muted)" }}
+                className="pl-3"
+              >
+                <Search size={16} />
+              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search tracks, artists, or paste a music link..."
+                className="flex-1 bg-transparent text-sm text-white placeholder-neutral-500 focus:outline-none px-2"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="p-1.5 text-neutral-400 hover:text-white"
+                >
+                  <X size={15} />
+                </button>
+              )}
+
+              <button
+                type="submit"
+                disabled={!searchQuery.trim()}
+                style={{
+                  backgroundColor: "var(--theme-accent)",
+                  color: "#ffffff",
+                }}
+                className="px-4 py-2 rounded-xl disabled:opacity-40 font-bold text-xs transition-all cursor-pointer shrink-0 shadow-sm flex items-center gap-1.5"
+              >
+                <span>Search</span>
+              </button>
+            </div>
+
+            {/* Quick Artist Suggestions */}
+            {!searchQuery && activeTab !== "collection" && (
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs text-neutral-400">
+                <span
+                  style={{ color: "var(--theme-text-muted)" }}
+                  className="text-[11px] font-medium shrink-0"
+                >
+                  Suggestions:
+                </span>
+                {FEATURED_ARTISTS.map((artist) => (
+                  <button
+                    key={artist}
+                    type="button"
+                    onClick={() => setSearchQuery(artist)}
+                    style={{
+                      backgroundColor: "rgba(255,255,255,0.04)",
+                      borderColor: "var(--theme-border-subtle)",
+                      color: "var(--theme-text-muted)",
+                    }}
+                    className="px-3 py-1 rounded-lg border hover:text-white hover:bg-white/10 text-[11px] whitespace-nowrap transition-colors cursor-pointer shrink-0"
+                  >
+                    {artist}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {urlStatus && (
+              <div
+                style={{
+                  backgroundColor: "var(--theme-surface)",
+                  borderColor: "var(--theme-border-strong)",
+                  color: "var(--theme-text-accent)",
+                }}
+                className="px-3.5 py-2 rounded-xl border text-xs flex items-center gap-2"
+              >
+                <span>{urlStatus}</span>
+              </div>
+            )}
+          </form>
+
+          {/* Collection Sub-Tabs */}
+          {activeTab === "collection" && (
+            <div
+              style={{ borderColor: "var(--theme-border-subtle)" }}
+              className="flex items-center justify-between gap-4 pb-2 border-b flex-wrap"
+            >
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCollectionSubTab("favorites")}
+                  style={{
+                    backgroundColor: collectionSubTab === "favorites" ? "var(--theme-accent)" : "rgba(255,255,255,0.04)",
+                    color: collectionSubTab === "favorites" ? "#ffffff" : "var(--theme-text-muted)",
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Favorites ({getSavedVideos().length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCollectionSubTab("history")}
+                  style={{
+                    backgroundColor: collectionSubTab === "history" ? "var(--theme-accent)" : "rgba(255,255,255,0.04)",
+                    color: collectionSubTab === "history" ? "#ffffff" : "var(--theme-text-muted)",
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Recently Played ({getWatchHistory().length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCollectionSubTab("playlists")}
+                  style={{
+                    backgroundColor: collectionSubTab === "playlists" ? "var(--theme-accent)" : "rgba(255,255,255,0.04)",
+                    color: collectionSubTab === "playlists" ? "#ffffff" : "var(--theme-text-muted)",
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Playlists ({customPlaylists.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCollectionSubTab("local")}
+                  style={{
+                    backgroundColor: collectionSubTab === "local" ? "var(--theme-accent)" : "rgba(255,255,255,0.04)",
+                    color: collectionSubTab === "local" ? "#ffffff" : "var(--theme-text-muted)",
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Local Files
+                </button>
+              </div>
+
+              {collectionSubTab === "playlists" && (
+                <button
+                  type="button"
+                  onClick={() => setShowNewPlaylistModal(true)}
+                  style={{
+                    backgroundColor: "rgba(255,255,255,0.08)",
+                    color: "#ffffff",
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl hover:bg-white/15 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <FolderPlus size={14} />
+                  <span>New Playlist</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Local Audio Dropzone */}
+          {activeTab === "collection" && collectionSubTab === "local" && (
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleFileDrop}
+              style={{
+                backgroundColor: "var(--theme-surface)",
+                borderColor: "var(--theme-border-strong)",
+              }}
+              className="border-2 border-dashed rounded-3xl p-12 text-center space-y-4 transition-colors cursor-pointer"
+            >
+              <div
+                style={{
+                  backgroundColor: "rgba(255,255,255,0.06)",
+                  color: "var(--theme-text-accent)",
+                }}
+                className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto"
+              >
+                <Upload size={24} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white">Local Audio Files</h3>
+                <p
+                  style={{ color: "var(--theme-text-muted)" }}
+                  className="text-xs max-w-md mx-auto"
+                >
+                  Drag and drop MP3, WAV, FLAC, or OGG tracks to play directly.
+                </p>
+              </div>
+              <div>
+                <label
+                  style={{
+                    backgroundColor: "var(--theme-accent)",
+                    color: "#ffffff",
+                  }}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md hover:opacity-90"
+                >
+                  <FolderPlus size={14} />
+                  <span>Choose Files</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept="audio/*,.mp3,.wav,.flac,.m4a,.ogg"
+                    onChange={handleFileInputChange}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* Track Catalog */}
+          <div className="space-y-4">
+            <div
+              style={{ color: "var(--theme-text-muted)" }}
+              className="flex items-center justify-between text-xs"
+            >
+              <span className="font-semibold uppercase tracking-wider text-neutral-300">
+                {searchQuery
+                  ? `Results for "${searchQuery}"`
+                  : activeTab === "chillhop"
+                  ? "Lo-Fi & Study Collection"
+                  : activeTab === "synthwave"
+                  ? "Synthwave Tracks"
+                  : activeTab === "collection"
+                  ? `${collectionSubTab.charAt(0).toUpperCase() + collectionSubTab.slice(1)}`
+                  : "Curated Tracks"}
+              </span>
+              <span>{tracks.length} tracks</span>
+            </div>
+
+            {isLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                  <div
+                    key={i}
+                    style={{ backgroundColor: "var(--theme-surface)" }}
+                    className="rounded-2xl p-3.5 space-y-3 border border-white/5 animate-pulse"
+                  >
+                    <div className="aspect-square rounded-xl bg-white/5" />
+                    <div className="h-4 bg-white/10 rounded w-3/4" />
+                    <div className="h-3 bg-white/5 rounded w-1/2" />
+                  </div>
+                ))}
+              </div>
+            ) : tracks.length === 0 ? (
+              <div
+                style={{
+                  backgroundColor: "var(--theme-surface)",
+                  borderColor: "var(--theme-border-subtle)",
+                }}
+                className="p-16 text-center space-y-2 border rounded-3xl"
+              >
+                <Disc size={32} className="mx-auto text-neutral-500" />
+                <p className="text-sm font-semibold text-white">No tracks found</p>
+                <p
+                  style={{ color: "var(--theme-text-muted)" }}
+                  className="text-xs max-w-sm mx-auto"
+                >
+                  Try searching for an artist like &quot;Chillhop Music&quot; or paste a link.
+                </p>
+              </div>
+            ) : viewMode === "grid" ? (
+              /* GRID VIEW */
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {tracks.map((track, idx) => {
+                  const isCurrentlyPlaying = currentTrack?.id === track.id && isPlaying;
+                  const isTrackSaved = isVideoSaved(track.id);
+
+                  return (
+                    <div
+                      key={`${track.id}-${idx}`}
+                      onClick={() => {
+                        if (currentTrack?.id === track.id) {
+                          togglePlay();
+                        } else {
+                          playTrack(track, tracks);
+                        }
+                      }}
+                      style={{
+                        backgroundColor: "var(--theme-surface)",
+                        borderColor: isCurrentlyPlaying ? "var(--theme-border-strong)" : "var(--theme-border-subtle)",
+                        boxShadow: isCurrentlyPlaying ? "0 0 20px var(--theme-border-strong)" : "none",
+                      }}
+                      className="group border rounded-2xl p-3 flex flex-col space-y-3 transition-all duration-200 cursor-pointer relative overflow-hidden hover:bg-white/5"
+                    >
+                      {/* Album Thumbnail */}
+                      <div className="aspect-square rounded-xl overflow-hidden bg-black/60 relative border border-white/5">
+                        <img
+                          src={track.thumbnail}
+                          alt={track.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                        />
+
+                        {track.duration && (
+                          <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md font-mono text-[10px] text-white">
+                            {track.duration}
+                          </div>
+                        )}
+
+                        {/* Hover Overlay */}
+                        <div
+                          className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${
+                            isCurrentlyPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                          }`}
+                        >
+                          <div
+                            style={{ backgroundColor: "var(--theme-accent)" }}
+                            className="w-11 h-11 rounded-full text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform"
+                          >
+                            {isCurrentlyPlaying ? (
+                              <Pause size={18} className="fill-white" />
+                            ) : (
+                              <Play size={18} className="fill-white translate-x-0.5" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Details */}
+                      <div className="flex items-start justify-between gap-2 min-w-0 flex-1">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-bold text-white truncate leading-tight group-hover:underline">
+                            {track.title}
+                          </h4>
+                          <p
+                            style={{ color: "var(--theme-text-muted)" }}
+                            className="text-[11px] truncate mt-1"
+                          >
+                            {track.artist || track.channelTitle || "Artist"}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSaveVideo(track);
+                            }}
+                            className="p-1 rounded-lg text-neutral-400 hover:text-rose-400 transition-colors"
+                            title={isTrackSaved ? "Saved" : "Favorite"}
+                          >
+                            <Heart size={14} className={isTrackSaved ? "fill-rose-500 text-rose-500" : ""} />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              addToQueue(track);
+                            }}
+                            className="p-1 rounded-lg text-neutral-400 hover:text-white transition-colors"
+                            title="Add to queue"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              /* LIST VIEW */
+              <div
+                style={{
+                  backgroundColor: "var(--theme-surface)",
+                  borderColor: "var(--theme-border-subtle)",
+                }}
+                className="border rounded-2xl overflow-hidden shadow-sm divide-y divide-white/5"
+              >
+                {tracks.map((track, idx) => {
+                  const isCurrentlyPlaying = currentTrack?.id === track.id && isPlaying;
+                  const isTrackSaved = isVideoSaved(track.id);
+
+                  return (
+                    <div
+                      key={`${track.id}-${idx}`}
+                      onClick={() => {
+                        if (currentTrack?.id === track.id) {
+                          togglePlay();
+                        } else {
+                          playTrack(track, tracks);
+                        }
+                      }}
+                      style={{
+                        backgroundColor: isCurrentlyPlaying ? "rgba(255,255,255,0.06)" : "transparent",
+                      }}
+                      className="flex items-center justify-between gap-4 p-3 hover:bg-white/5 transition-colors cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                        <span className="w-5 text-center text-xs font-mono text-neutral-500 group-hover:text-white">
+                          {isCurrentlyPlaying ? (
+                            <span
+                              style={{ backgroundColor: "var(--theme-accent)" }}
+                              className="w-2 h-2 rounded-full inline-block animate-ping"
+                            />
+                          ) : (
+                            idx + 1
+                          )}
+                        </span>
+
+                        <div className="w-9 h-9 rounded-xl overflow-hidden bg-black/60 shrink-0 border border-white/10 relative">
+                          <img
+                            src={track.thumbnail}
+                            alt={track.title}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-bold text-white truncate leading-tight group-hover:underline">
+                            {track.title}
+                          </h4>
+                          <p
+                            style={{ color: "var(--theme-text-muted)" }}
+                            className="text-[11px] truncate mt-0.5"
+                          >
+                            {track.artist || track.channelTitle || "Artist"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        {track.duration && (
+                          <span
+                            style={{ color: "var(--theme-text-muted)" }}
+                            className="font-mono text-xs tabular-nums"
+                          >
+                            {track.duration}
+                          </span>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSaveVideo(track);
+                          }}
+                          className="p-1.5 text-neutral-400 hover:text-rose-400 transition-colors"
+                        >
+                          <Heart size={14} className={isTrackSaved ? "fill-rose-500 text-rose-500" : ""} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addToQueue(track);
+                          }}
+                          className="p-1.5 text-neutral-400 hover:text-white transition-colors"
+                        >
+                          <Plus size={14} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyLink(track);
+                          }}
+                          className="p-1.5 text-neutral-400 hover:text-white transition-colors"
+                        >
+                          {copiedTrackId === track.id ? (
+                            <Check size={14} className="text-emerald-400" />
+                          ) : (
+                            <Share2 size={14} />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* New Playlist Modal */}
+      {showNewPlaylistModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fadeIn">
+          <div
+            style={{
+              backgroundColor: "var(--theme-surface)",
+              borderColor: "var(--theme-border-subtle)",
+            }}
+            className="w-full max-w-md border rounded-3xl p-6 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <FolderPlus size={18} style={{ color: "var(--theme-accent)" }} />
+                <span>Create Playlist</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowNewPlaylistModal(false)}
+                className="p-1.5 text-neutral-400 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreatePlaylist} className="space-y-4">
+              <input
+                type="text"
+                value={newPlaylistTitle}
+                onChange={(e) => setNewPlaylistTitle(e.target.value)}
+                placeholder="Playlist Title"
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.35)",
+                  borderColor: "var(--theme-border-subtle)",
+                }}
+                className="w-full px-4 py-3 border rounded-2xl text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-white/40"
+                autoFocus
+              />
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewPlaylistModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newPlaylistTitle.trim()}
+                  style={{
+                    backgroundColor: "var(--theme-accent)",
+                    color: "#ffffff",
+                  }}
+                  className="px-5 py-2.5 rounded-xl disabled:opacity-40 text-xs font-bold shadow-md cursor-pointer"
+                >
+                  Create
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Track Grid Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between text-xs text-neutral-400">
-          <span className="font-bold uppercase tracking-wider text-neutral-300">
-            {selectedGenre === "favorites"
-              ? "Favorite Saved Tracks"
-              : selectedGenre === "history"
-              ? "Recently Played Tracks"
-              : searchQuery
-              ? `Results for "${searchQuery}"`
-              : "Audio Tracks"}
-          </span>
-          <span>{tracks.length} tracks</span>
-        </div>
-
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-              <div
-                key={i}
-                className="bg-[#121522] rounded-2xl p-3 space-y-3 border border-white/5 animate-pulse"
-              >
-                <div className="aspect-square rounded-xl bg-white/5" />
-                <div className="h-4 bg-white/10 rounded w-3/4" />
-                <div className="h-3 bg-white/5 rounded w-1/2" />
-              </div>
-            ))}
-          </div>
-        ) : tracks.filter((t) => t.sourceType === "soundcloud" || t.permalinkUrl?.includes("soundcloud.com") || t.id?.startsWith("sc-") || t.localFile).length === 0 ? (
-          <div className="p-12 text-center text-neutral-400 space-y-2">
-            <Disc size={32} className="mx-auto text-neutral-500" />
-            <p className="text-sm font-semibold">No tracks found</p>
-            <p className="text-xs text-neutral-500">Try searching for an artist like &quot;Chillhop Music&quot; or pasting a music link.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {tracks
-              .filter((t) => t.sourceType === "soundcloud" || t.permalinkUrl?.includes("soundcloud.com") || t.id?.startsWith("sc-") || t.localFile)
-              .map((track, idx) => {
-              const isCurrentlyPlaying = currentTrack?.id === track.id && isPlaying;
-              return (
-                <div
-                  key={`${track.id}-${idx}`}
-                  onClick={() => {
-                    if (currentTrack?.id === track.id) {
-                      togglePlay();
-                    } else {
-                      playTrack(track, tracks);
-                    }
-                  }}
-                  className="group bg-[#121522] hover:bg-[#181c2e] border border-white/5 hover:border-indigo-500/40 rounded-2xl p-3 flex flex-col space-y-3 transition-all duration-200 cursor-pointer shadow-lg relative overflow-hidden"
-                >
-                  {/* Square Album Cover with Hover Play Icon */}
-                  <div className="aspect-square rounded-xl overflow-hidden bg-black/50 relative border border-white/5">
-                    <img
-                      src={track.thumbnail}
-                      alt={track.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      referrerPolicy="no-referrer"
-                      loading="lazy"
-                    />
-
-                    {/* Audio Badge */}
-                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-indigo-600/90 backdrop-blur-md text-[9px] font-bold tracking-wider uppercase text-white border border-indigo-400/40 flex items-center gap-1 shadow-sm">
-                      <Radio size={10} />
-                      <span>Audio</span>
-                    </div>
-
-                    {track.duration && (
-                      <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md font-mono text-[10px] text-white">
-                        {track.duration}
-                      </div>
-                    )}
-
-                    {/* Hover Play Overlay */}
-                    <div
-                      className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${
-                        isCurrentlyPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                      }`}
-                    >
-                      <div className="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-xl shadow-indigo-600/50 group-hover:scale-110 transition-transform">
-                        {isCurrentlyPlaying ? (
-                          <span className="w-3 h-3 rounded-full bg-white animate-ping" />
-                        ) : (
-                          <Play size={20} className="fill-white translate-x-0.5" />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Track Info */}
-                  <div className="flex items-start justify-between gap-2 min-w-0 flex-1">
-                    <div className="min-w-0 flex-1">
-                      <h4 className="text-xs font-bold text-white truncate group-hover:text-indigo-400 transition-colors">
-                        {track.title}
-                      </h4>
-                      <p className="text-[11px] text-neutral-400 truncate mt-0.5">
-                        {track.artist || track.channelTitle || "Artist"}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        addToQueue(track);
-                      }}
-                      className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors shrink-0"
-                      title="Add to queue"
-                    >
-                      <Plus size={14} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Equalizer & Pipeline Modals */}
+      {/* Audio Equalizer Modal */}
       <AudioEqualizerModal isOpen={isEqOpen} onClose={() => setIsEqOpen(false)} />
-      <YtDlpPipelineDrawer isOpen={isPipelineOpen} onClose={() => setIsPipelineOpen(false)} />
     </div>
   );
 }
