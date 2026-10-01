@@ -10,6 +10,18 @@ const YT_DLP_BIN = fs.existsSync("/usr/local/bin/yt-dlp")
   ? "/usr/local/bin/yt-dlp"
   : path.join(process.cwd(), "bin", "yt-dlp");
 
+const YTMDL_BIN = "/usr/local/bin/ytmdl";
+
+const UPLOADS_DIR = fs.existsSync(path.join(process.cwd(), "uploads"))
+  ? path.join(process.cwd(), "uploads")
+  : "/tmp/uploads";
+
+if (!fs.existsSync(UPLOADS_DIR)) {
+  try {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  } catch (e) {}
+}
+
 const BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
@@ -519,7 +531,7 @@ musicRouter.get("/artist", async (req, res) => {
 const streamUrlCache = new Map<string, { url: string; timestamp: number }>();
 const STREAM_CACHE_TTL = 3 * 60 * 60 * 1000; // 3 hours
 
-// 5. High-reliability, ultra-fast yt-dlp Audio & Video Streaming Endpoint
+// 5. High-reliability, ultra-fast ytmdl / yt-dlp Audio & Video Streaming Endpoint
 musicRouter.get("/stream", async (req, res) => {
   const target = String(req.query.url || req.query.id || "").trim();
   const mode = String(req.query.mode || req.query.format || "audio").toLowerCase();
@@ -539,6 +551,65 @@ musicRouter.get("/stream", async (req, res) => {
   const isVideo = mode === "video";
   const searchPhrase = (artist && title) ? `${artist} - ${title}` : title || target;
 
+  // For high reliability & metadata integration, we use local file caching downloaded via ytmdl
+  const cleanId = extractYoutubeId(target) || target.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const filename = `ytmdl_${cleanId}.mp3`;
+  const filePath = path.join(UPLOADS_DIR, filename);
+
+  // 1. If the file is already downloaded, redirect directly to play it instantly with 0ms latency!
+  if (fs.existsSync(filePath)) {
+    console.log(`[Stream Cache] Serving existing local file: ${filename}`);
+    const localUrl = `/uploads/${filename}`;
+    streamUrlCache.set(cacheKey, { url: localUrl, timestamp: Date.now() });
+    return res.redirect(302, localUrl);
+  }
+
+  // Helper to download via ytmdl by URL
+  const downloadWithYtmdl = (id: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      let queryUrl = id.startsWith("http") ? id : `https://www.youtube.com/watch?v=${id}`;
+      console.log(`[Stream ytmdl] Attempting to download via URL: ${queryUrl}`);
+      const proc = spawn(YTMDL_BIN, [
+        "--url", queryUrl,
+        "-q",
+        "--choice", "1",
+        "--filename", filename,
+        "-o", UPLOADS_DIR
+      ]);
+
+      proc.on("close", (code) => {
+        if (code === 0 && fs.existsSync(filePath)) {
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+      });
+    });
+  };
+
+  // Helper to download via ytmdl by query search
+  const downloadByQueryYtmdl = (query: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      console.log(`[Stream ytmdl] Attempting to download via query: ${query}`);
+      const proc = spawn(YTMDL_BIN, [
+        "-q",
+        "--choice", "1",
+        "--filename", filename,
+        "-o", UPLOADS_DIR,
+        query
+      ]);
+
+      proc.on("close", (code) => {
+        if (code === 0 && fs.existsSync(filePath)) {
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+      });
+    });
+  };
+
+  // Helper to extract streaming URL with yt-dlp as high-reliability fallback
   const resolveWithYtDlp = (query: string): Promise<string | null> => {
     return new Promise((resolve) => {
       const formatArg = isVideo
@@ -563,22 +634,39 @@ musicRouter.get("/stream", async (req, res) => {
   };
 
   try {
-    // 1. Try target URL via yt-dlp
+    // First, try to download the song using ytmdl (by URL first, then by query)
+    let ytmdlSuccess = false;
+    if (!isVideo) {
+      ytmdlSuccess = await downloadWithYtmdl(cleanId);
+      if (!ytmdlSuccess && artist && title) {
+        ytmdlSuccess = await downloadByQueryYtmdl(`${artist} - ${title}`);
+      }
+    }
+
+    if (ytmdlSuccess && fs.existsSync(filePath)) {
+      console.log(`[Stream ytmdl] Downloaded track successfully: ${filename}`);
+      const localUrl = `/uploads/${filename}`;
+      streamUrlCache.set(cacheKey, { url: localUrl, timestamp: Date.now() });
+      return res.redirect(302, localUrl);
+    }
+
+    // FALLBACK 1: Try target URL via legacy yt-dlp
+    console.log(`[Stream] Processing query using yt-dlp pipeline...`);
     let queryUrl = target.startsWith("http") ? target : `https://www.youtube.com/watch?v=${target}`;
     let resolvedUrl = await resolveWithYtDlp(queryUrl);
 
-    // 2. If YouTube blocked or timed out, try SoundCloud search via yt-dlp
+    // FALLBACK 2: If YouTube blocked or timed out, try SoundCloud search via yt-dlp
     if (!resolvedUrl) {
       resolvedUrl = await resolveWithYtDlp(`scsearch1:${searchPhrase}`);
     }
 
-    // 3. Cache & Redirect immediately
+    // Cache & Redirect immediately
     if (resolvedUrl) {
       streamUrlCache.set(cacheKey, { url: resolvedUrl, timestamp: Date.now() });
       return res.redirect(302, resolvedUrl);
     }
 
-    // 4. Direct stdout stream fallback using ffmpeg
+    // FALLBACK 3: Direct stdout stream fallback using ffmpeg
     const formatArg = isVideo ? "18/best" : "bestaudio/best";
     const proc = spawn(YT_DLP_BIN, [
       "--ffmpeg-location", "/usr/bin/ffmpeg",
