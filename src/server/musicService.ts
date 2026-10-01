@@ -169,6 +169,85 @@ export function extractYoutubeId(input: string): string | null {
   return null;
 }
 
+function parseDurationSeconds(dur: string): number {
+  if (!dur || typeof dur !== "string") return 210;
+  const parts = dur.split(":").map(Number);
+  if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
+  if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+  return 210;
+}
+
+// Native YouTube Innertube API Search (works from any server/datacenter without scraping or CAPTCHAs)
+async function searchYouTubeInnertube(query: string, limit: number = 24): Promise<MusicTrack[]> {
+  try {
+    const body = {
+      context: {
+        client: {
+          clientName: "WEB",
+          clientVersion: "2.20240101.00.00",
+          hl: "en",
+          gl: "US",
+        },
+      },
+      query,
+    };
+
+    const res = await fetch("https://www.youtube.com/youtubei/v1/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": BROWSER_USER_AGENT,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!res.ok) return [];
+
+    const data: any = await res.json();
+    const sectionList =
+      data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || [];
+
+    const tracks: MusicTrack[] = [];
+    for (const section of sectionList) {
+      const itemContents = section?.itemSectionRenderer?.contents || [];
+      for (const item of itemContents) {
+        const vr = item.videoRenderer;
+        if (vr && vr.videoId && /^[a-zA-Z0-9_-]{11}$/.test(vr.videoId)) {
+          const title = vr.title?.runs?.map((r: any) => r.text).join("") || "YouTube Track";
+          const artist =
+            vr.ownerText?.runs?.map((r: any) => r.text).join("") ||
+            vr.longBylineText?.runs?.map((r: any) => r.text).join("") ||
+            "Artist";
+          const duration = vr.lengthText?.simpleText || "3:30";
+          const durationSec = parseDurationSeconds(duration);
+          const thumbs = vr.thumbnail?.thumbnails || [];
+          const thumbnail =
+            thumbs[thumbs.length - 1]?.url || `https://i.ytimg.com/vi/${vr.videoId}/hqdefault.jpg`;
+
+          tracks.push({
+            id: vr.videoId,
+            youtubeId: vr.videoId,
+            title,
+            artist,
+            duration,
+            durationSec,
+            thumbnail,
+            permalinkUrl: `https://music.youtube.com/watch?v=${vr.videoId}`,
+            source: "youtube_music",
+          });
+
+          if (tracks.length >= limit) break;
+        }
+      }
+      if (tracks.length >= limit) break;
+    }
+    return tracks;
+  } catch (e) {
+    return [];
+  }
+}
+
 // Fast timeout helper to guarantee responses never hang
 function withTimeout<T>(promise: Promise<any>, ms: number, fallback: any): Promise<T> {
   return Promise.race([
@@ -186,9 +265,16 @@ musicRouter.get("/search", async (req, res) => {
     return res.json({ tracks: CURATED_YOUTUBE_TRACKS });
   }
 
-  // Check if query is a direct YouTube / YouTube Music URL or video ID
+  // 1. Direct YouTube video ID or link
   const directId = extractYoutubeId(query);
   if (directId) {
+    // Try Innertube search with the ID first (high accuracy)
+    const directResults = await searchYouTubeInnertube(directId, 1);
+    if (directResults.length > 0) {
+      return res.json({ tracks: directResults });
+    }
+
+    // Try yts lookup
     try {
       const searchRes: any = await withTimeout(yts({ videoId: directId }), 3500, null);
       if (searchRes && searchRes.videoId) {
@@ -207,7 +293,7 @@ musicRouter.get("/search", async (req, res) => {
       }
     } catch (e) {}
 
-    // Fallback: Return structured track using the direct ID even if metadata lookup timed out
+    // Immediate guaranteed track from direct ID
     const reliableTrack: MusicTrack = {
       id: directId,
       youtubeId: directId,
@@ -228,8 +314,16 @@ musicRouter.get("/search", async (req, res) => {
     return res.json({ tracks: cached.tracks.slice(0, limit) });
   }
 
+  // Primary: Native YouTube Innertube API
+  const innertubeTracks = await searchYouTubeInnertube(query, limit);
+  if (innertubeTracks.length > 0) {
+    searchCache.set(query.toLowerCase(), { tracks: innertubeTracks, timestamp: Date.now() });
+    return res.json({ tracks: innertubeTracks });
+  }
+
+  // Secondary: yt-search fallback
   try {
-    const searchRes: any = await withTimeout(yts(query), 4500, { videos: [] });
+    const searchRes: any = await withTimeout(yts(query), 4000, { videos: [] });
     const videos = searchRes?.videos || [];
     const tracks: MusicTrack[] = videos.slice(0, limit).map((v: any) => ({
       id: v.videoId,
@@ -249,13 +343,13 @@ musicRouter.get("/search", async (req, res) => {
     }
   } catch (err) {}
 
-  // Fallback to local filter
+  // Fallback: search within curated list
   const filtered = CURATED_YOUTUBE_TRACKS.filter(
     (t) =>
       t.title.toLowerCase().includes(query.toLowerCase()) ||
       t.artist.toLowerCase().includes(query.toLowerCase())
   );
-  return res.json({ tracks: filtered.length > 0 ? filtered : CURATED_YOUTUBE_TRACKS });
+  return res.json({ tracks: filtered });
 });
 
 // 2. Trending / Genre Feeds (Instant Cached)
@@ -277,6 +371,14 @@ musicRouter.get("/trending", async (req, res) => {
       ? "chillhop beats relaxing instrumental"
       : "trending relaxing study music";
 
+  // Try Innertube
+  const innertubeTracks = await searchYouTubeInnertube(genreQuery, 24);
+  if (innertubeTracks.length > 0) {
+    trendingCache.set(category, { tracks: innertubeTracks, timestamp: Date.now() });
+    return res.json({ tracks: innertubeTracks });
+  }
+
+  // Fallback to yts
   try {
     const searchRes: any = await withTimeout(yts(genreQuery), 3500, { videos: [] });
     const videos = searchRes?.videos || [];
@@ -298,11 +400,11 @@ musicRouter.get("/trending", async (req, res) => {
     }
   } catch (err) {}
 
-  // Instant fallback to curated
+  // Fallback to curated
   res.json({ tracks: CURATED_YOUTUBE_TRACKS });
 });
 
-// 3. Resolve any link (music.youtube.com, soundcloud.com, direct mp3) using yt-dlp & metadata
+// 3. Resolve any link using Innertube, yt-dlp & metadata
 musicRouter.get("/resolve", async (req, res) => {
   const rawUrl = String(req.query.url || "").trim();
   if (!rawUrl) {
@@ -312,6 +414,12 @@ musicRouter.get("/resolve", async (req, res) => {
   // 1. YouTube & YouTube Music links
   const videoId = extractYoutubeId(rawUrl);
   if (videoId) {
+    // Try Innertube lookup
+    const innertubeResults = await searchYouTubeInnertube(videoId, 1);
+    if (innertubeResults.length > 0) {
+      return res.json(innertubeResults[0]);
+    }
+
     try {
       const info: any = await withTimeout(yts({ videoId }), 3500, null);
       if (info && info.videoId) {
@@ -392,7 +500,22 @@ musicRouter.get("/resolve", async (req, res) => {
   }
 });
 
-// 4. yt-dlp Audio Streaming Endpoint (Pipes raw audio directly from yt-dlp)
+// 4. Artist lookup (top songs, info)
+musicRouter.get("/artist", async (req, res) => {
+  const name = String(req.query.name || "").trim();
+  if (!name) {
+    return res.status(400).json({ error: "Missing 'name' parameter" });
+  }
+
+  const query = `${name} official audio`;
+  const tracks = await searchYouTubeInnertube(query, 16);
+  res.json({
+    artist: name,
+    tracks: tracks.length > 0 ? tracks : CURATED_YOUTUBE_TRACKS.slice(0, 6),
+  });
+});
+
+// 5. yt-dlp Audio Streaming Endpoint
 musicRouter.get("/stream", (req, res) => {
   const target = String(req.query.url || req.query.id || "").trim();
   if (!target) {

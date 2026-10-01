@@ -186,7 +186,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
             modestbranding: 1,
             rel: 0,
             playsinline: 1,
-            origin: window.location.origin,
+            enablejsapi: 1,
           },
           events: {
             onReady: (event: any) => {
