@@ -36,12 +36,16 @@ export default function MusicDock({ onExpand }: MusicDockProps) {
     toggleRepeat,
     isShuffle,
     toggleShuffle,
-    playbackEngine,
     toggleFavorite,
     isFavorite,
+    toggleFullPlayer,
   } = useMusic();
 
   if (!currentTrack) return null;
+
+  const handleExpandClick = () => {
+    toggleFullPlayer(onExpand);
+  };
 
   const formatTime = (secs: number) => {
     if (isNaN(secs) || secs <= 0) return "0:00";
@@ -71,7 +75,7 @@ export default function MusicDock({ onExpand }: MusicDockProps) {
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
         {/* Left: Artwork, Track Info & Favorite */}
         <div
-          onClick={onExpand}
+          onClick={handleExpandClick}
           className="flex items-center gap-3 min-w-0 w-1/4 sm:w-1/3 cursor-pointer group"
         >
           <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden bg-black/60 shrink-0 border border-white/10 relative shadow-md">
@@ -102,15 +106,6 @@ export default function MusicDock({ onExpand }: MusicDockProps) {
               >
                 {currentTrack.artist}
               </p>
-              <span
-                style={{
-                  backgroundColor: playbackEngine === "yt-dlp" ? "rgba(16, 185, 129, 0.15)" : "rgba(59, 130, 246, 0.15)",
-                  color: playbackEngine === "yt-dlp" ? "#34d399" : "#60a5fa",
-                }}
-                className="text-[9px] font-mono px-1.5 py-0.2 rounded font-semibold uppercase tracking-wider shrink-0"
-              >
-                {playbackEngine === "yt-dlp" ? "yt-dlp audio" : "browser"}
-              </span>
             </div>
           </div>
 
@@ -241,7 +236,7 @@ export default function MusicDock({ onExpand }: MusicDockProps) {
           {onExpand && (
             <button
               type="button"
-              onClick={onExpand}
+              onClick={handleExpandClick}
               style={{
                 color: "var(--theme-text-accent)",
                 backgroundColor: "rgba(255,255,255,0.06)",

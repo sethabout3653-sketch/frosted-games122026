@@ -192,9 +192,22 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
   const [artistTracks, setArtistTracks] = useState<Track[]>([]);
   const [artistLoading, setArtistLoading] = useState(false);
 
-  const [viewMode, setViewMode] = useState<"grid" | "list">("list");
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    try {
+      const saved = localStorage.getItem("frosted_music_view_mode");
+      if (saved === "grid" || saved === "list") return saved;
+    } catch {}
+    return "grid";
+  });
+
+  const changeViewMode = (mode: "grid" | "list") => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem("frosted_music_view_mode", mode);
+    } catch {}
+  };
   const [searchQuery, setSearchQuery] = useState("");
-  const deferredSearch = useDeferredValue(searchQuery);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const [tracks, setTracks] = useState<Track[]>([]);
   const [quickPicks, setQuickPicks] = useState<Track[]>([]);
@@ -209,6 +222,19 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
     if (hour < 18) return "Good afternoon";
     return "Good evening";
   };
+
+  // Live debounced search as user types
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setDebouncedSearch("");
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDebouncedSearch(trimmed);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Format seconds to mm:ss
   const formatTime = (secs: number) => {
@@ -227,14 +253,14 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
       return;
     }
 
-    if (activeTab === "player" && !deferredSearch.trim()) {
+    if (activeTab === "player" && !debouncedSearch.trim()) {
       return;
     }
 
     async function fetchTracks() {
       setIsLoading(true);
       try {
-        const query = deferredSearch.trim();
+        const query = debouncedSearch.trim();
         let endpoint = "";
 
         if (query) {
@@ -269,7 +295,7 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
     return () => {
       controller.abort();
     };
-  }, [activeTab, selectedGenre, deferredSearch, favorites]);
+  }, [activeTab, selectedGenre, debouncedSearch, favorites]);
 
   // Load artist details and tracks when an artist is selected
   useEffect(() => {
@@ -301,10 +327,12 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
     const query = searchQuery.trim();
     if (!query) return;
 
-    setIsLoading(true);
+    setDebouncedSearch(query);
     if (activeTab !== "home") {
       setActiveTab("home");
     }
+
+    setIsLoading(true);
 
     try {
       if (/^https?:\/\//i.test(query) || /^[a-zA-Z0-9_-]{11}$/.test(query)) {
@@ -313,7 +341,6 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
           const track = await res.json();
           if (track && track.id) {
             setTracks((prev) => [track, ...prev.filter((t) => t.id !== track.id)]);
-            playTrack(track, [track, ...tracks]);
             return;
           }
         }
@@ -324,7 +351,6 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
         const data = await res.json();
         if (Array.isArray(data.tracks) && data.tracks.length > 0) {
           setTracks(data.tracks);
-          playTrack(data.tracks[0], data.tracks);
         }
       }
     } catch (err) {
@@ -988,31 +1014,35 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
                 backgroundColor: "var(--theme-surface)",
                 borderColor: "var(--theme-border-subtle)",
               }}
-              className="flex items-center gap-1 p-1 border rounded-xl shrink-0"
+              className="flex items-center gap-1 p-1 border rounded-xl shrink-0 shadow-sm"
             >
               <button
                 type="button"
-                onClick={() => setViewMode("list")}
+                onClick={() => changeViewMode("grid")}
                 style={{
-                  backgroundColor: viewMode === "list" ? "rgba(255,255,255,0.12)" : "transparent",
-                  color: viewMode === "list" ? "#ffffff" : "var(--theme-text-muted)",
+                  backgroundColor: viewMode === "grid" ? "var(--theme-accent)" : "transparent",
+                  color: viewMode === "grid" ? "#ffffff" : "var(--theme-text-muted)",
                 }}
-                className="p-1.5 rounded-lg transition-colors cursor-pointer"
-                title="List View"
+                className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                  viewMode === "grid" ? "shadow-sm font-bold" : "hover:text-white"
+                }`}
+                title="Grid Card View (Image 2)"
               >
-                <ListIcon size={14} />
+                <LayoutGrid size={15} />
               </button>
               <button
                 type="button"
-                onClick={() => setViewMode("grid")}
+                onClick={() => changeViewMode("list")}
                 style={{
-                  backgroundColor: viewMode === "grid" ? "rgba(255,255,255,0.12)" : "transparent",
-                  color: viewMode === "grid" ? "#ffffff" : "var(--theme-text-muted)",
+                  backgroundColor: viewMode === "list" ? "var(--theme-accent)" : "transparent",
+                  color: viewMode === "list" ? "#ffffff" : "var(--theme-text-muted)",
                 }}
-                className="p-1.5 rounded-lg transition-colors cursor-pointer"
-                title="Grid View"
+                className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                  viewMode === "list" ? "shadow-sm font-bold" : "hover:text-white"
+                }`}
+                title="List Table View (Image 3)"
               >
-                <LayoutGrid size={14} />
+                <ListIcon size={15} />
               </button>
             </div>
           </div>

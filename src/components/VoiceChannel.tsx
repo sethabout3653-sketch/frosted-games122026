@@ -108,6 +108,8 @@ export default function VoiceChannel({
   const [audioLevel, setAudioLevel] = useState<number>(0);
   const [isLocalSpeaking, setIsLocalSpeaking] = useState<boolean>(false);
   const [remoteSpeaking, setRemoteSpeaking] = useState<{ [uid: string]: boolean }>({});
+  const remoteSpeakingRef = useRef<{ [uid: string]: boolean }>({});
+  const lastAudioLevelRef = useRef<number>(0);
   const localVadRef = useRef<SmartVoiceDetector>(new SmartVoiceDetector());
   const remoteVadMapRef = useRef<{ [uid: string]: SmartVoiceDetector }>({});
 
@@ -457,7 +459,11 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
           if (shouldUpdateUi) {
             lastVadFrameTime = now;
-            setAudioLevel(Math.round(vadRes.energy * 20) / 20); // Quantize level steps
+            const newLevel = Math.round(vadRes.energy * 20) / 20;
+            if (Math.abs(newLevel - lastAudioLevelRef.current) >= 0.05) {
+              lastAudioLevelRef.current = newLevel;
+              setAudioLevel(newLevel);
+            }
           }
 
           if (isCurrentlySpeaking !== prevLocalSpeaking) {
@@ -468,6 +474,8 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           // Evaluate speech for remote participants using SmartVoiceDetector
           if (shouldUpdateUi) {
             const remoteMap: { [uid: string]: { analyser: AnalyserNode; source: MediaStreamAudioSourceNode } } = remoteAnalysersRef.current;
+            let remoteSpeakingChanged = false;
+
             for (const [pUid, rData] of Object.entries(remoteMap)) {
               if (rData && rData.analyser) {
                 if (!remoteVadMapRef.current[pUid]) {
@@ -476,13 +484,17 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                 const rArray = new Uint8Array(rData.analyser.frequencyBinCount);
                 rData.analyser.getByteFrequencyData(rArray);
                 const rVad = remoteVadMapRef.current[pUid].analyze(rArray, ctx.sampleRate);
+                const isSpeakingNow = rVad.isSpeaking;
 
-                if (rVad.isSpeaking) {
-                  setRemoteSpeaking((prev) => (prev[pUid] ? prev : { ...prev, [pUid]: true }));
-                } else {
-                  setRemoteSpeaking((prev) => (prev[pUid] ? { ...prev, [pUid]: false } : prev));
+                if (remoteSpeakingRef.current[pUid] !== isSpeakingNow) {
+                  remoteSpeakingRef.current[pUid] = isSpeakingNow;
+                  remoteSpeakingChanged = true;
                 }
               }
+            }
+
+            if (remoteSpeakingChanged) {
+              setRemoteSpeaking({ ...remoteSpeakingRef.current });
             }
           }
 

@@ -221,7 +221,12 @@ export default function Chat({
         }
       });
 
-      setRawVoiceUsers(Array.from(userMap.values()));
+      const nextUsers = Array.from(userMap.values());
+      setRawVoiceUsers((prev) => {
+        const prevSig = prev.map((u) => `${u.uid}_${u.isMuted}_${u.isVideoOn}_${u.isScreenSharing}`).join("|");
+        const nextSig = nextUsers.map((u) => `${u.uid}_${u.isMuted}_${u.isVideoOn}_${u.isScreenSharing}`).join("|");
+        return prevSig === nextSig ? prev : nextUsers;
+      });
     };
 
     const unsubVoiceUsers = onSnapshot(

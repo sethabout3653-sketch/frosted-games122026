@@ -515,51 +515,107 @@ musicRouter.get("/artist", async (req, res) => {
   });
 });
 
-// 5. yt-dlp Audio Streaming Endpoint
-musicRouter.get("/stream", (req, res) => {
+// In-memory stream URL cache for instant 0ms playback
+const streamUrlCache = new Map<string, { url: string; timestamp: number }>();
+const STREAM_CACHE_TTL = 3 * 60 * 60 * 1000; // 3 hours
+
+// 5. High-reliability, ultra-fast yt-dlp Audio & Video Streaming Endpoint
+musicRouter.get("/stream", async (req, res) => {
   const target = String(req.query.url || req.query.id || "").trim();
+  const mode = String(req.query.mode || req.query.format || "audio").toLowerCase();
+  const title = String(req.query.title || "").trim();
+  const artist = String(req.query.artist || "").trim();
+
   if (!target) {
     return res.status(400).json({ error: "Missing 'url' or 'id' parameter" });
   }
 
-  let fullUrl = target;
-  if (/^[a-zA-Z0-9_-]{11}$/.test(target)) {
-    fullUrl = `https://music.youtube.com/watch?v=${target}`;
+  const cacheKey = `${target}_${mode}_${artist}_${title}`;
+  const cached = streamUrlCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < STREAM_CACHE_TTL) {
+    return res.redirect(302, cached.url);
   }
 
-  res.setHeader("Content-Type", "audio/mpeg");
-  res.setHeader("Accept-Ranges", "bytes");
-  res.setHeader("Cache-Control", "no-cache");
+  const isVideo = mode === "video";
+  const searchPhrase = (artist && title) ? `${artist} - ${title}` : title || target;
 
-  // Spawn yt-dlp directly streaming audio to stdout
-  const proc = spawn(YT_DLP_BIN, [
-    "-o", "-",
-    "-f", "bestaudio[ext=m4a]/bestaudio/best",
-    "--no-warnings",
-    "--no-check-certificates",
-    "--user-agent", BROWSER_USER_AGENT,
-    fullUrl,
-  ]);
+  const resolveWithYtDlp = (query: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const formatArg = isVideo
+        ? "18/best[height<=720][ext=mp4]/best"
+        : "bestaudio[ext=m4a]/bestaudio/18/best";
 
-  proc.stdout.pipe(res);
+      execFile(
+        YT_DLP_BIN,
+        ["--ffmpeg-location", "/usr/bin/ffmpeg", "-g", "-f", formatArg, "--no-warnings", "--no-check-certificates", query],
+        { timeout: 3000 },
+        (err, stdout) => {
+          if (!err && stdout.trim()) {
+            const url = stdout.trim().split("\n")[0];
+            if (url && url.startsWith("http")) {
+              return resolve(url);
+            }
+          }
+          resolve(null);
+        }
+      );
+    });
+  };
 
-  let hasError = false;
-  proc.stderr.on("data", (chunk) => {
-    const errText = chunk.toString();
-    if (errText.includes("Sign in to confirm you") || errText.includes("ERROR:")) {
-      hasError = true;
+  try {
+    // 1. Try target URL via yt-dlp
+    let queryUrl = target.startsWith("http") ? target : `https://www.youtube.com/watch?v=${target}`;
+    let resolvedUrl = await resolveWithYtDlp(queryUrl);
+
+    // 2. If YouTube blocked or timed out, try SoundCloud search via yt-dlp
+    if (!resolvedUrl) {
+      resolvedUrl = await resolveWithYtDlp(`scsearch1:${searchPhrase}`);
     }
-  });
 
-  proc.on("close", (code) => {
-    if (code !== 0 && hasError && !res.headersSent) {
-      res.status(403).json({ error: "yt-dlp requires client player fallback for this track" });
+    // 3. Cache & Redirect immediately
+    if (resolvedUrl) {
+      streamUrlCache.set(cacheKey, { url: resolvedUrl, timestamp: Date.now() });
+      return res.redirect(302, resolvedUrl);
     }
-  });
 
-  req.on("close", () => {
-    try {
-      proc.kill("SIGKILL");
-    } catch (e) {}
-  });
+    // 4. Direct stdout stream fallback using ffmpeg
+    const formatArg = isVideo ? "18/best" : "bestaudio/best";
+    const proc = spawn(YT_DLP_BIN, [
+      "--ffmpeg-location", "/usr/bin/ffmpeg",
+      "-o", "-",
+      "-f", formatArg,
+      "--no-warnings",
+      "--no-check-certificates",
+      `scsearch1:${searchPhrase}`,
+    ]);
+
+    let headersSent = false;
+
+    proc.stdout.on("data", (chunk) => {
+      if (!headersSent) {
+        headersSent = true;
+        res.setHeader("Content-Type", isVideo ? "video/mp4" : "audio/mp4");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.status(200);
+      }
+      res.write(chunk);
+    });
+
+    proc.on("close", () => {
+      if (!headersSent) {
+        return res.status(502).json({ error: "Stream extraction failed" });
+      }
+      res.end();
+    });
+
+    req.on("close", () => {
+      try {
+        proc.kill("SIGKILL");
+      } catch (e) {}
+    });
+  } catch (e) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Stream extraction error" });
+    }
+  }
 });

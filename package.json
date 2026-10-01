@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@blinkdotnew/sdk": "^2.9.0",
+    "@distube/ytdl-core": "^4.16.12",
     "@fastify/cors": "^11.3.0",
     "@fastify/static": "^10.1.5",
     "@giphy/js-fetch-api": "^5.8.0",
