@@ -462,12 +462,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const drainIceCandidates = useCallback(async (pc: RTCPeerConnection) => {
     while (pendingIceCandidatesRef.current.length > 0) {
       const candidateInit = pendingIceCandidatesRef.current.shift();
-      if (candidateInit) {
+      if (candidateInit && (candidateInit.candidate || candidateInit.sdpMid !== undefined || candidateInit.sdpMLineIndex !== undefined)) {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidateInit));
-        } catch (e) {
-          console.warn("Error adding queued ice candidate:", e);
-        }
+        } catch (e) {}
       }
     }
   }, []);
@@ -842,11 +840,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   candidate = JSON.parse(candidate);
                 } catch {}
               }
+              if (typeof candidate === "string") {
+                try { candidate = JSON.parse(candidate); } catch {}
+              }
               if (candidate && candidate.candidate && typeof candidate.candidate === "object") {
                 candidate = candidate.candidate;
               }
-              if (candidate) {
-                if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+              if (candidate && (candidate.candidate || candidate.sdpMid !== undefined || candidate.sdpMLineIndex !== undefined)) {
+                if (pc && pc.remoteDescription && pc.remoteDescription.type && pc.signalingState !== "closed") {
                   try {
                     await pc.addIceCandidate(new RTCIceCandidate(candidate));
                   } catch (e) {}

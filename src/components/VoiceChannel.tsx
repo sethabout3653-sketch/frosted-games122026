@@ -847,12 +847,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
       const queue = iceCandidateQueuesRef.current[partnerUid] || [];
       while (queue.length > 0) {
         const candidateData = queue.shift();
-        if (candidateData) {
+        if (candidateData && (candidateData.candidate || candidateData.sdpMid !== undefined || candidateData.sdpMLineIndex !== undefined)) {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(candidateData));
-          } catch (e) {
-            console.warn("Error processing candidate:", e);
-          }
+          } catch (e) {}
         }
       }
     },
@@ -1003,6 +1001,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         iceTransportPolicy: "all",
       };
       const pc = new RTCPeerConnection(config);
+      (pc as any)._createdAt = Date.now();
       peersRef.current[partnerUid] = pc;
       iceCandidateQueuesRef.current[partnerUid] = [];
 
@@ -1394,19 +1393,24 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
               candidateData = typeof rawCand === "string" ? JSON.parse(rawCand) : rawCand;
             } catch (e) {}
             if (candidateData) {
-              if (candidateData.candidate && typeof candidateData.candidate === "object") {
+              if (typeof candidateData === "string") {
+                try { candidateData = JSON.parse(candidateData); } catch {}
+              }
+              if (candidateData && candidateData.candidate && typeof candidateData.candidate === "object") {
                 candidateData = candidateData.candidate;
               }
               const pc = peersRef.current[partnerUid];
-              if (pc && pc.remoteDescription && pc.remoteDescription.type && pc.signalingState !== "closed") {
-                try {
-                  await pc.addIceCandidate(new RTCIceCandidate(candidateData));
-                } catch (e) {}
-              } else {
-                if (!iceCandidateQueuesRef.current[partnerUid]) {
-                  iceCandidateQueuesRef.current[partnerUid] = [];
+              if (candidateData && (candidateData.candidate || candidateData.sdpMid !== undefined || candidateData.sdpMLineIndex !== undefined)) {
+                if (pc && pc.remoteDescription && pc.remoteDescription.type && pc.signalingState !== "closed") {
+                  try {
+                    await pc.addIceCandidate(new RTCIceCandidate(candidateData));
+                  } catch (e) {}
+                } else {
+                  if (!iceCandidateQueuesRef.current[partnerUid]) {
+                    iceCandidateQueuesRef.current[partnerUid] = [];
+                  }
+                  iceCandidateQueuesRef.current[partnerUid].push(candidateData);
                 }
-                iceCandidateQueuesRef.current[partnerUid].push(candidateData);
               }
             }
           }
@@ -1726,20 +1730,22 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
                 const pc = peersRef.current[u.uid];
                 const isConnected = pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected");
                 const isDead = !pc || pc.connectionState === "closed" || pc.connectionState === "failed" || pc.iceConnectionState === "failed";
+                const pcAge = pc ? (now - ((pc as any)._createdAt || 0)) : 0;
+                const isStalled = pc && !isConnected && (pc.connectionState === "connecting" || pc.iceConnectionState === "checking" || pc.iceConnectionState === "disconnected" || pc.connectionState === "new") && pcAge > 4000;
 
                 const lastAttempt = lastCallAttemptRef.current[u.uid] || 0;
                 const failCount = callFailCountRef.current[u.uid] || 0;
-                const backoffTime = failCount > 3 ? 6000 : 3000;
+                const backoffTime = failCount > 3 ? 5000 : 2500;
 
                 const isOfferer = profile.uid < u.uid;
 
                 if (isConnected) {
                   syncPeerTracks(u.uid, pc);
-                } else if (isDead && (lastAttempt === 0 || now - lastAttempt > backoffTime)) {
+                } else if ((isDead || isStalled || !pc) && (lastAttempt === 0 || now - lastAttempt > backoffTime)) {
                   if (isOfferer && localStreamRef.current) {
                     lastCallAttemptRef.current[u.uid] = now;
                     initiateCall(u.uid, localStreamRef.current);
-                  } else if (!isOfferer && (lastAttempt === 0 || now - lastAttempt > 5000)) {
+                  } else if (!isOfferer && (lastAttempt === 0 || now - lastAttempt > 3000)) {
                     lastCallAttemptRef.current[u.uid] = now;
                     sendSignal(u.uid, "user_joined", JSON.stringify({
                       username: profile.username,
