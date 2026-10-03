@@ -563,8 +563,9 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
               className="w-full h-full flex-1 border-0 rounded-2xl"
               style={{ width: "100%", height: "100%", minHeight: "100%", display: "block" }}
               scrolling="yes"
-              allow="autoplay; encrypted-media; fullscreen; pointer-lock; gamepad; microphone; camera; focus-without-user-activation"
+              allow="autoplay; encrypted-media; fullscreen; pointer-lock; gamepad; microphone; camera; focus-without-user-activation; cross-origin-isolated"
               referrerPolicy="no-referrer"
+              {...({ credentialless: "true" } as any)}
             />
           )}
 

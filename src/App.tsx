@@ -216,7 +216,18 @@ function AppContent() {
 
         const preparedLumin: Game[] = (luminGames || []).map((g) => prepareGame(g));
 
-        const combinedList = [...uniqueCatalogGames, ...preparedLumin].sort((a, b) =>
+        // Set of normalized gn-math catalog names to prevent duplicate tiles
+        const gnMathNames = new Set(
+          uniqueCatalogGames.map((g) => (g.name || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim())
+        );
+
+        // Keep all Lumin games EXCEPT those that match a gn-math game name
+        const nonDuplicateLumin = preparedLumin.filter((lg) => {
+          const normName = (lg.name || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+          return !normName || !gnMathNames.has(normName);
+        });
+
+        const combinedList = [...uniqueCatalogGames, ...nonDuplicateLumin].sort((a, b) =>
           (a?.name || "").localeCompare(b?.name || "")
         );
 

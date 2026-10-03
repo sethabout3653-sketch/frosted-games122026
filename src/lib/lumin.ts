@@ -172,9 +172,9 @@ export async function fetchLuminGames(opts: { page?: number; limit?: number; fet
     let allRawGames: LuminRawGame[] = [];
     const limit = opts.limit || 100;
 
-    // Fetch pages 1 through 20 in controlled batches of 4
-    for (let batch = 0; batch < 5; batch++) {
-      const pageNumbers = [batch * 4 + 1, batch * 4 + 2, batch * 4 + 3, batch * 4 + 4];
+    // Fetch pages 1 through 50 in controlled batches of 5
+    for (let batch = 0; batch < 10; batch++) {
+      const pageNumbers = [batch * 5 + 1, batch * 5 + 2, batch * 5 + 3, batch * 5 + 4, batch * 5 + 5];
       const pageResults = await Promise.all(
         pageNumbers.map((p) => window.Lumin!.getGames({ page: p, limit }).catch(() => null))
       );
@@ -185,13 +185,13 @@ export async function fetchLuminGames(opts: { page?: number; limit?: number; fet
       }
     }
 
-    // Query categories if available
+    // Query all categories if available
     if (typeof window.Lumin.getCategories === "function") {
       try {
         const categories = await window.Lumin.getCategories();
         if (Array.isArray(categories) && categories.length > 0) {
           const catResults = await Promise.all(
-            categories.slice(0, 15).map((cat) => window.Lumin!.getGames({ category: cat, limit: 100 } as any).catch(() => null))
+            categories.map((cat) => window.Lumin!.getGames({ category: cat, limit: 100 } as any).catch(() => null))
           );
           for (const cRes of catResults) {
             if (cRes?.games && Array.isArray(cRes.games)) {

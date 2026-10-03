@@ -344,11 +344,14 @@ const PORT = Number(process.env.PORT) || 3000;
     },
   });
 
-  // CORS and preflight headers for all API requests
+  // CORS, preflight, and Cross-Origin Isolation headers for Godot & WebAssembly (SharedArrayBuffer)
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-Session");
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+    res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
     if (req.method === "OPTIONS") {
       return res.status(200).end();
     }
@@ -5120,6 +5123,9 @@ Platform context:
       const contentType = response.headers.get("content-type") || "text/html";
       res.setHeader("Content-Type", contentType);
       res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+      res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
       res.setHeader("X-Frame-Options", "ALLOWALL");
 
       const buffer = Buffer.from(await response.arrayBuffer());

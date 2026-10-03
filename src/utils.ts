@@ -51,7 +51,7 @@ export async function fetchGamesList(): Promise<Game[]> {
     if (response.ok) {
       const data = await response.json();
       if (Array.isArray(data) && data.length > 0) {
-        return (data as Game[]).filter((g) => g.name !== "-3" && g.id !== 816);
+        return (data as Game[]).filter((g) => g && g.id !== undefined && g.id !== null);
       }
     }
   } catch {
@@ -60,14 +60,14 @@ export async function fetchGamesList(): Promise<Game[]> {
       if (localRes.ok) {
         const localData = await localRes.json();
         if (Array.isArray(localData) && localData.length > 0) {
-          return (localData as Game[]).filter((g) => g.name !== "-3" && g.id !== 816);
+          return (localData as Game[]).filter((g) => g && g.id !== undefined && g.id !== null);
         }
       }
     } catch {
       // ignore
     }
   }
-  return (localZones as Game[]).filter((g) => g.name !== "-3" && g.id !== 816);
+  return (localZones as Game[]).filter((g) => g && g.id !== undefined && g.id !== null);
 }
 
 /**
