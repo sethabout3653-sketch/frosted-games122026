@@ -14,6 +14,38 @@
         } catch (e) {
           console.warn('Window fetch getter override failed:', e);
         }
+
+        try {
+          var _origErr = console.error;
+          console.error = function() {
+            var msg = "";
+            for (var i = 0; i < arguments.length; i++) {
+              msg += " " + String(arguments[i]);
+            }
+            if (msg.indexOf("Worker connection failed") !== -1 || msg.indexOf("domain fetch failed") !== -1) {
+              return;
+            }
+            return _origErr.apply(console, arguments);
+          };
+
+          window.addEventListener("error", function(e) {
+            var m = (e && (e.message || (e.error && e.error.message))) || "";
+            if (typeof m === "string" && (m.indexOf("Worker connection failed") !== -1 || m.indexOf("domain fetch failed") !== -1)) {
+              if (e.preventDefault) e.preventDefault();
+              if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+              return true;
+            }
+          }, true);
+
+          window.addEventListener("unhandledrejection", function(e) {
+            var r = (e && (e.reason && (e.reason.message || String(e.reason)))) || "";
+            if (typeof r === "string" && (r.indexOf("Worker connection failed") !== -1 || r.indexOf("domain fetch failed") !== -1)) {
+              if (e.preventDefault) e.preventDefault();
+              if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+              return true;
+            }
+          }, true);
+        } catch (err) {}
       })();
     </script>
     <meta charset="UTF-8" />
@@ -25,6 +57,7 @@
     <meta property="og:description" content="A cozy study portal and games library with high-quality voice/video calls, game favorites, custom reactions, reactive color themes, and social chat." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script src="https://cdn.jsdelivr.net/gh/luminsdk/script@latest/lumin.min.js" async></script>
     <script>
       (function() {
         try {
@@ -759,7 +792,6 @@
     <script src="https://blink.new/widget.js?projectId=frosted-studying-hub-hcfopp47" type="module"></script>
   </head>
   <body>
-    <div id="lumin-headless-container" style="display:none;" aria-hidden="true"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useDeferredValue } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Game } from "./types";
-import { fetchGamesList, getUniqueTags, isFnfGame, isFnfMod, deduplicateGames, formatTagLabel } from "./utils";
-import { fetchLuminGames, getLocalLuminGames, fetchLuminSessionId, getLocalLuminGamesWithSession } from "./lumin";
+import { fetchGamesList, getUniqueTags, isFnfGame, isFnfMod, formatTagLabel } from "./utils";
 import Header from "./components/Header";
 import GameGrid from "./components/GameGrid";
 import GamePlayer from "./components/GamePlayer";
@@ -10,6 +9,7 @@ import Chat from "./components/Chat";
 import AIAssistant from "./components/AIAssistant";
 import MusicView from "./components/MusicView";
 import MusicDock from "./components/MusicDock";
+import GlobalAnnouncements from "./components/GlobalAnnouncements";
 import BackgroundEditor, { DEFAULT_BACKGROUND, AppBackground } from "./components/BackgroundEditor";
 import SettingsModal from "./components/SettingsModal";
 import LoadingScreen from "./components/LoadingScreen";
@@ -23,6 +23,7 @@ import IncomingCallNotification from "./components/IncomingCallNotification";
 import ActiveCallModal from "./components/ActiveCallModal";
 import { useFavorites } from "./lib/favorites";
 import { purgeNonAllowedUsers } from "./lib/user-filter";
+import { fetchLuminGames, onLuminEvent, offLuminEvent } from "./lib/lumin";
 import { Sparkles, Gamepad2, Shuffle, Heart, Flame, Compass, Play } from "lucide-react";
 
 const SOUNDBOARD_GAME: Game = {
@@ -31,11 +32,10 @@ const SOUNDBOARD_GAME: Game = {
   cover: "https://play-lh.googleusercontent.com/LuIUTwJtvkVrSjIqp6ExcLF7pQKqTBeq91AioYogo0TtVnRWyTXh2xmXASI8MBWohVfCGFYjuiyekWzzXAciqp0=s0-br30",
   url: "https://soundboardguys.com/",
   author: "Soundboard Guys",
-  source: "catalog",
   special: ["all genres", "soundboard"],
 };
 
-function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog"): Game {
+function prepareGame(g: Game): Game {
   const isFnf = isFnfGame(g.name, g.special);
   const isMod = isFnf && isFnfMod(g.name, g.special);
 
@@ -43,7 +43,7 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
     ? [
         ...g.special.filter((t) => {
           const clean = t.toLowerCase();
-          return clean !== "luminsdk" && clean !== "fnf" && clean !== "fnf-mod";
+          return clean !== "fnf" && clean !== "fnf-mod";
         }),
       ]
     : [];
@@ -53,6 +53,23 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
   } else if (isFnf) {
     sTags.unshift("fnf");
   }
+
+  // Infer smart category tags if missing
+  const lowerName = g.name.toLowerCase();
+  if (g.source === "lumin" || g.luminId) sTags.push("lumin");
+  if (lowerName.includes("drive") || lowerName.includes("car") || lowerName.includes("drift") || lowerName.includes("race") || lowerName.includes("moto") || lowerName.includes("kart") || lowerName.includes("truck")) sTags.push("driving");
+  if (lowerName.includes("shoot") || lowerName.includes("gun") || lowerName.includes("fps") || lowerName.includes("sniper") || lowerName.includes("zombie") || lowerName.includes("battle") || lowerName.includes("combat")) sTags.push("shooting");
+  if (lowerName.includes("puzzle") || lowerName.includes("chess") || lowerName.includes("sudoku") || lowerName.includes("math") || lowerName.includes("word") || lowerName.includes("2048") || lowerName.includes("tetris") || lowerName.includes("block")) sTags.push("puzzle");
+  if (lowerName.includes("retro") || lowerName.includes("pixel") || lowerName.includes("arcade") || lowerName.includes("mario") || lowerName.includes("sonic") || lowerName.includes("pacman") || lowerName.includes("8bit")) {
+    sTags.push("retro");
+    sTags.push("arcade");
+  }
+  if (lowerName.includes("2 player") || lowerName.includes("2-player") || lowerName.includes("multiplayer") || lowerName.includes("versus") || lowerName.includes("dual")) sTags.push("2-player");
+  if (lowerName.includes("run") || lowerName.includes("ninja") || lowerName.includes("fight") || lowerName.includes("action") || lowerName.includes("smash") || lowerName.includes("dash") || lowerName.includes("slope")) sTags.push("action");
+
+  if (sTags.length === 0) sTags.push("arcade");
+
+  sTags = Array.from(new Set(sTags.map((t) => t.toLowerCase())));
 
   const searchTerms = [
     g.name,
@@ -66,7 +83,6 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
 
   return {
     ...g,
-    source: g.source || defaultSource,
     special: sTags,
     isMod,
     _search: searchTerms,
@@ -101,12 +117,9 @@ function AppContent() {
   const [games, setGames] = useState<Game[]>(() => {
     const catalogPrepared = (localZones as Game[])
       .filter((g) => g.id !== -1 && g.name !== "-3" && g.id !== 816)
-      .map((g) => prepareGame(g, "catalog"));
-    const luminPrepared = getLocalLuminGames()
-      .filter((g) => g.name !== "-3" && g.id !== 816)
-      .map((g) => prepareGame(g, "luminsdk"));
-    const catalog = deduplicateGames(catalogPrepared, luminPrepared).sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
-    return [SOUNDBOARD_GAME, ...catalog];
+      .map((g) => prepareGame(g))
+      .sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
+    return [SOUNDBOARD_GAME, ...catalogPrepared];
   });
   const [loadingLive, setLoadingLive] = useState(true);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
@@ -179,36 +192,35 @@ function AppContent() {
 
     const loadLibraries = async () => {
       try {
-        const [liveGamesResult, luminGamesResult] = await Promise.allSettled([
-          fetchGamesList(),
-          fetchLuminGames(),
+        const [liveGames, luminGames] = await Promise.all([
+          fetchGamesList().catch(() => null),
+          fetchLuminGames({ page: 1, limit: 100, fetchAll: true }).catch(() => []),
         ]);
-
         if (!isMounted) return;
 
-        const baseList: Game[] = (
-          liveGamesResult.status === "fulfilled"
-            ? liveGamesResult.value
-            : (localZones as Game[])
-        )
-          .filter((g) => g.id !== -1 && g.name !== "-3" && g.id !== 816)
-          .map((g) => prepareGame(g, "catalog"));
+        const rawCatalog = [
+          ...(liveGames || []),
+          ...(localZones as Game[]),
+        ];
 
-        let luminList: Game[] = [];
-        if (luminGamesResult.status === "fulfilled" && luminGamesResult.value.length > 0) {
-          luminList = luminGamesResult.value;
-        } else {
-          const freshSessionId = await fetchLuminSessionId();
-          if (freshSessionId) {
-            luminList = getLocalLuminGamesWithSession(freshSessionId);
-          } else {
-            luminList = getLocalLuminGames();
-          }
+        // Deduplicate local + remote catalog by id & clean name
+        const seenCatalogKeys = new Set<string>();
+        const uniqueCatalogGames: Game[] = [];
+        for (const g of rawCatalog) {
+          if (!g || g.id === -1 || g.name === "-3" || g.id === 816) continue;
+          const key = `${g.id}|${(g.name || "").toLowerCase().trim()}`;
+          if (seenCatalogKeys.has(key)) continue;
+          seenCatalogKeys.add(key);
+          uniqueCatalogGames.push(prepareGame(g));
         }
 
-        const luminPrepared = luminList.map((g) => prepareGame(g, "luminsdk"));
-        const combined = deduplicateGames(baseList, luminPrepared).sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
-        setGames([SOUNDBOARD_GAME, ...combined.filter((g) => g.id !== SOUNDBOARD_GAME.id)]);
+        const preparedLumin: Game[] = (luminGames || []).map((g) => prepareGame(g));
+
+        const combinedList = [...uniqueCatalogGames, ...preparedLumin].sort((a, b) =>
+          (a?.name || "").localeCompare(b?.name || "")
+        );
+
+        setGames([SOUNDBOARD_GAME, ...combinedList.filter((g) => g.id !== SOUNDBOARD_GAME.id)]);
         setLoadingLive(false);
       } catch {
         if (isMounted) {
@@ -303,6 +315,7 @@ function AppContent() {
   // Popular quick tags for pill filter row
   const quickPillTags = [
     { id: "all", label: "All Games" },
+    { id: "lumin", label: "⚡ Lumin" },
     { id: "favorites", label: "Favorites", isHeart: true },
     { id: "action", label: "Action" },
     { id: "retro", label: "Retro" },
@@ -492,7 +505,7 @@ function AppContent() {
           </div>
 
           {/* Catalog Grid View */}
-          <section id="games-catalog-section" className="flex-1 flex flex-col gap-4">
+          <section id="games-catalog-section" className="flex-1 flex flex-col gap-6">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-sm sm:text-base font-bold tracking-wider uppercase text-white flex items-center gap-2">
@@ -615,6 +628,9 @@ function AppContent() {
   {/* Real-time P2P Call Modals & In-App Top Right Notification */}
   <IncomingCallNotification />
   <ActiveCallModal />
+
+  {/* Global Announcements Banner & Mod Alerts (Active across all pages) */}
+  <GlobalAnnouncements />
 
   {/* Persistent Bottom Music Mini Dock */}
   <MusicDock onExpand={handleOpenMusic} />

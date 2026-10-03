@@ -33,8 +33,11 @@ import {
   TrendingUp,
   Clock,
   ExternalLink,
+  Download,
+  Loader2,
 } from "lucide-react";
 import { useMusic, Track } from "../context/MusicContext";
+import { downloadFile } from "../utils/mediaUtils";
 
 interface MusicViewProps {
   isActive?: boolean;
@@ -213,6 +216,8 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [copiedTrackId, setCopiedTrackId] = useState<string | null>(null);
   const [followedArtists, setFollowedArtists] = useState<string[]>([]);
+  const [downloadingTrackId, setDownloadingTrackId] = useState<string | null>(null);
+  const [downloadSuccessId, setDownloadSuccessId] = useState<string | null>(null);
 
   // Greeting based on time of day
   const getGreeting = () => {
@@ -335,14 +340,17 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
 
     try {
       if (/^https?:\/\//i.test(query) || /^[a-zA-Z0-9_-]{11}$/.test(query)) {
-        const res = await fetch(`/api/music/resolve?url=${encodeURIComponent(query)}`);
-        if (res.ok) {
-          const track = await res.json();
-          if (track && track.id) {
-            setTracks((prev) => [track, ...prev.filter((t) => t.id !== track.id)]);
-            return;
+        try {
+          const res = await fetch(`/api/music/resolve?url=${encodeURIComponent(query)}`);
+          if (res.ok) {
+            const track = await res.json();
+            if (track && (track.id || track.youtubeId)) {
+              setTracks((prev) => [track, ...prev.filter((t) => t.id !== track.id)]);
+              setIsLoading(false);
+              return;
+            }
           }
-        }
+        } catch (e) {}
       }
 
       const res = await fetch(`/api/music/search?q=${encodeURIComponent(query)}`);
@@ -353,6 +361,7 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
         }
       }
     } catch (err) {
+      console.warn("Music search error:", err);
     } finally {
       setIsLoading(false);
     }
@@ -369,6 +378,26 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
     setFollowedArtists((prev) =>
       prev.includes(artistId) ? prev.filter((id) => id !== artistId) : [...prev, artistId]
     );
+  };
+
+  const handleDownloadTrack = async (track: Track, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!track || downloadingTrackId === track.id) return;
+    setDownloadingTrackId(track.id);
+    try {
+      const targetId = track.youtubeId || track.id;
+      const downloadUrl = `/api/music/download?id=${encodeURIComponent(targetId)}&title=${encodeURIComponent(
+        track.title || ""
+      )}&artist=${encodeURIComponent(track.artist || "")}`;
+      const fileName = `${track.artist || "Music"} - ${track.title || "Track"}.mp3`;
+      await downloadFile(downloadUrl, fileName);
+      setDownloadSuccessId(track.id);
+      setTimeout(() => setDownloadSuccessId(null), 2500);
+    } catch (err) {
+      console.warn("Track download error:", err);
+    } finally {
+      setDownloadingTrackId(null);
+    }
   };
 
   const spotlightTrack = currentTrack || tracks[0];
@@ -707,10 +736,26 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-3 shrink-0">
+                          <div className="flex items-center gap-2 shrink-0">
                             <span style={{ color: "var(--theme-text-muted)" }} className="text-xs font-mono">
                               {track.duration || "3:30"}
                             </span>
+
+                            <button
+                              type="button"
+                              onClick={(e) => handleDownloadTrack(track, e)}
+                              disabled={downloadingTrackId === track.id}
+                              className="p-1.5 text-neutral-400 hover:text-cyan-400 transition-colors cursor-pointer"
+                              title={downloadSuccessId === track.id ? "Downloaded!" : "Download MP3"}
+                            >
+                              {downloadingTrackId === track.id ? (
+                                <Loader2 size={15} className="animate-spin text-cyan-400" />
+                              ) : downloadSuccessId === track.id ? (
+                                <Check size={15} className="text-emerald-400" />
+                              ) : (
+                                <Download size={15} />
+                              )}
+                            </button>
 
                             <button
                               type="button"
@@ -970,6 +1015,26 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
 
                   <button
                     type="button"
+                    onClick={(e) => handleDownloadTrack(spotlightTrack, e)}
+                    disabled={downloadingTrackId === spotlightTrack.id}
+                    style={{
+                      backgroundColor: "rgba(255,255,255,0.06)",
+                      borderColor: "var(--theme-border-subtle)",
+                    }}
+                    className="p-2.5 rounded-2xl border text-neutral-300 hover:text-cyan-400 transition-colors cursor-pointer"
+                    title={downloadSuccessId === spotlightTrack.id ? "Downloaded!" : "Download MP3"}
+                  >
+                    {downloadingTrackId === spotlightTrack.id ? (
+                      <Loader2 size={16} className="animate-spin text-cyan-400" />
+                    ) : downloadSuccessId === spotlightTrack.id ? (
+                      <Check size={16} className="text-emerald-400" />
+                    ) : (
+                      <Download size={16} />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => setActiveTab("player")}
                     style={{
                       backgroundColor: "rgba(255,255,255,0.06)",
@@ -1152,8 +1217,25 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
                           toggleFavorite(track);
                         }}
                         className="p-1 hover:text-rose-400 transition-colors cursor-pointer"
+                        title={fav ? "Saved" : "Favorite"}
                       >
                         <Heart size={14} className={fav ? "fill-rose-500 text-rose-500" : ""} />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => handleDownloadTrack(track, e)}
+                        disabled={downloadingTrackId === track.id}
+                        className="p-1 hover:text-cyan-400 transition-colors cursor-pointer"
+                        title={downloadSuccessId === track.id ? "Downloaded!" : "Download MP3"}
+                      >
+                        {downloadingTrackId === track.id ? (
+                          <Loader2 size={14} className="animate-spin text-cyan-400" />
+                        ) : downloadSuccessId === track.id ? (
+                          <Check size={14} className="text-emerald-400" />
+                        ) : (
+                          <Download size={14} />
+                        )}
                       </button>
 
                       <button
@@ -1269,8 +1351,24 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
                             toggleFavorite(track);
                           }}
                           className="p-1 hover:text-rose-400 transition-colors cursor-pointer"
+                          title={fav ? "Saved" : "Favorite"}
                         >
                           <Heart size={14} className={fav ? "fill-rose-500 text-rose-500" : ""} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDownloadTrack(track, e)}
+                          disabled={downloadingTrackId === track.id}
+                          className="p-1 hover:text-cyan-400 transition-colors cursor-pointer"
+                          title={downloadSuccessId === track.id ? "Downloaded!" : "Download MP3"}
+                        >
+                          {downloadingTrackId === track.id ? (
+                            <Loader2 size={14} className="animate-spin text-cyan-400" />
+                          ) : downloadSuccessId === track.id ? (
+                            <Check size={14} className="text-emerald-400" />
+                          ) : (
+                            <Download size={14} />
+                          )}
                         </button>
                         <button
                           type="button"
@@ -1380,13 +1478,32 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
               </div>
 
               {currentTrack && (
-                <button
-                  type="button"
-                  onClick={() => toggleFavorite(currentTrack)}
-                  className="p-3 rounded-2xl border border-white/10 hover:bg-white/10 text-neutral-300 hover:text-rose-400 transition-colors cursor-pointer"
-                >
-                  <Heart size={18} className={isFavorite(currentTrack.id) ? "fill-rose-500 text-rose-500" : ""} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => handleDownloadTrack(currentTrack, e)}
+                    disabled={downloadingTrackId === currentTrack.id}
+                    className="p-3 rounded-2xl border border-white/10 hover:bg-white/10 text-neutral-300 hover:text-cyan-400 transition-colors cursor-pointer"
+                    title={downloadSuccessId === currentTrack.id ? "Downloaded!" : "Download MP3"}
+                  >
+                    {downloadingTrackId === currentTrack.id ? (
+                      <Loader2 size={18} className="animate-spin text-cyan-400" />
+                    ) : downloadSuccessId === currentTrack.id ? (
+                      <Check size={18} className="text-emerald-400" />
+                    ) : (
+                      <Download size={18} />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleFavorite(currentTrack)}
+                    className="p-3 rounded-2xl border border-white/10 hover:bg-white/10 text-neutral-300 hover:text-rose-400 transition-colors cursor-pointer"
+                    title={isFavorite(currentTrack.id) ? "Saved" : "Favorite"}
+                  >
+                    <Heart size={18} className={isFavorite(currentTrack.id) ? "fill-rose-500 text-rose-500" : ""} />
+                  </button>
+                </div>
               )}
             </div>
 

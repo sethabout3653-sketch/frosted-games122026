@@ -65,6 +65,8 @@ import {
   ChevronRight,
   UserCheck,
   Unlock,
+  Lock,
+  VolumeX,
   Clock,
 } from "lucide-react";
 
@@ -289,6 +291,12 @@ export default function ChatPanel({
   const [showModSuiteModal, setShowModSuiteModal] = useState(false);
   const [isChatLocked, setIsChatLocked] = useState(false);
   const [slowmodeCooldown, setSlowmodeCooldown] = useState(0);
+  const [customBlacklistWords, setCustomBlacklistWords] = useState<string[]>([]);
+  const [activeUserMute, setActiveUserMute] = useState<{
+    reason?: string;
+    moderator?: string;
+    expiresAt?: number;
+  } | null>(null);
   const lastUserMessageTimeRef = useRef<number>(0);
   const [manualUnbanInput, setManualUnbanInput] = useState("");
   const [unbanSuccessMsg, setUnbanSuccessMsg] = useState<string | null>(null);
@@ -508,10 +516,35 @@ export default function ChatPanel({
       }
     });
 
+    // 4. Real-time custom blacklisted words subscription (Auto-Mod from Mod Panel)
+    const unsubBlacklist = onSnapshot(collection(db, "mod_blacklist_words"), (snapshot: any) => {
+      if (snapshot?.docs) {
+        const words = snapshot.docs.map((d: any) => d.data()?.word).filter(Boolean);
+        setCustomBlacklistWords(words);
+      }
+    });
+
+    // 5. Real-time mute status subscription for current user
+    const unsubMutes = onSnapshot(doc(db, "user_mutes", profile.uid), (snap: any) => {
+      const exists = typeof snap?.exists === "function" ? snap.exists() : !!snap?.exists;
+      if (exists) {
+        const data = typeof snap.data === "function" ? snap.data() : (snap.data || snap);
+        if (data && (data.expiresAt === -1 || (data.expiresAt && data.expiresAt > Date.now()))) {
+          setActiveUserMute(data);
+        } else {
+          setActiveUserMute(null);
+        }
+      } else {
+        setActiveUserMute(null);
+      }
+    });
+
     return () => {
       unsubUid();
       unsubSignals();
       unsubChatSettings();
+      unsubBlacklist();
+      unsubMutes();
     };
   }, [profile?.uid, profile?.username]);
 
@@ -1418,14 +1451,58 @@ export default function ChatPanel({
     const currentSize = attachmentSize;
     if (!currentText && !currentAttachment) return;
 
+    const isMod = isUserModerator(profile.username, profile.uid);
+
+    // 0. Moderation & Ban Check
+    if (activeModeration && (activeModeration.type === "ban" || activeModeration.type === "kick")) {
+      showModerationAlert("Account Restricted", "You cannot send messages while suspended.");
+      return;
+    }
+
+    // 0a. Active Mute Check
+    if (activeUserMute && (activeUserMute.expiresAt === -1 || (activeUserMute.expiresAt && activeUserMute.expiresAt > Date.now()))) {
+      const exp = activeUserMute.expiresAt === -1 ? "Permanent" : `Expires: ${new Date(activeUserMute.expiresAt).toLocaleTimeString()}`;
+      showModerationAlert("Account Muted", `You are currently muted by @${activeUserMute.moderator || "Staff"}. Reason: "${activeUserMute.reason || "Rule violation"}" (${exp})`);
+      return;
+    }
+
+    // 0b. Chat Locked Check (Non-moderators cannot speak when locked)
+    if (isChatLocked && !isMod) {
+      showModerationAlert("Chat Locked", "The chat has been temporarily locked by moderators. Non-moderator messages are paused.");
+      return;
+    }
+
+    // 0c. Slowmode Cooldown Check
+    if (slowmodeCooldown > 0 && !isMod && lastUserMessageTimeRef.current > 0) {
+      const elapsedSec = (Date.now() - lastUserMessageTimeRef.current) / 1000;
+      if (elapsedSec < slowmodeCooldown) {
+        const remaining = Math.ceil(slowmodeCooldown - elapsedSec);
+        showModerationAlert("Slowmode Active", `Slowmode is enabled (${slowmodeCooldown}s). Please wait ${remaining}s before posting again.`);
+        return;
+      }
+    }
+
     // 1. Instant synchronous client-side rule moderation check (0ms latency)
     if (currentText) {
+      // Check default bad-words filter
       const textCheck = checkTextModeration(currentText);
       if (!textCheck.safe) {
         showModerationAlert("Message Blocked", textCheck.reason || "Your message contains words that violate community guidelines.");
         return;
       }
+
+      // Check dynamic Mod Panel custom blacklisted words
+      if (customBlacklistWords && customBlacklistWords.length > 0) {
+        const lower = currentText.toLowerCase();
+        const matched = customBlacklistWords.find((w) => w && lower.includes(w.toLowerCase()));
+        if (matched) {
+          showModerationAlert("Message Blocked", `Your message contains a prohibited word ("${matched}") restricted by server moderators.`);
+          return;
+        }
+      }
     }
+
+    lastUserMessageTimeRef.current = Date.now();
 
     // Attach original file name, MIME type, and size to the URL so all other users receive exact name & extension
     if (currentAttachment && currentName && !currentAttachment.startsWith("data:") && !currentAttachment.includes("?name=") && !currentAttachment.includes("&name=")) {
@@ -2582,8 +2659,36 @@ export default function ChatPanel({
             backgroundColor: "var(--theme-chat-bg)",
             borderColor: "var(--theme-border-subtle)",
           }}
-          className="px-4 pt-3 pb-2 sm:pb-2.5 border-t flex-shrink-0"
+          className="px-4 pt-3 pb-2 sm:pb-2.5 border-t flex-shrink-0 space-y-2"
         >
+          {/* Moderation Status Indicators (Chat Lock, Slowmode, Mute) */}
+          <div className="flex flex-wrap items-center gap-2 px-1">
+            {isChatLocked && (
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider ${
+                isUserModerator(profile.username, profile.uid)
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  : "bg-red-500/20 text-red-300 border border-red-500/30"
+              }`}>
+                <Lock size={11} />
+                <span>{isUserModerator(profile.username, profile.uid) ? "Chat Locked (Mod Bypass)" : "Chat Locked by Moderators"}</span>
+              </span>
+            )}
+
+            {slowmodeCooldown > 0 && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-mono font-bold uppercase tracking-wider">
+                <Clock size={11} />
+                <span>Slowmode: {slowmodeCooldown}s</span>
+              </span>
+            )}
+
+            {activeUserMute && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-950/80 text-red-300 border border-red-800/60 text-[10px] font-mono font-bold uppercase tracking-wider">
+                <VolumeX size={11} />
+                <span>Muted by @{activeUserMute.moderator || "Staff"}</span>
+              </span>
+            )}
+          </div>
+
           {typingUsers.length > 0 && (
             <div
               style={{ color: "var(--theme-text-muted)" }}
@@ -2621,7 +2726,11 @@ export default function ChatPanel({
             <input
               ref={inputRef}
               type="text"
-              disabled={isLoadingMessages}
+              disabled={
+                isLoadingMessages ||
+                Boolean(isChatLocked && !isUserModerator(profile.username, profile.uid)) ||
+                Boolean(activeUserMute && (activeUserMute.expiresAt === -1 || (typeof activeUserMute.expiresAt === "number" && activeUserMute.expiresAt > Date.now())))
+              }
               value={text}
               onChange={(e) => {
                 const val = e.target.value;
@@ -2646,7 +2755,15 @@ export default function ChatPanel({
                   }
                 }
               }}
-              placeholder={isLoadingMessages ? "Loading..." : `Message #${activeChannel}...`}
+              placeholder={
+                isLoadingMessages
+                  ? "Loading..."
+                  : activeUserMute && (activeUserMute.expiresAt === -1 || (typeof activeUserMute.expiresAt === "number" && activeUserMute.expiresAt > Date.now()))
+                  ? "🔇 You are currently muted in this channel..."
+                  : isChatLocked && !isUserModerator(profile.username, profile.uid)
+                  ? "🔒 Chat is locked for non-moderators..."
+                  : `Message #${activeChannel}...`
+              }
               className="flex-1 bg-transparent text-sm text-white placeholder-neutral-400 focus:outline-none disabled:opacity-50"
             />
 

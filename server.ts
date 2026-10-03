@@ -1,6 +1,15 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// Global crash protection for unhandled child process errors, EACCES, and promise rejections
+process.on("uncaughtException", (err) => {
+  console.error("[Uncaught Exception]", err?.message || err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[Unhandled Rejection]", reason);
+});
+
 import express from "express";
 import crypto from "crypto";
 import path from "path";
@@ -10,6 +19,19 @@ import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import multer from "multer";
 import { execSync, spawn } from "child_process";
+
+// Ensure bin directory and yt-dlp permissions
+try {
+  const binDir = path.join(process.cwd(), "bin");
+  if (fs.existsSync(binDir)) {
+    const files = fs.readdirSync(binDir);
+    for (const f of files) {
+      try {
+        fs.chmodSync(path.join(binDir, f), 0o755);
+      } catch (e) {}
+    }
+  }
+} catch (e) {}
 import { Readable } from "stream";
 import { Filter } from "bad-words";
 import Tesseract from "tesseract.js";
@@ -349,7 +371,7 @@ const PORT = Number(process.env.PORT) || 3000;
   };
 
   // API routes go here FIRST
-  app.use("/api/music", musicRouter);
+  app.use(["/api/music", "/music"], musicRouter);
 
   app.get("/api/ping", (req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
@@ -2136,95 +2158,6 @@ const PORT = Number(process.env.PORT) || 3000;
   app.post("/api/upload", upload.any() as any, handleFileUpload as any);
   app.post("/api/sethbase/upload", upload.any() as any, handleFileUpload as any);
   app.post("/upload", upload.any() as any, handleFileUpload as any);
-
-  // Dedicated LuminSDK/Magic Leap MPK image extraction endpoint
-  app.post("/api/extract-mpk-images", upload.any() as any, async (req, res) => {
-    try {
-      const file = (req as any).file || (req as any).files?.[0];
-      if (!file) {
-        return res.status(400).json({ error: "No .mpk package uploaded" });
-      }
-
-      const tempId = crypto.randomUUID();
-      const extractDir = path.join(uploadsDir, `unpacked_${tempId}`);
-      fs.mkdirSync(extractDir, { recursive: true });
-
-      // Run unzip on the .mpk file (since .mpk files are zip containers under the hood)
-      const cmd = `unzip -q "${file.path}" -d "${extractDir}"`;
-      try {
-        execSync(cmd, { stdio: "ignore" });
-      } catch (err) {
-        // cleanup temp files
-        try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (e) {}
-        try { fs.unlinkSync(file.path); } catch (e) {}
-        return res.status(400).json({ error: "Failed to unpack .mpk file. Make sure it is a valid zip/mpk archive." });
-      }
-
-      // Find all raw image assets inside
-      const foundImageFiles: string[] = [];
-      function findImages(dir: string) {
-        try {
-          const entries = fs.readdirSync(dir);
-          for (const entry of entries) {
-            const entryPath = path.join(dir, entry);
-            const stat = fs.statSync(entryPath);
-            if (stat.isDirectory()) {
-              findImages(entryPath);
-            } else {
-              const ext = path.extname(entry).toLowerCase();
-              if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"].includes(ext)) {
-                foundImageFiles.push(entryPath);
-              }
-            }
-          }
-        } catch (e) {}
-      }
-
-      findImages(extractDir);
-
-      // Copy images to public uploads with deterministic unique names so they persist and are hosted statically
-      const results: Array<{ originalPath: string; filename: string; url: string }> = [];
-      for (const imgPath of foundImageFiles) {
-        const ext = path.extname(imgPath);
-        const originalName = path.basename(imgPath);
-        const uniqueName = `mpk_${crypto.randomUUID()}${ext}`;
-        const finalDest = path.join(uploadsDir, uniqueName);
-
-        try {
-          fs.copyFileSync(imgPath, finalDest);
-          // Register in metadata store so file serving handler can find it
-          fileMetadataStore[uniqueName] = {
-            originalName: originalName,
-            mimeType: detectFileMimeType(finalDest),
-            size: fs.statSync(finalDest).size,
-            ext: ext.replace(".", "")
-          };
-
-          const relPathInsideMpk = path.relative(extractDir, imgPath);
-          results.push({
-            originalPath: relPathInsideMpk,
-            filename: originalName,
-            url: `/uploads/${uniqueName}`
-          });
-        } catch (e) {}
-      }
-
-      saveFileMetadata();
-
-      // Clean up the unpacked temporary folder and the uploaded raw .mpk file
-      try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (e) {}
-      try { fs.unlinkSync(file.path); } catch (e) {}
-
-      return res.json({
-        success: true,
-        message: `Successfully unpacked LuminSDK .mpk package and extracted ${results.length} image assets.`,
-        images: results
-      });
-    } catch (error: any) {
-      console.error("Error unpacking MPK:", error);
-      return res.status(500).json({ error: error.message || "Failed to extract images from MPK" });
-    }
-  });
 
   // Informative GET on /api/upload so it never 404s
   app.get(["/api/upload", "/api/sethbase/upload"], (req, res) => {
@@ -5166,65 +5099,91 @@ Platform context:
     }
   });
 
-  // Dynamic LuminSDK Session & Image proxy
-  let cachedLuminSessionId: string | null = null;
-  let cachedLuminSessionExpiry = 0;
-
-  async function getLuminSessionId(): Promise<string> {
-    const now = Date.now();
-    if (cachedLuminSessionId && now < cachedLuminSessionExpiry) {
-      return cachedLuminSessionId;
-    }
-    
+  app.get("/api/proxy-game", async (req, res) => {
     try {
-      const res = await fetch("https://a.luminsdk.com/api/v1/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
-      if (res.ok) {
-        const data: any = await res.json();
-        if (data && data.session_id) {
-          cachedLuminSessionId = data.session_id;
-          cachedLuminSessionExpiry = now + 10 * 60 * 1000; // Cache for 10 minutes
-          return data.session_id;
+      const targetUrl = req.query.url as string;
+      if (!targetUrl || (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://"))) {
+        return res.status(400).send("Invalid or missing target URL");
+      }
+
+      const response = await fetch(targetUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "*/*"
         }
-      }
-    } catch (err) {
-      console.error("Error fetching Lumin session:", err);
-    }
-    
-    return cachedLuminSessionId || "60919094aa4265e2fd2bc9e9b1874e4e";
-  }
+      });
 
-  app.get("/api/lumin-icon/*", async (req, res) => {
-    try {
-      let token = (req.params as any)[0] || req.path.replace("/api/lumin-icon/", "");
-      if (!token) {
-        return res.status(400).send("Missing token");
-      }
-      
-      const sessionId = await getLuminSessionId();
-      const freshToken = token.replace(/^[^/]+/, sessionId);
-      const targetUrl = `https://a.luminsdk.com/api/v1/assets/${freshToken}`;
-      
-      const response = await fetch(targetUrl);
       if (!response.ok) {
-        return res.status(response.status).send(`Failed to fetch from Lumin: ${response.statusText}`);
+        return res.status(response.status).send(`Upstream error: ${response.statusText}`);
       }
-      
-      const contentType = response.headers.get("content-type");
-      if (contentType) {
-        res.setHeader("Content-Type", contentType);
-      }
-      
-      res.setHeader("Cache-Control", "public, max-age=31536000"); // Cache for 1 year
-      
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+
+      const contentType = response.headers.get("content-type") || "text/html";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("X-Frame-Options", "ALLOWALL");
+
+      const buffer = Buffer.from(await response.arrayBuffer());
       return res.send(buffer);
     } catch (err: any) {
-      console.error("Error proxying lumin icon:", err);
+      console.error("Error proxying game:", err);
+      return res.status(500).send(err.message || "Proxy error");
+    }
+  });
+
+  app.get("/api/proxy-cover", async (req, res) => {
+    try {
+      const rawUrl = req.query.url as string;
+      if (!rawUrl) {
+        return res.status(400).send("Missing url parameter");
+      }
+
+      const candidateUrls = [rawUrl];
+      // If no image extension, add extension variants
+      if (!/\.(png|jpe?g|webp|gif|svg|ico|avif)(\?.*)?$/i.test(rawUrl)) {
+        candidateUrls.push(`${rawUrl}.png`, `${rawUrl}.webp`, `${rawUrl}.jpg`);
+      }
+
+      let response: globalThis.Response | null = null;
+      for (const u of candidateUrls) {
+        try {
+          const resp = await fetch(u);
+          if (resp.ok) {
+            response = resp;
+            break;
+          }
+        } catch {}
+      }
+
+      if (!response || !response.ok) {
+        return res.status(404).send("Cover image not found");
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      let contentType = response.headers.get("content-type");
+      if (!contentType || contentType.includes("text/plain") || contentType.includes("octet-stream") || contentType.includes("application/octet-stream")) {
+        // Sniff image format from magic bytes
+        if (buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+          contentType = "image/png";
+        } else if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+          contentType = "image/jpeg";
+        } else if (buffer.length >= 12 && buffer.subarray(0, 4).toString() === "RIFF" && buffer.subarray(8, 12).toString() === "WEBP") {
+          contentType = "image/webp";
+        } else if (buffer.length >= 6 && (buffer.subarray(0, 6).toString() === "GIF87a" || buffer.subarray(0, 6).toString() === "GIF89a")) {
+          contentType = "image/gif";
+        } else if (buffer.subarray(0, 100).toString().includes("<svg")) {
+          contentType = "image/svg+xml";
+        } else {
+          contentType = "image/png";
+        }
+      }
+
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=31536000");
+      return res.send(buffer);
+    } catch (err: any) {
+      console.error("Error proxying cover:", err);
       return res.status(500).send(err.message);
     }
   });

@@ -8,6 +8,7 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        'luminsdk': path.resolve(__dirname, './src/lib/luminsdk.ts'),
       },
     },
     build: {

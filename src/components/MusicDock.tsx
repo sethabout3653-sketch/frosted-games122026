@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Play,
   Pause,
@@ -12,8 +12,11 @@ import {
   Shuffle,
   Maximize2,
   Download,
+  Check,
+  Loader2,
 } from "lucide-react";
 import { useMusic } from "../context/MusicContext";
+import { downloadFile } from "../utils/mediaUtils";
 
 interface MusicDockProps {
   onExpand?: () => void;
@@ -42,7 +45,30 @@ export default function MusicDock({ onExpand }: MusicDockProps) {
     toggleFullPlayer,
   } = useMusic();
 
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadSuccess, setDownloadSuccess] = useState(false);
+
   if (!currentTrack) return null;
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isDownloading || !currentTrack) return;
+    setIsDownloading(true);
+    try {
+      const targetId = currentTrack.youtubeId || currentTrack.id;
+      const downloadUrl = `/api/music/download?id=${encodeURIComponent(targetId)}&title=${encodeURIComponent(
+        currentTrack.title || ""
+      )}&artist=${encodeURIComponent(currentTrack.artist || "")}`;
+      const fileName = `${currentTrack.artist || "Music"} - ${currentTrack.title || "Track"}.mp3`;
+      await downloadFile(downloadUrl, fileName);
+      setDownloadSuccess(true);
+      setTimeout(() => setDownloadSuccess(false), 2500);
+    } catch (err) {
+      console.warn("Download error:", err);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const handleExpandClick = () => {
     toggleFullPlayer(onExpand);
@@ -124,15 +150,18 @@ export default function MusicDock({ onExpand }: MusicDockProps) {
 
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              const url = `/api/music/download?id=${encodeURIComponent(currentTrack.youtubeId || currentTrack.id)}&title=${encodeURIComponent(currentTrack.title || "")}&artist=${encodeURIComponent(currentTrack.artist || "")}`;
-              window.open(url, "_blank");
-            }}
-            className="hidden sm:flex p-1.5 rounded-lg text-neutral-400 hover:text-cyan-400 transition-colors cursor-pointer shrink-0"
-            title="Download Track (.mp3)"
+            onClick={handleDownload}
+            disabled={isDownloading}
+            className="hidden sm:flex p-1.5 rounded-lg text-neutral-400 hover:text-cyan-400 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            title={downloadSuccess ? "Download Complete!" : isDownloading ? "Downloading..." : "Download Track (.mp3)"}
           >
-            <Download size={16} />
+            {isDownloading ? (
+              <Loader2 size={16} className="animate-spin text-cyan-400" />
+            ) : downloadSuccess ? (
+              <Check size={16} className="text-emerald-400" />
+            ) : (
+              <Download size={16} />
+            )}
           </button>
         </div>
 

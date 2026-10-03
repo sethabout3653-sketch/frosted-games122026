@@ -70,6 +70,7 @@ export default function ModeratorPanelModal({
   const [blacklistedWords, setBlacklistedWords] = useState<string[]>([]);
   const [newBlacklistWord, setNewBlacklistWord] = useState("");
   const [announcementText, setAnnouncementText] = useState("");
+  const [currentLiveAnnouncement, setCurrentLiveAnnouncement] = useState<any | null>(null);
 
   // Target action modal state
   const [selectedUser, setSelectedUser] = useState<MemberUser | null>(null);
@@ -152,9 +153,29 @@ export default function ModeratorPanelModal({
       () => {}
     );
 
+    // Listen to live global announcement
+    const unsubAnnouncement = onSnapshot(
+      doc(db, "announcements", "global"),
+      (snap: any) => {
+        const exists = typeof snap?.exists === "function" ? snap.exists() : !!snap?.exists;
+        if (exists) {
+          const data = typeof snap.data === "function" ? snap.data() : (snap.data || snap);
+          if (data && data.text && data.active !== false) {
+            setCurrentLiveAnnouncement(data);
+          } else {
+            setCurrentLiveAnnouncement(null);
+          }
+        } else {
+          setCurrentLiveAnnouncement(null);
+        }
+      },
+      () => {}
+    );
+
     return () => {
       unsubAudit();
       unsubBlacklist();
+      unsubAnnouncement();
     };
   }, [isOpen]);
 
@@ -740,14 +761,57 @@ export default function ModeratorPanelModal({
                 </div>
 
                 {/* Broadcast System Announcement */}
-                <div className="p-4 rounded-xl bg-[#080b1a] border border-white/10 space-y-2.5">
+                <div className="p-4 rounded-xl bg-[#080b1a] border border-white/10 space-y-3">
                   <div className="flex items-center gap-2">
                     <Sparkles size={16} className="text-indigo-400" />
                     <div>
-                      <h4 className="text-xs font-bold text-white">Broadcast System Announcement</h4>
-                      <p className="text-[11px] text-neutral-400">Sends an instant real-time banner alert to all connected members over WebSockets</p>
+                      <h4 className="text-xs font-bold text-white">Broadcast Global Announcement</h4>
+                      <p className="text-[11px] text-neutral-400">Sends an instant banner alert to EVERY user across ALL pages & devices</p>
                     </div>
                   </div>
+
+                  {currentLiveAnnouncement && currentLiveAnnouncement.text && (
+                    <div className="p-3 rounded-xl bg-indigo-950/60 border border-indigo-500/40 flex items-start justify-between gap-3 text-xs">
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                          <span className="font-bold text-indigo-300 uppercase tracking-wider text-[10px]">Currently Active Global Announcement:</span>
+                          <span className="text-neutral-400 text-[10px]">by @{currentLiveAnnouncement.moderator || "Staff"}</span>
+                        </div>
+                        <p className="text-white font-medium break-words leading-relaxed pl-3.5">
+                          &ldquo;{currentLiveAnnouncement.text}&rdquo;
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const clearPayload = {
+                              id: "ann_cleared_" + Date.now(),
+                              text: "",
+                              active: false,
+                              clearedBy: profile.username,
+                              timestamp: Date.now(),
+                            };
+                            await setDoc(doc(db, "announcements", "global"), clearPayload);
+                            wsClient.sendChange("set", "announcements", "global", clearPayload);
+                            sendBroadcastSignal({ type: "mod_announcement_cleared", timestamp: Date.now() });
+                            try {
+                              wsClient.sendSignal({ type: "mod_announcement_cleared", timestamp: Date.now() });
+                            } catch (e) {}
+                            await recordAuditLog("Cleared Announcement", "Community", "Removed live announcement");
+                            setCurrentLiveAnnouncement(null);
+                            showToast("Global announcement cleared for all users");
+                          } catch (err: any) {
+                            showToast("Failed to clear announcement", "error");
+                          }
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-500 text-white font-bold text-[11px] transition-colors cursor-pointer shrink-0 shadow-sm"
+                      >
+                        Clear Banner
+                      </button>
+                    </div>
+                  )}
 
                   <form
                     onSubmit={async (e) => {
@@ -755,21 +819,31 @@ export default function ModeratorPanelModal({
                       const text = announcementText.trim();
                       if (!text) return;
 
+                      const annId = "ann_" + Date.now();
                       const annPayload = {
+                        id: annId,
                         type: "mod_announcement",
                         text,
                         moderator: profile.username,
                         timestamp: Date.now(),
+                        active: true,
                       };
 
-                      sendBroadcastSignal(annPayload);
                       try {
-                        wsClient.sendSignal(annPayload);
-                      } catch (err) {}
+                        await setDoc(doc(db, "announcements", "global"), annPayload);
+                        wsClient.sendChange("set", "announcements", "global", annPayload);
+                        sendBroadcastSignal(annPayload);
+                        try {
+                          wsClient.sendSignal(annPayload);
+                        } catch (err) {}
 
-                      await recordAuditLog("Broadcast Announcement", "Community", text);
-                      setAnnouncementText("");
-                      showToast("Broadcast announcement sent to all members over WebSockets!");
+                        await recordAuditLog("Broadcast Announcement", "Community", text);
+                        setAnnouncementText("");
+                        setCurrentLiveAnnouncement(annPayload);
+                        showToast("Global announcement broadcasted to all users on every page!");
+                      } catch (err: any) {
+                        showToast("Failed to broadcast announcement", "error");
+                      }
                     }}
                     className="flex gap-2 pt-1"
                   >
@@ -777,7 +851,7 @@ export default function ModeratorPanelModal({
                       type="text"
                       value={announcementText}
                       onChange={(e) => setAnnouncementText(e.target.value)}
-                      placeholder="Type announcement message to broadcast live..."
+                      placeholder="Type announcement message to broadcast live to all pages..."
                       className="flex-1 bg-[#0f132a] border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
                     />
                     <button
@@ -785,7 +859,7 @@ export default function ModeratorPanelModal({
                       disabled={!announcementText.trim()}
                       className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold text-xs transition-all cursor-pointer shadow-md active:scale-95 flex-shrink-0"
                     >
-                      Broadcast
+                      Broadcast Live
                     </button>
                   </form>
                 </div>
