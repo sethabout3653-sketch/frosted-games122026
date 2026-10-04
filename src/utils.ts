@@ -10,7 +10,6 @@ export const ASSETS_JSON_URL = "https://raw.githubusercontent.com/gn-math/assets
  */
 export function formatCoverUrl(cover: string): string {
   if (!cover) return "";
-  if (cover.startsWith("blob:") || cover.startsWith("data:") || cover.startsWith("https://")) return cover;
   let url = cover;
   if (url.startsWith("http://")) url = url.replace("http://", "https://");
   
@@ -26,13 +25,14 @@ export function formatCoverUrl(cover: string): string {
  */
 export function formatGameUrl(url: string): string {
   if (!url) return "";
-  if (url.startsWith("lumin:") || url.startsWith("blob:") || url.startsWith("data:")) return url;
   let formattedUrl = url;
   if (formattedUrl.startsWith("http://")) formattedUrl = formattedUrl.replace("http://", "https://");
 
-  return formattedUrl
+  const rawUrl = formattedUrl
     .replace(/{HTML_URL}/g, HTML_BASE)
     .replace(/{COVER_URL}/g, COVER_BASE);
+
+  return rawUrl;
 }
 
 /**
@@ -51,7 +51,7 @@ export async function fetchGamesList(): Promise<Game[]> {
     if (response.ok) {
       const data = await response.json();
       if (Array.isArray(data) && data.length > 0) {
-        return (data as Game[]).filter((g) => g && g.id !== undefined && g.id !== null);
+        return (data as Game[]).filter((g) => g.name !== "-3" && g.id !== 816);
       }
     }
   } catch {
@@ -60,14 +60,14 @@ export async function fetchGamesList(): Promise<Game[]> {
       if (localRes.ok) {
         const localData = await localRes.json();
         if (Array.isArray(localData) && localData.length > 0) {
-          return (localData as Game[]).filter((g) => g && g.id !== undefined && g.id !== null);
+          return (localData as Game[]).filter((g) => g.name !== "-3" && g.id !== 816);
         }
       }
     } catch {
       // ignore
     }
   }
-  return (localZones as Game[]).filter((g) => g && g.id !== undefined && g.id !== null);
+  return (localZones as Game[]).filter((g) => g.name !== "-3" && g.id !== 816);
 }
 
 /**
@@ -79,12 +79,106 @@ export function getUniqueTags(games: Game[]): string[] {
     if (Array.isArray(game.special)) {
       game.special.forEach((tag) => {
         if (tag && tag.trim().length > 0) {
-          tagsSet.add(tag.trim().toLowerCase());
+          const cleanTag = tag.trim().toLowerCase();
+          if (cleanTag !== "luminsdk") {
+            tagsSet.add(cleanTag);
+          }
         }
       });
     }
   });
   return Array.from(tagsSet).sort();
+}
+
+/**
+ * Identifies specific Baldi target game groups ("Baldi's Basics", "Baldi's Basics Plus", "Baldi's Basics Classic Remastered")
+ * that should prefer LuminSDK instead of gn-math catalog.
+ */
+export function getBaldiTargetGroup(name: string): string | null {
+  const canon = name
+    .toLowerCase()
+    .trim()
+    .replace(/['’":.-]/g, "")
+    .replace(/\s+/g, "");
+
+  if (canon === "baldibasics" || canon === "baldisbasics") {
+    return "baldi_basics";
+  }
+  if (canon === "baldibasicsplus" || canon === "baldisbasicsplus") {
+    return "baldi_basics_plus";
+  }
+  if (canon === "baldibasicsclassicremastered" || canon === "baldisbasicsclassicremastered") {
+    return "baldi_basics_classic_remastered";
+  }
+  return null;
+}
+
+/**
+ * Deduplicates games between the primary gn-math catalog and secondary sources (LuminSDK),
+ * and eliminates duplicate copies within the catalog itself.
+ * Specifically:
+ * 1. For "Friday Night Funkin" / "FNF", the gn-math version is strictly preserved.
+ * 2. For "Baldi's Basics", "Baldi's Basics Plus", and "Baldi's Basics Classic Remastered",
+ *    the LuminSDK version is preferred over the gn-math catalog version.
+ */
+export function deduplicateGames(catalogGames: Game[], luminGames: Game[]): Game[] {
+  const seenCanonical = new Set<string>();
+  const result: Game[] = [];
+
+  const getCanonical = (name: string) =>
+    name
+      .toLowerCase()
+      .trim()
+      .replace(/['’":.-]/g, "")
+      .replace(/\s+/g, " ");
+
+  // Identify which Baldi target groups are present in LuminSDK
+  const luminBaldiGroups = new Set<string>();
+  for (const lg of luminGames) {
+    if (lg.id === -1) continue;
+    const group = getBaldiTargetGroup(lg.name);
+    if (group) {
+      luminBaldiGroups.add(group);
+    }
+  }
+
+  // 1. Process primary gn-math catalog games
+  for (const game of catalogGames) {
+    if (game.id === -1) continue;
+    const canon = getCanonical(game.name);
+
+    // If this catalog game is a Baldi target game that exists in LuminSDK, skip catalog version
+    const baldiGroup = getBaldiTargetGroup(game.name);
+    if (baldiGroup && luminBaldiGroups.has(baldiGroup)) {
+      continue;
+    }
+
+    if (!seenCanonical.has(canon)) {
+      seenCanonical.add(canon);
+      result.push(game);
+    }
+  }
+
+  // 2. Add secondary LuminSDK games
+  for (const game of luminGames) {
+    if (game.id === -1) continue;
+    const canon = getCanonical(game.name);
+
+    // Explicitly delete Lumin's duplicate copy of Friday Night Funkin / FNF
+    if (canon === "friday night funkin" || canon === "fnf") {
+      continue;
+    }
+
+    // Discard any Lumin game that duplicates a catalog game (unless it's a target Baldi game that was skipped)
+    if (seenCanonical.has(canon)) {
+      continue;
+    }
+
+    seenCanonical.add(canon);
+    result.push(game);
+  }
+
+  return result;
 }
 
 /**

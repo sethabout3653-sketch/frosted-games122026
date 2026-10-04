@@ -1,6 +1,7 @@
 import React, { memo, useMemo, useState } from "react";
 import { Gamepad2 } from "lucide-react";
 import { formatCoverUrl } from "../utils";
+import luminGamesList from "../lumin-games.json";
 
 const PRESET_GRADIENTS = [
   "from-indigo-600 via-indigo-700 to-violet-800",
@@ -22,39 +23,64 @@ function initials(name: string) {
   return words.length > 1 ? `${words[0][0]}${words[1][0]}`.toUpperCase() : (words[0]?.slice(0, 2) || "G").toUpperCase();
 }
 
+function getCanonical(str: string) {
+  return str
+    .toLowerCase()
+    .trim()
+    .replace(/['’":.-]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+// Pre-index canonical game names to image tokens once for O(1) lookup
+const luminIconMap = new Map<string, string>();
+try {
+  for (const g of luminGamesList) {
+    if (g.name && g.image_token) {
+      luminIconMap.set(getCanonical(g.name), g.image_token);
+    }
+  }
+} catch {}
+
+export function findLuminIconForGame(name: string): string | null {
+  if (!name) return null;
+  const canonName = getCanonical(name);
+  return luminIconMap.get(canonName) || null;
+}
+
 const coverSourceCache = new Map<string, string[]>();
 const failedUrlSet = new Set<string>();
 
-const HAS_IMAGE_EXT = /\.(png|jpe?g|webp|gif|svg|ico|avif)(\?.*)?$/i;
-
-export const getCoverSources = (cover: string, _name?: string): string[] => {
-  const cacheKey = cover || "";
+export const getCoverSources = (cover: string, name?: string): string[] => {
+  const cacheKey = `${cover || ""}|${name || ""}`;
   const cached = coverSourceCache.get(cacheKey);
   if (cached) return cached;
 
   const sources: string[] = [];
+  const gameName = name || "Game";
   const source = formatCoverUrl(cover);
 
-  // Direct catalog image URLs and CDN mirrors (no proxying)
+  // Route through our server proxy first to bypass school Wi-Fi blocks (raw.githubusercontent.com, etc.)
   if (source) {
-    if (!sources.includes(source)) {
-      sources.push(source);
+    sources.push(`/api/proxy-cover?url=${encodeURIComponent(source)}&name=${encodeURIComponent(gameName)}`);
+  }
+
+  if (name) {
+    const luminToken = findLuminIconForGame(name);
+    if (luminToken) {
+      sources.push(`/api/lumin-icon/${luminToken}`);
+    } else {
+      const cleanSlug = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+      sources.push(`/api/lumin-icon/selenite/${cleanSlug}`);
     }
-    if (!HAS_IMAGE_EXT.test(source) && !source.includes("?")) {
-      sources.push(`${source}.png`);
-      sources.push(`${source}.webp`);
-      sources.push(`${source}.jpg`);
-    }
+  }
+
+  if (source) {
+    sources.push(source);
     if (source.includes("raw.githubusercontent.com/")) {
       const path = source.replace("https://raw.githubusercontent.com/", "");
       const [owner, repo, branch, ...rest] = path.split("/");
-      const subpath = rest.join("/");
-      sources.push(`https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${subpath}`);
-      sources.push(`https://raw.githack.com/${owner}/${repo}/${branch}/${subpath}`);
-      if (!HAS_IMAGE_EXT.test(subpath)) {
-        sources.push(`https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${subpath}.png`);
-        sources.push(`https://raw.githack.com/${owner}/${repo}/${branch}/${subpath}.png`);
-      }
+      sources.push(`https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${rest.join("/")}`);
+      sources.push(`https://raw.githack.com/${owner}/${repo}/${branch}/${rest.join("/")}`);
     }
   }
 

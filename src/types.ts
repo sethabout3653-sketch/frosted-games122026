@@ -7,9 +7,9 @@ export interface Game {
   authorLink?: string;
   featured?: boolean;
   special?: string[];
-  isMod?: boolean;
-  source?: string;
+  source?: "catalog" | "luminsdk";
   luminId?: string;
+  isMod?: boolean;
   _search?: string;
 }
 

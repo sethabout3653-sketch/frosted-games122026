@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Game } from "../types";
 import { formatGameUrl, getRawGameUrl, isFnfGame, isFnfMod } from "../utils";
-import { getLuminGamePlayUrl, endLuminGame, loadLuminGame } from "../lib/lumin";
+import { getLuminGameUrl, embedLuminGame, closeLuminGame } from "../lumin";
 import localZones from "../zones.json";
 import {
   ArrowLeft,
@@ -101,6 +101,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
     height: 0,
   });
 
+  const isLuminGame = game.source === "luminsdk";
   const isMod = game.isMod ?? isFnfMod(game.name, game.special);
   const isFnf = isFnfGame(game.name, game.special);
   const isSoundboard = game.id === "soundboard" || (game.name && game.name.toLowerCase().includes("soundboard"));
@@ -288,25 +289,19 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
     }, 4000);
 
     async function loadGame() {
-      // 0. Handle LuminSDK games via Headless getGameUrl
-      if (game.source === "lumin" || game.url?.startsWith("lumin:") || game.luminId) {
-        const luminId = game.luminId || game.url.replace(/^lumin:/, "") || String(game.id).replace(/^lumin-/, "");
-        try {
-          const playUrl = await getLuminGamePlayUrl(luminId);
-          if (playUrl && !isCancelled) {
-            setGameUrl(playUrl);
-            setRawGameUrl(playUrl);
-            setUsingDirectUrl(false);
-            setGameLoadError(false);
-            setIsGameLoading(false);
-            return;
-          }
-        } catch (err) {
-          console.warn("[GamePlayer] Lumin getGameUrl failed, trying builtin loadGame:", err);
+      // 1. For Lumin SDK games, fetch the authentic a.luminsdk.com/g/ URL
+      if (isLuminGame && game.luminId) {
+        const luminUrl = await getLuminGameUrl(game.luminId);
+        if (!isCancelled && luminUrl) {
+          setGameUrl(luminUrl);
+          setRawGameUrl(luminUrl);
+          setUsingDirectUrl(false);
+          setGameLoadError(false);
+          return;
         }
       }
 
-      // 1. Check if game matches a direct HTML5 catalog game in zones.json
+      // 2. Check if game matches a direct HTML5 catalog game in zones.json
       const cleanName = (game.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       const matchedCatalogGame = localZones.find((z) => {
         const zClean = (z.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -325,8 +320,8 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
         }
       }
 
-      // 2. Direct formatGameUrl if game.url exists
-      if (game.url) {
+      // 3. Direct formatGameUrl if game.url exists and is not a lumin protocol marker
+      if (game.url && !game.url.startsWith("lumin:")) {
         const catalogUrl = formatGameUrl(game.url);
         const directRaw = getRawGameUrl(game.url);
         if (!isCancelled) {
@@ -338,7 +333,20 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
         }
       }
 
-      // 3. Default fallback
+      // 4. Fallback slug mirror for Selenite games
+      if (game.luminId) {
+        const slug = game.luminId.includes("/") ? game.luminId.split("/").pop()! : game.luminId;
+        const targetUrl = `https://rawcdn.githack.com/selenite-cc/selenite-old/main/games/${slug}/index.html`;
+        if (!isCancelled) {
+          setGameUrl(targetUrl);
+          setRawGameUrl(targetUrl);
+          setUsingDirectUrl(false);
+          setGameLoadError(false);
+          return;
+        }
+      }
+
+      // 4. Default fallback
       const fallbackUrl = formatGameUrl(game.url || "");
       if (!isCancelled) {
         setGameUrl(fallbackUrl);
@@ -351,11 +359,16 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
     return () => {
       isCancelled = true;
       clearTimeout(safetyTimer);
+      if (isLuminGame) {
+        closeLuminGame();
+      }
     };
-  }, [game]);
+  }, [game, isLuminGame]);
 
   const handleBack = () => {
-    endLuminGame();
+    if (isLuminGame) {
+      closeLuminGame();
+    }
     document.body.style.removeProperty("overflow");
     document.documentElement.style.removeProperty("overflow");
     document.body.style.overflow = "";
@@ -382,7 +395,14 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
   const handleReload = () => {
     setIsGameLoading(true);
     setTimeout(() => setIsGameLoading(false), 3500);
-    if (iframeRef.current && gameUrl) {
+    if (isLuminGame && game.luminId) {
+      if (gameUrl && iframeRef.current) {
+        iframeRef.current.src = gameUrl;
+      } else if (containerRef.current) {
+        closeLuminGame();
+        embedLuminGame(containerRef.current, game.luminId);
+      }
+    } else if (iframeRef.current && gameUrl) {
       iframeRef.current.src = gameUrl;
     }
   };
@@ -563,9 +583,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
               className="w-full h-full flex-1 border-0 rounded-2xl"
               style={{ width: "100%", height: "100%", minHeight: "100%", display: "block" }}
               scrolling="yes"
-              allow="autoplay; encrypted-media; fullscreen; pointer-lock; gamepad; microphone; camera; focus-without-user-activation; cross-origin-isolated"
-              referrerPolicy="no-referrer"
-              {...({ credentialless: "true" } as any)}
+              allow="autoplay; encrypted-media; fullscreen"
             />
           )}
 
@@ -604,30 +622,11 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
             )}
           </AnimatePresence>
           {gameLoadError && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950 p-6 text-center z-40">
-              <p className="text-sm font-semibold text-white">This game could not be loaded directly.</p>
-              <p className="max-w-md text-xs text-neutral-400">If you are on a restricted school network or filter (e.g. GreatKids/Securly), try unblocking it via our proxy stream.</p>
-              <div className="flex items-center gap-3 flex-wrap justify-center mt-2">
-                <button
-                  onClick={() => {
-                    const target = rawGameUrl || gameUrl;
-                    if (target) {
-                      setGameUrl(`/api/proxy-game?url=${encodeURIComponent(target)}`);
-                      setGameLoadError(false);
-                      setIsGameLoading(true);
-                    }
-                  }}
-                  className="rounded-lg bg-[var(--theme-indigo-500)] px-4 py-2 text-xs font-bold text-white hover:bg-[var(--theme-indigo-600)] transition-all shadow-md"
-                >
-                  ⚡ Launch via Proxy Unblocker
-                </button>
-                <button onClick={handleOpenInNewTab} className="rounded-lg bg-white/10 px-4 py-2 text-xs font-bold text-white hover:bg-white/20 transition-all">
-                  Open Direct Link
-                </button>
-              </div>
-              <button onClick={() => { setGameLoadError(false); setUsingDirectUrl(false); setGameUrl(formatGameUrl(game.url)); }} className="text-xs text-neutral-400 underline hover:text-white mt-1">
-                Retry Direct Embed
-              </button>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950 p-6 text-center">
+              <p className="text-sm font-semibold text-white">This game could not be embedded here.</p>
+              <p className="max-w-md text-xs text-neutral-400">The game host returned a 404 or blocked embedding. Open the original game page instead.</p>
+              <button onClick={handleOpenInNewTab} className="rounded-lg bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200">Open original game</button>
+              <button onClick={() => { setGameLoadError(false); setUsingDirectUrl(false); setGameUrl(formatGameUrl(game.url)); }} className="text-xs text-neutral-400 underline hover:text-white">Retry embed</button>
             </div>
           )}
         </div>

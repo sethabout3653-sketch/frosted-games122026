@@ -35,7 +35,7 @@ const GameCard = memo(function GameCard({
   const rawTags = game.special
     ? game.special.filter((t) => {
         const clean = t.toLowerCase();
-        if (clean === "fnf" || clean === "fnf-mod") return false;
+        if (clean === "luminsdk" || clean === "fnf" || clean === "fnf-mod") return false;
         return true;
       })
     : [];

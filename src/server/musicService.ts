@@ -563,22 +563,21 @@ musicRouter.get("/artist", async (req, res) => {
   }
 });
 
-async function fetchMp3ForVideoId(youtubeId: string, title?: string, artist?: string): Promise<string | null> {
-  // Strategy 1: Real-time MP3 Converter API (loader.to) with progress polling
+async function fetchMp3ForVideoId(youtubeId: string): Promise<string | null> {
+  // Strategy 1: Real-time MP3 Converter API (loader.to)
   try {
     const initRes = await fetch(
       `https://loader.to/ajax/download.php?format=mp3&url=https://www.youtube.com/watch?v=${youtubeId}`,
-      { headers: { "User-Agent": BROWSER_USER_AGENT }, signal: AbortSignal.timeout(8000) }
+      { headers: { "User-Agent": BROWSER_USER_AGENT }, signal: AbortSignal.timeout(6000) }
     );
     if (initRes.ok) {
       const data = await initRes.json();
-      if (data && (data.id || data.progress_url)) {
-        const progUrl = data.progress_url || `https://loader.to/ajax/progress.php?id=${data.id}`;
-        for (let i = 0; i < 22; i++) {
-          await new Promise((r) => setTimeout(r, 1000));
-          const pRes = await fetch(progUrl, {
+      if (data && data.id) {
+        for (let i = 0; i < 18; i++) {
+          await new Promise((r) => setTimeout(r, 800));
+          const pRes = await fetch(`https://loader.to/ajax/progress.php?id=${data.id}`, {
             headers: { "User-Agent": BROWSER_USER_AGENT },
-            signal: AbortSignal.timeout(5000),
+            signal: AbortSignal.timeout(4000),
           });
           if (pRes.ok) {
             const pData = await pRes.json();
@@ -591,23 +590,7 @@ async function fetchMp3ForVideoId(youtubeId: string, title?: string, artist?: st
     }
   } catch (e) {}
 
-  // Strategy 2: iTunes API high-quality preview search for requested track
-  if (title || artist) {
-    try {
-      const query = encodeURIComponent(`${artist || ""} ${title || ""}`.trim());
-      const itunesRes = await fetch(`https://itunes.apple.com/search?term=${query}&entity=song&limit=1`, {
-        signal: AbortSignal.timeout(3500),
-      });
-      if (itunesRes.ok) {
-        const itunesData = await itunesRes.json();
-        if (itunesData?.results?.[0]?.previewUrl) {
-          return itunesData.results[0].previewUrl;
-        }
-      }
-    } catch (e) {}
-  }
-
-  // Strategy 3: Invidious Instances audio stream extraction
+  // Strategy 2: Invidious Instances audio stream extraction
   const invidiousServers = [
     "https://inv.nadeko.net",
     "https://invidious.nerdvpn.de",
@@ -639,20 +622,20 @@ musicRouter.get("/download", async (req, res) => {
   const rawTitle = String(req.query.title || "").trim();
   const rawArtist = String(req.query.artist || "").trim();
 
-  let targetId = extractYoutubeId(id) || id || "fHI8X4OXluQ";
+  let targetId = extractYoutubeId(id) || id || "5yx6BWlEVcY";
   const songTitle = rawTitle || "Track";
   const artistName = rawArtist || "Music";
 
   const safeFilename = `${artistName} - ${songTitle}`.replace(/[/\\?%*:|"<>]/g, "_").trim() || "Music_Track";
 
   // 1. Resolve the EXACT MP3 download URL for this specific track
-  const mp3Url = await fetchMp3ForVideoId(targetId, songTitle, artistName);
+  const mp3Url = await fetchMp3ForVideoId(targetId);
 
   if (mp3Url) {
     try {
       const audioRes = await fetch(mp3Url, {
         headers: { "User-Agent": BROWSER_USER_AGENT },
-        signal: AbortSignal.timeout(45000),
+        signal: AbortSignal.timeout(35000),
       });
 
       if (audioRes.ok && audioRes.body) {

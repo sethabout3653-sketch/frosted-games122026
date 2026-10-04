@@ -67,10 +67,6 @@ export default function Chat({
     return getSavedProfile();
   });
 
-  const [isProfileConfigured, setIsProfileConfigured] = useState<boolean>(() => {
-    return typeof window !== "undefined" && localStorage.getItem("frosted_profile_configured") === "true";
-  });
-
   const { isInVoiceSession, joinGeneralVoice, leaveGeneralVoice } = useCall();
   const [activeTab, setActiveTabState] = useState<"chat" | "voice" | "profile" | "friends">(initialTab || "chat");
 
@@ -374,11 +370,9 @@ export default function Chat({
       tag: computedTag,
     };
     try {
-      localStorage.setItem("frosted_profile_configured", "true");
       localStorage.setItem("frosted_has_signed_in", "true");
       sessionStorage.setItem("frosted_has_signed_in", "true");
     } catch (e) {}
-    setIsProfileConfigured(true);
     setProfile(newProfile);
     saveUserProfile(newProfile);
     setActiveTab("chat");
@@ -428,7 +422,7 @@ export default function Chat({
           }}
           className="flex-1 w-full flex border animate-in fade-in min-h-0 overflow-hidden text-white backdrop-blur-xl"
         >
-          {!isProfileConfigured || activeTab === "profile" ? (
+          {!profile || activeTab === "profile" ? (
             /* If not logged in or editing profile, show Profile Setup modal */
             <div
               style={{ backgroundColor: "var(--theme-chat-bg)" }}
@@ -506,8 +500,8 @@ export default function Chat({
                   className="w-10 h-10 rounded-full overflow-hidden border group-hover:border-white transition-colors"
                 >
                   <img
-                    src={profile?.photoURL || ""}
-                    alt={profile?.username || "User"}
+                    src={profile.photoURL}
+                    alt={profile.username}
                     className="w-full h-full object-cover"
                   />
                 </div>
@@ -768,8 +762,8 @@ export default function Chat({
                     className="w-8 h-8 rounded-full overflow-hidden bg-neutral-800 border"
                   >
                     <img
-                      src={profile?.photoURL || ""}
-                      alt={profile?.username || "User"}
+                      src={profile.photoURL}
+                      alt={profile.username}
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -779,7 +773,7 @@ export default function Chat({
                   />
                 </div>
                 <span className="text-xs font-bold text-white truncate max-w-[100px]">
-                  {profile?.username || "User"}
+                  {profile.username}
                 </span>
               </div>
 
@@ -801,7 +795,7 @@ export default function Chat({
           >
             {activeTab === "friends" ? (
               <FriendsPanel
-                profile={profile || getSavedProfile()}
+                profile={profile}
                 onOpenVoiceChat={() => {
                   setActiveTab("voice");
                   joinGeneralVoice();
@@ -857,13 +851,13 @@ export default function Chat({
               </div>
             ) : activeTab === "voice" && isInVoiceSession ? (
               <VoiceChannel
-                profile={profile || getSavedProfile()}
+                profile={profile}
                 onLeave={handleDisconnectVoice}
                 showMembersSidebar={showMembersSidebar}
               />
             ) : (
               <ChatPanel
-                profile={profile || getSavedProfile()}
+                profile={profile}
                 activeChannel={activeChannel}
                 voiceUsers={voiceUsers}
                 onSelectVoice={() => {
