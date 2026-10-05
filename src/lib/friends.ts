@@ -75,12 +75,31 @@ export function getStoredFriends(): FriendProfile[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        // Filter out fake bots and broken fake friends (empty names or pure 4-digit tag names)
+        // Filter out fake bots and broken fake friends (empty names, bots, or numeric tag names)
         return parsed
           .filter((f) => {
-            if (!f || f.isBot || f.uid?.startsWith("user_bot_") || f.uid?.includes("echo_bot")) return false;
+            if (!f) return false;
+            if (f.isBot) return false;
+            const uid = (f.uid || "").toLowerCase();
+            if (
+              uid.startsWith("user_bot_") ||
+              uid.includes("echo_bot") ||
+              uid.includes("fake") ||
+              uid.startsWith("bot_") ||
+              uid === "echo_companion" ||
+              uid === "echo_sound_test"
+            ) {
+              return false;
+            }
             const uname = (f.username || "").trim();
-            if (!uname || /^\d{3,5}$/.test(uname)) return false;
+            if (
+              !uname ||
+              /^\d{3,5}$/.test(uname) ||
+              uname.toLowerCase().includes("bot") ||
+              uname.toLowerCase().includes("echo companion")
+            ) {
+              return false;
+            }
             return true;
           })
           .map((f) => ({
@@ -141,31 +160,3 @@ export function saveStoredDMMessages(friendUid: string, messages: DirectMessage[
   } catch {}
 }
 
-// Automated response logic for interactive study buddies
-export function generateBotDMResponse(botFriend: FriendProfile, userText: string): string {
-  const text = userText.toLowerCase();
-
-  if (text.includes("hello") || text.includes("hi") || text.includes("hey") || text.includes("yo")) {
-    return `Hey! 👋 Great to see you studying on Frosted Studying! How's your session going?`;
-  }
-  if (text.includes("game") || text.includes("play") || text.includes("slope") || text.includes("dash")) {
-    return `Nice! I love playing Slope and Geometry Dash during quick 5-minute Pomodoro breaks. What's your top score? 🎮`;
-  }
-  if (text.includes("tab") || text.includes("cloak") || text.includes("panic")) {
-    return `Pro tip: You can press the Panic key (~ or Esc) anytime to instantly hide your tab as Google Drive or Canvas LMS! 🛡️`;
-  }
-  if (text.includes("math") || text.includes("calc") || text.includes("quiz") || text.includes("study")) {
-    return `Need a quick study break or help with a topic? Frosted AI can generate custom active recall flashcards for you anytime! 📚✨`;
-  }
-  if (text.includes("flashcard") || text.includes("note")) {
-    return `I can help you review your flashcards or quiz you on any chapter whenever you want! ⚡`;
-  }
-
-  const responses = [
-    `That's awesome! Staying focused is so much easier with Frosted Studying's Lofi timer. 🎧`,
-    `Got it! Let me know if you want to team up for a study session or compare flashcard decks! 🚀`,
-    `100%! I'm currently using Frosted AI to review my notes for tomorrow's exam. 📖`,
-    `Sound good! Keep crushing your study goals today! 🔥`,
-  ];
-  return responses[Math.floor(Math.random() * responses.length)];
-}

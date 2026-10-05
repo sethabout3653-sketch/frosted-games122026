@@ -5549,7 +5549,24 @@ Platform context:
     }
   });
 
-  // Universal proxy endpoint for Lumin game frames & assets (completely removes "refused to connect")
+  // Standalone route for Lumin SDK all.min.js requested by game frames
+  app.get(["/js/all.min.js", "/api/lumin-frame/:token/js/all.min.js"], async (_req, res) => {
+    try {
+      const resp = await fetch("https://a.luminsdk.com/js/all.min.js", {
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+      if (resp.ok) {
+        res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        return res.send(await resp.text());
+      }
+    } catch {}
+    res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+    return res.send("console.log('[LuminSDK] script ready');");
+  });
+
+  // Universal proxy endpoint for Lumin game frames & assets (School Network & Chromebook unblocked)
   app.get(["/api/lumin-frame/:token/:path(*)", "/api/lumin-frame/:token", "/api/lumin-frame/*"], async (req, res) => {
     try {
       const token = req.params.token || "";
@@ -5559,7 +5576,9 @@ Platform context:
       if (!token && !subPath) return res.status(400).send("Missing game token/path");
 
       let upstreamUrl: string;
-      if (token && subPath) {
+      if (token === "js" && (subPath === "all.min.js" || !subPath)) {
+        upstreamUrl = "https://a.luminsdk.com/js/all.min.js";
+      } else if (token && subPath) {
         upstreamUrl = `https://a.luminsdk.com/g/${token}/${subPath}`;
       } else if (token) {
         upstreamUrl = `https://a.luminsdk.com/f/${token}`;
@@ -5567,42 +5586,30 @@ Platform context:
         upstreamUrl = `https://a.luminsdk.com/${subPath}`;
       }
 
-      const response = await fetch(upstreamUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        },
-      });
+      const fetchHeaders: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      };
+      if (req.headers["accept"]) fetchHeaders["Accept"] = req.headers["accept"] as string;
+      if (req.headers["range"]) fetchHeaders["Range"] = req.headers["range"] as string;
 
-      if (!response.ok) {
+      let response = await fetch(upstreamUrl, { headers: fetchHeaders }).catch(() => null);
+
+      if (!response || !response.ok) {
         // Retry with trailing slash if 404/directory redirect
         if (!upstreamUrl.endsWith("/")) {
-          const retryRes = await fetch(`${upstreamUrl}/`).catch(() => null);
+          const retryRes = await fetch(`${upstreamUrl}/`, { headers: fetchHeaders }).catch(() => null);
           if (retryRes && retryRes.ok) {
-            const cType = retryRes.headers.get("content-type") || "text/html";
-            res.setHeader("Content-Type", cType);
-            res.removeHeader("X-Frame-Options");
-            res.removeHeader("Content-Security-Policy");
-            res.removeHeader("Cross-Origin-Resource-Policy");
-            res.removeHeader("Cross-Origin-Embedder-Policy");
-            res.removeHeader("Cross-Origin-Opener-Policy");
-            res.setHeader("Access-Control-Allow-Origin", "*");
-
-            let bodyText = await retryRes.text();
-            const baseTag = `<base href="${upstreamUrl}/">`;
-            if (/<head[^>]*>/i.test(bodyText)) {
-              bodyText = bodyText.replace(/<head[^>]*>/i, `$&${baseTag}`);
-            } else {
-              bodyText = `${baseTag}${bodyText}`;
-            }
-            return res.send(bodyText);
+            response = retryRes;
+            upstreamUrl = `${upstreamUrl}/`;
           }
         }
-        return res.status(response.status).send(`Failed to fetch Lumin game frame: ${response.statusText}`);
+      }
+
+      if (!response || !response.ok) {
+        return res.status(response?.status || 404).send(`Failed to fetch Lumin game frame: ${response?.statusText || "Not found"}`);
       }
 
       const contentType = response.headers.get("content-type") || "text/html";
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Cache-Control", "public, max-age=3600");
       res.removeHeader("X-Frame-Options");
       res.removeHeader("Content-Security-Policy");
       res.removeHeader("Cross-Origin-Resource-Policy");
@@ -5610,24 +5617,138 @@ Platform context:
       res.removeHeader("Cross-Origin-Opener-Policy");
       res.setHeader("Access-Control-Allow-Origin", "*");
 
-      // For HTML, inject base tag so relative asset requests resolve to Lumin CDN
+      // Forward caching and range headers
+      const cacheControl = response.headers.get("cache-control") || "public, max-age=86400";
+      res.setHeader("Cache-Control", cacheControl);
+
+      const acceptRanges = response.headers.get("accept-ranges");
+      if (acceptRanges) res.setHeader("Accept-Ranges", acceptRanges);
+
+      const contentRange = response.headers.get("content-range");
+      if (contentRange) res.setHeader("Content-Range", contentRange);
+
+      // Handle HTML pages: rewrite base href to OUR server proxy URL so all assets, SWF, WASM,
+      // styles, audio, and chunks route through this unblocked server instead of the blocked a.luminsdk.com!
       if (contentType.includes("text/html")) {
         let html = await response.text();
-        const baseHref = upstreamUrl.endsWith("/") ? upstreamUrl : `${upstreamUrl}/`;
-        const baseTag = `<base href="${baseHref}">`;
+
+        // Calculate unblocked proxy base path on this server
+        let proxyBasePath: string;
+        if (token && subPath) {
+          const lastSlash = subPath.lastIndexOf("/");
+          const dirPath = lastSlash !== -1 ? subPath.slice(0, lastSlash + 1) : subPath + "/";
+          proxyBasePath = `/api/lumin-frame/${encodeURIComponent(token)}/${dirPath}`;
+        } else if (token) {
+          proxyBasePath = `/api/lumin-frame/${encodeURIComponent(token)}/`;
+        } else {
+          proxyBasePath = `/api/lumin-frame/`;
+        }
+        if (!proxyBasePath.endsWith("/")) proxyBasePath += "/";
+
+        const baseTag = `<base href="${proxyBasePath}">`;
+
+        // Strip existing base tag if any, then insert proxy base tag
+        html = html.replace(/<base[^>]*>/gi, "");
         if (/<head[^>]*>/i.test(html)) {
           html = html.replace(/<head[^>]*>/i, `$&${baseTag}`);
         } else {
           html = `${baseTag}${html}`;
         }
+
+        // Defang third-party ad/tracking scripts that stall or fail on school firewalls
+        html = html.replace(/<script[^>]*src=["'][^"']*(?:r9x\.in|adnxs|doubleclick|googlesyndication|adservice|googletagmanager)[^"']*["'][^>]*><\/script>/gi, "");
+        html = html.replace(/<script[^>]*>[\s\S]*?gtag\([\s\S]*?<\/script>/gi, "");
+
+        // Rewrite any direct occurrences of a.luminsdk.com to our proxy
+        html = html.replace(/https:\/\/a\.luminsdk\.com\/g\/([^/]+)\//g, "/api/lumin-frame/$1/");
+        html = html.replace(/https:\/\/a\.luminsdk\.com\//g, "/api/lumin-frame/");
+
+        // Proxy Ruffle flash player script if present so school firewalls don't block unpkg
+        html = html.replace(/https:\/\/unpkg\.com\/@ruffle-rs\/ruffle/g, "/api/proxy-ruffle");
+
+        // Ensure /js/all.min.js doesn't 404
+        html = html.replace(/src=["']\/js\/all\.min\.js["']/gi, `src="/api/lumin-frame/${encodeURIComponent(token)}/js/all.min.js"`);
+
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
         return res.send(html);
       }
 
-      // For binary/wasm/images/scripts, pipe buffer
+      // Handle binary assets (WASM, .unityweb, SWF, audio, images, data packs)
+      res.setHeader("Content-Type", contentType);
+
+      // NOTE: Do NOT set Content-Encoding header here! Node.js fetch() already automatically
+      // decompresses gzip/br responses. Forwarding Content-Encoding causes ERR_CONTENT_DECODING_FAILED
+      // on Chromebooks and modern browsers.
+      res.removeHeader("Content-Encoding");
+
       const arrayBuf = await response.arrayBuffer();
       return res.send(Buffer.from(arrayBuf));
     } catch (e: any) {
       console.error("Lumin frame proxy error:", e);
+      return res.status(500).send(e?.message || String(e));
+    }
+  });
+
+  // Dedicated proxy for unpkg Ruffle (Flash Player) for school Chromebooks
+  app.get("/api/proxy-ruffle", async (_req, res) => {
+    try {
+      const resp = await fetch("https://unpkg.com/@ruffle-rs/ruffle", {
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+      if (resp.ok) {
+        res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        return res.send(await resp.text());
+      }
+    } catch {}
+    res.status(502).send("// Ruffle proxy unavailable");
+  });
+
+  // Universal Root Proxy for EmulatorJS and Lumin Game Assets (/resources/*, /patch/*)
+  // Ensures games that request root-relative data (e.g. /resources/semag/emulatorjs/data/loader.js)
+  // load seamlessly through this unblocked server without hitting 404s on school firewalls!
+  app.get(["/resources/*", "/resources/:path(*)", "/patch/*", "/patch/:path(*)"], async (req, res) => {
+    try {
+      const fullPath = req.path;
+      const upstreamUrl = `https://a.luminsdk.com${fullPath}`;
+      const fetchHeaders: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      };
+      if (req.headers["accept"]) fetchHeaders["Accept"] = req.headers["accept"] as string;
+      if (req.headers["range"]) fetchHeaders["Range"] = req.headers["range"] as string;
+
+      const response = await fetch(upstreamUrl, { headers: fetchHeaders }).catch(() => null);
+      if (!response || !response.ok) {
+        return res.status(response?.status || 404).send("Game resource not found");
+      }
+
+      let contentType = response.headers.get("content-type") || "application/octet-stream";
+      if (fullPath.endsWith(".js")) contentType = "application/javascript; charset=utf-8";
+      if (fullPath.endsWith(".wasm")) contentType = "application/wasm";
+      if (fullPath.endsWith(".json")) contentType = "application/json";
+      if (fullPath.endsWith(".css")) contentType = "text/css; charset=utf-8";
+      if (fullPath.endsWith(".png")) contentType = "image/png";
+      if (fullPath.endsWith(".jpg") || fullPath.endsWith(".jpeg")) contentType = "image/jpeg";
+      if (fullPath.endsWith(".svg")) contentType = "image/svg+xml";
+
+      res.removeHeader("X-Frame-Options");
+      res.removeHeader("Content-Security-Policy");
+      res.removeHeader("Content-Encoding");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.setHeader("Content-Type", contentType);
+
+      const acceptRanges = response.headers.get("accept-ranges");
+      if (acceptRanges) res.setHeader("Accept-Ranges", acceptRanges);
+
+      const contentRange = response.headers.get("content-range");
+      if (contentRange) res.setHeader("Content-Range", contentRange);
+
+      const arrayBuf = await response.arrayBuffer();
+      return res.send(Buffer.from(arrayBuf));
+    } catch (e: any) {
+      console.error("Root game resource proxy error:", e);
       return res.status(500).send(e?.message || String(e));
     }
   });

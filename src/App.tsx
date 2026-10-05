@@ -499,16 +499,12 @@ function AppContent() {
               </div>
             </div>
 
-            {selectedTag === "luminsdk" ? (
-              <LuminGames theme="dark" />
-            ) : (
-              <GameGrid
-                games={processedGames}
-                onSelectGame={handleSelectGame}
-                favoriteIds={favoriteIds}
-                onToggleFavorite={toggleFavorite}
-              />
-            )}
+            <GameGrid
+              games={processedGames}
+              onSelectGame={handleSelectGame}
+              favoriteIds={favoriteIds}
+              onToggleFavorite={toggleFavorite}
+            />
           </section>
         </motion.div>
 

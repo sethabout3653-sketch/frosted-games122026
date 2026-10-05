@@ -29,7 +29,12 @@ import { getCurrentActivity, onActivityChanged, getVoiceState, broadcastPresence
 import { isAllowedUsername, isGuestUser, purgeNonAllowedUsers } from "../lib/user-filter";
 import ActivityBadge from "./ActivityBadge";
 import ModeratorPanelModal from "./ModeratorPanelModal";
-import { getOrCreateUserTag } from "../lib/friends";
+import {
+  getOrCreateUserTag,
+  getStoredFriends,
+  saveStoredFriends,
+  FriendProfile,
+} from "../lib/friends";
 import { checkTextModeration } from "../utils/moderation";
 import { useCall } from "../context/CallContext";
 import { playChatSound } from "../lib/ringtone-synthesizer";
@@ -58,6 +63,7 @@ import {
   PhoneCall,
   AtSign,
   User as UserIcon,
+  UserPlus,
   Shield,
   Radio,
   Check,
@@ -235,6 +241,62 @@ export default function ChatPanel({
   const callCtx = useCall();
   const [selectedUserProfile, setSelectedUserProfile] = useState<MemberUser | null>(null);
   const [voiceUsersMap, setVoiceUsersMap] = useState<Map<string, any>>(new Map());
+  const [friendToast, setFriendToast] = useState<string | null>(null);
+
+  const handleAddFriendFromChat = (user: MemberUser) => {
+    if (!user || user.uid === profile.uid) return;
+    const currentFriends = getStoredFriends();
+    const isAlready = currentFriends.some(
+      (f) => f.uid === user.uid || (f.username || "").toLowerCase() === (user.username || "").toLowerCase()
+    );
+    if (isAlready) {
+      setFriendToast(`@${user.username} is already on your friends list!`);
+      setTimeout(() => setFriendToast(null), 3000);
+      return;
+    }
+
+    const userTag = (user as any).tag || getOrCreateUserTag(user.username);
+    const myTag = profile.tag || getOrCreateUserTag(profile.username || "User");
+    const photo =
+      user.photoURL && !user.photoURL.includes("bottts")
+        ? user.photoURL
+        : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(user.username)}`;
+
+    // Send real-time friend request signal to this real user
+    sendBroadcastSignal({
+      type: "friend_request_sent",
+      id: `freq_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      fromUid: profile.uid,
+      fromUsername: profile.username,
+      fromTag: myTag,
+      fromPhotoURL:
+        profile.photoURL && !profile.photoURL.includes("bottts")
+          ? profile.photoURL
+          : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(profile.username)}`,
+      targetUid: user.uid,
+      toUsername: user.username,
+      toTag: userTag,
+      createdAt: Date.now(),
+    });
+
+    const newFriend: FriendProfile = {
+      uid: user.uid,
+      username: user.username,
+      tag: userTag,
+      photoURL: photo,
+      status: "online",
+      customStatus: user.activity?.details || "Online & studying",
+      lastSeen: Date.now(),
+    };
+
+    const updated = [newFriend, ...currentFriends.filter((f) => f.uid !== newFriend.uid)];
+    saveStoredFriends(updated);
+    window.dispatchEvent(new CustomEvent("frosted_friends_updated", { detail: updated }));
+    playChatSound("send");
+
+    setFriendToast(`Added @${user.username}${userTag} to friends list!`);
+    setTimeout(() => setFriendToast(null), 3500);
+  };
 
   const handleStartDirectCall = (user: MemberUser, type: "audio" | "video") => {
     if (!user || user.uid === profile.uid) return;
@@ -2017,6 +2079,20 @@ export default function ChatPanel({
         isDragging ? "ring-2 ring-indigo-500 ring-inset bg-neutral-950/90" : ""
       }`}
     >
+      {/* Floating friend action notification toast */}
+      <AnimatePresence>
+        {friendToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl bg-emerald-600/90 backdrop-blur-md text-white font-bold text-xs shadow-xl border border-emerald-400/40 flex items-center gap-2 pointer-events-none"
+          >
+            <UserCheck size={14} className="text-white" />
+            <span>{friendToast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {isDragging && (
         <div className="absolute inset-0 bg-black/75 backdrop-blur-sm z-50 flex flex-col items-center justify-center border-2 border-dashed border-indigo-500/60 m-3 rounded-2xl pointer-events-none animate-in fade-in duration-150">
           <div className="p-6 bg-[#121420] border border-white/10 rounded-2xl shadow-2xl flex flex-col items-center gap-3 text-center max-w-xs">
@@ -3002,6 +3078,14 @@ export default function ChatPanel({
                               <>
                                 <button
                                   type="button"
+                                  onClick={() => handleAddFriendFromChat(user)}
+                                  className="p-1 rounded bg-white/10 hover:bg-emerald-600/30 text-emerald-300 hover:text-white transition-colors cursor-pointer"
+                                  title={`Add @${user.username} as Friend`}
+                                >
+                                  <UserPlus size={10} />
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => handleStartDirectCall(user, "audio")}
                                   className="p-1 rounded bg-white/10 hover:bg-emerald-600/30 text-emerald-300 hover:text-white transition-colors"
                                   title="Call Direct Audio"
@@ -3230,6 +3314,17 @@ export default function ChatPanel({
                 <div className="space-y-2 pt-1">
                   {selectedUserProfile.uid !== profile.uid ? (
                     <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleAddFriendFromChat(selectedUserProfile);
+                        }}
+                        className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 border border-emerald-400/30"
+                      >
+                        <UserPlus size={14} />
+                        <span>Add @{selectedUserProfile.username} as Friend</span>
+                      </button>
+
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"

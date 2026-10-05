@@ -319,17 +319,9 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
         return;
       }
 
-      // 1. For Lumin SDK games, let the LuminSDK mount or resolve directly
+      // 1. For Lumin SDK games, resolve unblocked proxy game URL
       if (isLuminGame) {
         const luminId = game.luminId || (typeof game.id === "string" && game.id.startsWith("lumin-") ? game.id.slice("lumin-".length) : String(game.id));
-        if (luminContainerRef.current) {
-          const success = await embedLuminGame(luminContainerRef.current, luminId);
-          if (!isCancelled && success) {
-            setIsGameLoading(false);
-            setGameLoadError(false);
-            return;
-          }
-        }
         const luminUrl = await getLuminGameUrl(luminId);
         if (!isCancelled && luminUrl) {
           setGameUrl(luminUrl);

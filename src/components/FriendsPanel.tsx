@@ -311,16 +311,40 @@ export default function FriendsPanel({
   };
 
   // Handle Adding Friend by searching username or tag
-  const handleSendFriendRequest = (targetInput?: string) => {
+  const handleSendFriendRequest = async (targetInput?: string) => {
     const rawTarget = (targetInput || addUsernameInput).trim().replace(/^@/, "");
     if (!rawTarget) return;
+
+    let candidatePool = [...onlineUsers];
+
+    // If onlineUsers is small or not loaded, query persistent presence records from database
+    try {
+      const resp = await fetch("/api/db/data/presence").catch(() => null);
+      if (resp && resp.ok) {
+        const json = await resp.json().catch(() => null);
+        const pMap = json?.data || {};
+        const pList = Object.values(pMap) as any[];
+        pList.forEach((p: any) => {
+          if (p && p.uid && !candidatePool.some((u) => u.uid === p.uid)) {
+            candidatePool.push({
+              uid: p.uid,
+              username: p.username || "User",
+              tag: p.tag || getOrCreateUserTag(p.username || "User"),
+              photoURL: p.photoURL,
+              status: p.status || "online",
+              activity: p.activity,
+            });
+          }
+        });
+      }
+    } catch {}
 
     let matchedOnline: any = undefined;
 
     // Strategy 1: Check if input is pure gamer tag (e.g. "#4821" or "4821")
     if (/^#?\d{3,5}$/.test(rawTarget)) {
       const searchTag = (rawTarget.startsWith("#") ? rawTarget : `#${rawTarget}`).toUpperCase();
-      matchedOnline = onlineUsers.find((u) => {
+      matchedOnline = candidatePool.find((u) => {
         const uTag = (u.tag || getOrCreateUserTag(u.username)).toUpperCase();
         return uTag === searchTag;
       });
@@ -334,8 +358,8 @@ export default function FriendsPanel({
       const searchTag = tagDigits ? `#${tagDigits}`.toUpperCase() : "";
 
       // Try exact name AND tag match first
-      matchedOnline = onlineUsers.find((u) => {
-        const uName = u.username.toLowerCase();
+      matchedOnline = candidatePool.find((u) => {
+        const uName = (u.username || "").toLowerCase();
         const uTag = (u.tag || getOrCreateUserTag(u.username)).toUpperCase();
         if (namePart && searchTag) {
           return uName === namePart && uTag === searchTag;
@@ -348,24 +372,24 @@ export default function FriendsPanel({
 
       // If still not matched, check if tag matches alone or name matches alone
       if (!matchedOnline && searchTag) {
-        matchedOnline = onlineUsers.find((u) => {
+        matchedOnline = candidatePool.find((u) => {
           const uTag = (u.tag || getOrCreateUserTag(u.username)).toUpperCase();
           return uTag === searchTag;
         });
       }
       if (!matchedOnline && namePart) {
-        matchedOnline = onlineUsers.find((u) => u.username.toLowerCase() === namePart);
+        matchedOnline = candidatePool.find((u) => (u.username || "").toLowerCase() === namePart);
       }
     }
 
     // Strategy 3: Username exact or case-insensitive match
     if (!matchedOnline) {
       const searchName = rawTarget.toLowerCase();
-      matchedOnline = onlineUsers.find(
+      matchedOnline = candidatePool.find(
         (u) =>
-          u.username.toLowerCase() === searchName ||
-          u.uid.toLowerCase() === searchName ||
-          u.username.toLowerCase().replace(/[^a-z0-9]/g, "") === searchName.replace(/[^a-z0-9]/g, "")
+          (u.username || "").toLowerCase() === searchName ||
+          (u.uid || "").toLowerCase() === searchName ||
+          (u.username || "").toLowerCase().replace(/[^a-z0-9]/g, "") === searchName.replace(/[^a-z0-9]/g, "")
       );
     }
 
@@ -373,7 +397,7 @@ export default function FriendsPanel({
     if (!matchedOnline) {
       const searchName = rawTarget.toLowerCase();
       if (searchName.length >= 3) {
-        matchedOnline = onlineUsers.find((u) => u.username.toLowerCase().includes(searchName));
+        matchedOnline = candidatePool.find((u) => (u.username || "").toLowerCase().includes(searchName));
       }
     }
 
@@ -381,7 +405,7 @@ export default function FriendsPanel({
     if (!matchedOnline) {
       setAddFeedback({
         type: "error",
-        msg: `No online player found matching "${rawTarget}". Check the gamer tag (e.g. #4821) or click Add next to their name in the Online Players list below!`,
+        msg: `No player found matching "${rawTarget}". Verify the gamer tag (e.g. #4821) or click "+ Add" next to their name in the Online Players list below!`,
       });
       return;
     }
@@ -389,7 +413,7 @@ export default function FriendsPanel({
     // Prevent adding yourself
     if (
       matchedOnline.uid === currentProfile.uid ||
-      matchedOnline.username.toLowerCase() === (currentProfile.username || "").toLowerCase()
+      (matchedOnline.username || "").toLowerCase() === (currentProfile.username || "").toLowerCase()
     ) {
       setAddFeedback({ type: "error", msg: "You cannot add yourself as a friend!" });
       return;
@@ -399,7 +423,7 @@ export default function FriendsPanel({
     const existing = friends.find(
       (f) =>
         f.uid === matchedOnline.uid ||
-        f.username.toLowerCase() === matchedOnline.username.toLowerCase()
+        f.username.toLowerCase() === (matchedOnline.username || "").toLowerCase()
     );
     if (existing) {
       setAddFeedback({
