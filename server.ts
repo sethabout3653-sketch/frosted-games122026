@@ -344,17 +344,6 @@ const PORT = Number(process.env.PORT) || 3000;
     },
   });
 
-  // CORS and preflight headers for all API requests
-  app.use((req, res, next) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-Session");
-    if (req.method === "OPTIONS") {
-      return res.status(200).end();
-    }
-    next();
-  });
-
   // Persistent registry of uploaded file metadata (original name, mime, size, ext)
   const fileMetadataPath = path.join(uploadsDir, "file_metadata.json");
   let fileMetadataStore: Record<string, { originalName: string; mimeType: string; size: number; ext: string }> = {};
@@ -5225,29 +5214,421 @@ Platform context:
       if (!token) {
         return res.status(400).send("Missing token");
       }
+      token = decodeURIComponent(token);
       
       const sessionId = await getLuminSessionId();
-      const freshToken = token.replace(/^[^/]+/, sessionId);
-      const targetUrl = `https://a.luminsdk.com/api/v1/assets/${freshToken}`;
       
-      const response = await fetch(targetUrl);
-      if (!response.ok) {
-        return res.status(response.status).send(`Failed to fetch from Lumin: ${response.statusText}`);
+      // Candidate URLs to check in order
+      const candidateUrls: { url: string; headers?: Record<string, string> }[] = [
+        {
+          url: `https://a.luminsdk.com/api/v1/assets/${encodeURIComponent(token)}`,
+          headers: { "Authorization": `Bearer ${sessionId}` }
+        },
+        {
+          url: `https://a.luminsdk.com/api/v1/assets/${token}`,
+          headers: { "Authorization": `Bearer ${sessionId}` }
+        },
+        {
+          url: `https://a.luminsdk.com/i/${token}`
+        },
+        {
+          url: `https://a.luminsdk.com/assets/${token}`
+        },
+      ];
+
+      if (token.includes("/")) {
+        const afterSlash = token.split("/").slice(1).join("/");
+        candidateUrls.push({
+          url: `https://a.luminsdk.com/api/v1/assets/${sessionId}/${afterSlash}`,
+          headers: { "Authorization": `Bearer ${sessionId}` }
+        });
       }
-      
-      const contentType = response.headers.get("content-type");
-      if (contentType) {
-        res.setHeader("Content-Type", contentType);
+
+      let matchedBuffer: Buffer | null = null;
+      let matchedContentType = "";
+
+      for (const candidate of candidateUrls) {
+        try {
+          const resp = await fetch(candidate.url, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              ...(candidate.headers || {})
+            }
+          });
+
+          if (resp.ok) {
+            const cType = resp.headers.get("content-type") || "";
+            if (cType.startsWith("image/") || cType.startsWith("application/octet-stream")) {
+              const arrayBuffer = await resp.arrayBuffer();
+              const buf = Buffer.from(arrayBuffer);
+
+              // Detect actual image format from buffer magic numbers
+              if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+                matchedContentType = "image/jpeg";
+              } else if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+                matchedContentType = "image/png";
+              } else if (buf.length >= 6 && (buf.toString("ascii", 0, 6) === "GIF87a" || buf.toString("ascii", 0, 6) === "GIF89a")) {
+                matchedContentType = "image/gif";
+              } else if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") {
+                matchedContentType = "image/webp";
+              } else if (buf.toString("utf8", 0, 100).includes("<svg") || buf.toString("utf8", 0, 100).includes("<?xml")) {
+                matchedContentType = "image/svg+xml";
+              } else if (buf.length >= 12 && buf.toString("ascii", 4, 12).includes("ftypavif")) {
+                matchedContentType = "image/avif";
+              } else if (cType.startsWith("image/")) {
+                matchedContentType = cType;
+              } else {
+                matchedContentType = "image/jpeg";
+              }
+
+              matchedBuffer = buf;
+              break;
+            }
+          }
+        } catch {}
       }
-      
-      res.setHeader("Cache-Control", "public, max-age=31536000"); // Cache for 1 year
-      
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      return res.send(buffer);
+
+      if (matchedBuffer) {
+        res.setHeader("Content-Type", matchedContentType || "image/jpeg");
+        res.setHeader("Cache-Control", "public, max-age=31536000"); // Cache for 1 year
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        return res.send(matchedBuffer);
+      }
+
+      // Fallback: Generate an aesthetically styled SVG badge if remote CDN doesn't have asset
+      const cleanLabel = token.split("/").pop()?.replace(/[-_]/g, " ").slice(0, 16) || "Game";
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+        <defs>
+          <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#0f172a" />
+            <stop offset="100%" stop-color="#1e1e2f" />
+          </linearGradient>
+        </defs>
+        <rect width="100%" height="100%" rx="24" fill="url(#grad)" />
+        <path d="M90 130h120c15 0 25 10 25 25v20c0 15-10 25-25 25h-120c-15 0-25-10-25-25v-20c0-15 10-25 25-25z M110 155h15 M117.5 147.5v15 M170 155h10 M185 155h10" stroke="#a5b4fc" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.8" />
+        <text x="150" y="235" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="800" fill="#ffffff" text-anchor="middle" letter-spacing="1">${cleanLabel.toUpperCase()}</text>
+      </svg>`;
+
+      res.setHeader("Content-Type", "image/svg+xml");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      return res.send(Buffer.from(svg, "utf-8"));
     } catch (err: any) {
       console.error("Error proxying lumin icon:", err);
       return res.status(500).send(err.message);
+    }
+  });
+
+  // In-memory HTML cache for instantaneous game frame delivery
+  const gameHtmlCache = new Map<string, { html: string; timestamp: number }>();
+  const GAME_CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
+
+  // Direct game frame proxy & sanitizer (eliminates "Refused to connect" iframe errors)
+  app.get(["/api/game-frame/:filename(*)", "/api/game-frame/*"], async (req, res) => {
+    try {
+      let filename = req.params.filename || (req.params as any)[0] || "";
+      if (filename.startsWith("/")) filename = filename.slice(1);
+      if (!filename) {
+        return res.status(400).send("Missing game filename");
+      }
+      if (!filename.includes(".")) {
+        filename = `${filename}.html`;
+      }
+
+      // 1. Check in-memory cache
+      const cached = gameHtmlCache.get(filename);
+      if (cached && Date.now() - cached.timestamp < GAME_CACHE_TTL) {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        res.removeHeader("X-Frame-Options");
+        res.removeHeader("Content-Security-Policy");
+        res.removeHeader("Cross-Origin-Resource-Policy");
+        res.removeHeader("Cross-Origin-Embedder-Policy");
+        res.removeHeader("Cross-Origin-Opener-Policy");
+        res.removeHeader("Access-Control-Allow-Origin");
+        res.removeHeader("Access-Control-Allow-Methods");
+        res.removeHeader("Access-Control-Allow-Headers");
+        return res.send(cached.html);
+      }
+
+      // 2. Fetch game file from upstream GitHub raw repository
+      const upstreamUrl = `https://raw.githubusercontent.com/gn-math/html/main/${filename}`;
+      const upstreamRes = await fetch(upstreamUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+      });
+
+      if (!upstreamRes.ok) {
+        const altUrl = `https://cdn.jsdelivr.net/gh/gn-math/html@main/${filename}`;
+        const altRes = await fetch(altUrl).catch(() => null);
+        if (!altRes || !altRes.ok) {
+          return res.status(upstreamRes.status).send(`Failed to load game file: ${upstreamRes.statusText}`);
+        }
+      }
+
+      let html = await upstreamRes.text();
+
+      // 3. Sanitize HTML to prevent crashes & remove malicious domain-lock scripts
+      // Remove Google Tag Manager tracking
+      html = html.replace(/<script[^>]*src="[^"]*googletagmanager\.com[^"]*"[^>]*><\/script>/gi, "");
+      html = html.replace(/<script[^>]*>\s*window\.dataLayer[\s\S]*?<\/script>/gi, "");
+
+      // Remove the 18KB obfuscated domain-lock script that deletes document.body
+      html = html.replace(/<script[^>]*>(?:(?!<\/script>)[\s\S])*sFfEkK[\s\S]*?<\/script>/gi, "");
+      html = html.replace(/<script[^>]*>(?:(?!<\/script>)[\s\S])*IuySzzpOiISwZDDrwmF[\s\S]*?<\/script>/gi, "");
+
+      // Remove forced CORS overrides and crossorigin attributes that break game engine assets
+      html = html.replace(/<script[^>]*>(?:(?!<\/script>)[\s\S])*const _Image = window\.Image[\s\S]*?<\/script>/gi, "");
+      html = html.replace(/\s+crossorigin(?:="[^"]*")?/gi, "");
+      html = html.replace(/img\.crossOrigin\s*=\s*['"][^'"]*['"]/gi, "");
+      html = html.replace(/this\.crossOrigin\s*=\s*['"][^'"]*['"]/gi, "");
+      html = html.replace(/\.crossOrigin\s*=\s*['"][^'"]*['"]/gi, "");
+
+      // Neutralize any frame-busting scripts
+      html = html.replace(/top\.location\s*!==\s*window\.location/g, "false");
+      html = html.replace(/window\.top\s*!==\s*window\.self/g, "false");
+      html = html.replace(/window\.top\s*!=\s*window\.self/g, "false");
+      html = html.replace(/top\s*!=\s*self/g, "false");
+      html = html.replace(/top\.location\.replace/g, "console.log");
+      html = html.replace(/top\.location\.href\s*=/g, "location.href =");
+
+      // Ensure proper <base href="..."> so relative assets (js, css, images) resolve accurately
+      const hasBase = /<base\s+[^>]*href=/i.test(html);
+      if (!hasBase) {
+        const baseTag = '<base href="https://raw.githubusercontent.com/gn-math/html/main/">';
+        if (/<head[^>]*>/i.test(html)) {
+          html = html.replace(/<head[^>]*>/i, `$&${baseTag}`);
+        } else {
+          html = `${baseTag}${html}`;
+        }
+      }
+
+      // Store in memory cache
+      gameHtmlCache.set(filename, { html, timestamp: Date.now() });
+
+      // Send response with clean headers (no CORS or Cross-Origin headers)
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.removeHeader("X-Frame-Options");
+      res.removeHeader("Content-Security-Policy");
+      res.removeHeader("Cross-Origin-Resource-Policy");
+      res.removeHeader("Cross-Origin-Embedder-Policy");
+      res.removeHeader("Cross-Origin-Opener-Policy");
+      res.removeHeader("Access-Control-Allow-Origin");
+      res.removeHeader("Access-Control-Allow-Methods");
+      res.removeHeader("Access-Control-Allow-Headers");
+      return res.send(html);
+    } catch (err: any) {
+      console.error("Error serving game frame:", err);
+      return res.status(500).send(`Server error loading game: ${err?.message || err}`);
+    }
+  });
+
+  // Proxy endpoint for Lumin SDK games list
+  let cachedLuminGamesData: any = null;
+  let cachedLuminGamesExpiry = 0;
+
+  app.get("/api/lumin-games", async (_req, res) => {
+    try {
+      const now = Date.now();
+      if (cachedLuminGamesData && now < cachedLuminGamesExpiry) {
+        return res.json(cachedLuminGamesData);
+      }
+
+      const firstRes = await fetch("https://a.luminsdk.com/api/v1/games?limit=100&page=1");
+      const firstData: any = await firstRes.json().catch(() => null);
+      if (firstData && Array.isArray(firstData.games) && firstData.games.length > 0) {
+        const allGames: any[] = [...firstData.games];
+        const totalPages = firstData.pages || (firstData.total ? Math.ceil(firstData.total / 100) : 12);
+
+        if (totalPages > 1) {
+          const promises = [];
+          for (let p = 2; p <= totalPages; p++) {
+            promises.push(
+              fetch(`https://a.luminsdk.com/api/v1/games?limit=100&page=${p}`)
+                .then((r) => r.json())
+                .then((d: any) => d.games || [])
+                .catch(() => [])
+            );
+          }
+          const restResults = await Promise.all(promises);
+          for (const list of restResults) {
+            allGames.push(...list);
+          }
+        }
+
+        const resultData = { games: allGames, total: allGames.length };
+        cachedLuminGamesData = resultData;
+        cachedLuminGamesExpiry = now + 60 * 60 * 1000; // 1 hour
+        return res.json(resultData);
+      }
+    } catch (e) {
+      console.warn("Lumin games proxy error, serving cached or empty:", e);
+    }
+    return res.json(cachedLuminGamesData || { games: [] });
+  });
+
+  // Endpoint for obtaining Lumin session ID
+  app.post("/api/lumin-session", async (_req, res) => {
+    try {
+      const sessionId = await getLuminSessionId();
+      return res.json({ session_id: sessionId });
+    } catch (e: any) {
+      return res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
+  // Endpoint for resolving Lumin game URL
+  const luminGameUrlCache = new Map<string, { url: string; timestamp: number }>();
+
+  app.get(["/api/lumin-game-url/:id(*)", "/api/lumin-game-url/*"], async (req, res) => {
+    try {
+      let luminId = req.params.id || (req.params as any)[0] || "";
+      if (luminId.startsWith("/")) luminId = luminId.slice(1);
+      luminId = decodeURIComponent(luminId);
+
+      if (!luminId) {
+        return res.status(400).json({ error: "Missing lumin game id" });
+      }
+
+      const cached = luminGameUrlCache.get(luminId);
+      if (cached && Date.now() - cached.timestamp < 1000 * 60 * 30) {
+        return res.json({ url: cached.url });
+      }
+
+      const sessionId = await getLuminSessionId();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+      // Keep slashes intact for Lumin API (e.g. selenite/wordlebot)
+      const cleanPath = luminId.split("/").map(encodeURIComponent).join("/");
+      const upstreamRes = await fetch(`https://a.luminsdk.com/api/v1/games/${cleanPath}`, {
+        headers: { "Authorization": `Bearer ${sessionId}` },
+        signal: controller.signal,
+      }).catch(() => null);
+      clearTimeout(timeoutId);
+
+      const data: any = upstreamRes ? await upstreamRes.json().catch(() => null) : null;
+      if (data) {
+        if (data.url && typeof data.url === "string" && !data.url.includes("/f/")) {
+          luminGameUrlCache.set(luminId, { url: data.url, timestamp: Date.now() });
+          return res.json({ url: data.url, meta: data });
+        }
+
+        const token = data.frame_token || data.token || data.game_token || sessionId;
+        const subPath = (data.path || data.game_path || cleanPath).replace(/^\/+/, "");
+        // Direct format and proxied iframe format
+        const directUrl = `https://a.luminsdk.com/g/${token}/${subPath}`;
+        const embedUrl = `/api/lumin-frame/${encodeURIComponent(token)}/${subPath}`;
+        luminGameUrlCache.set(luminId, { url: embedUrl, timestamp: Date.now() });
+        return res.json({ url: embedUrl, directUrl, meta: data });
+      }
+
+      // Fallback: check if we have a catalog matching in zones.json
+      const cleanTarget = luminId.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const zonesFile = path.join(process.cwd(), "src", "zones.json");
+      if (fs.existsSync(zonesFile)) {
+        try {
+          const zones = JSON.parse(fs.readFileSync(zonesFile, "utf-8"));
+          const matched = zones.find((z: any) => {
+            const zClean = (z.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+            return zClean === cleanTarget || (zClean.length > 3 && cleanTarget.includes(zClean)) || (cleanTarget.length > 3 && zClean.includes(cleanTarget));
+          });
+          if (matched && matched.url) {
+            const fallbackUrl = matched.url.replace("{HTML_URL}", "/api/game-frame");
+            return res.json({ url: fallbackUrl });
+          }
+        } catch {}
+      }
+
+      return res.status(404).json({ error: "Game frame not found for Lumin ID" });
+    } catch (err: any) {
+      console.error("Error fetching Lumin game URL:", err);
+      return res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  // Universal proxy endpoint for Lumin game frames & assets (completely removes "refused to connect")
+  app.get(["/api/lumin-frame/:token/:path(*)", "/api/lumin-frame/:token", "/api/lumin-frame/*"], async (req, res) => {
+    try {
+      const token = req.params.token || "";
+      let subPath = (req.params as any).path || (req.params as any)[0] || "";
+      if (subPath.startsWith("/")) subPath = subPath.slice(1);
+
+      if (!token && !subPath) return res.status(400).send("Missing game token/path");
+
+      let upstreamUrl: string;
+      if (token && subPath) {
+        upstreamUrl = `https://a.luminsdk.com/g/${token}/${subPath}`;
+      } else if (token) {
+        upstreamUrl = `https://a.luminsdk.com/f/${token}`;
+      } else {
+        upstreamUrl = `https://a.luminsdk.com/${subPath}`;
+      }
+
+      const response = await fetch(upstreamUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+      });
+
+      if (!response.ok) {
+        // Retry with trailing slash if 404/directory redirect
+        if (!upstreamUrl.endsWith("/")) {
+          const retryRes = await fetch(`${upstreamUrl}/`).catch(() => null);
+          if (retryRes && retryRes.ok) {
+            const cType = retryRes.headers.get("content-type") || "text/html";
+            res.setHeader("Content-Type", cType);
+            res.removeHeader("X-Frame-Options");
+            res.removeHeader("Content-Security-Policy");
+            res.removeHeader("Cross-Origin-Resource-Policy");
+            res.removeHeader("Cross-Origin-Embedder-Policy");
+            res.removeHeader("Cross-Origin-Opener-Policy");
+            res.setHeader("Access-Control-Allow-Origin", "*");
+
+            let bodyText = await retryRes.text();
+            const baseTag = `<base href="${upstreamUrl}/">`;
+            if (/<head[^>]*>/i.test(bodyText)) {
+              bodyText = bodyText.replace(/<head[^>]*>/i, `$&${baseTag}`);
+            } else {
+              bodyText = `${baseTag}${bodyText}`;
+            }
+            return res.send(bodyText);
+          }
+        }
+        return res.status(response.status).send(`Failed to fetch Lumin game frame: ${response.statusText}`);
+      }
+
+      const contentType = response.headers.get("content-type") || "text/html";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.removeHeader("X-Frame-Options");
+      res.removeHeader("Content-Security-Policy");
+      res.removeHeader("Cross-Origin-Resource-Policy");
+      res.removeHeader("Cross-Origin-Embedder-Policy");
+      res.removeHeader("Cross-Origin-Opener-Policy");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+
+      // For HTML, inject base tag so relative asset requests resolve to Lumin CDN
+      if (contentType.includes("text/html")) {
+        let html = await response.text();
+        const baseHref = upstreamUrl.endsWith("/") ? upstreamUrl : `${upstreamUrl}/`;
+        const baseTag = `<base href="${baseHref}">`;
+        if (/<head[^>]*>/i.test(html)) {
+          html = html.replace(/<head[^>]*>/i, `$&${baseTag}`);
+        } else {
+          html = `${baseTag}${html}`;
+        }
+        return res.send(html);
+      }
+
+      // For binary/wasm/images/scripts, pipe buffer
+      const arrayBuf = await response.arrayBuffer();
+      return res.send(Buffer.from(arrayBuf));
+    } catch (e: any) {
+      console.error("Lumin frame proxy error:", e);
+      return res.status(500).send(e?.message || String(e));
     }
   });
 

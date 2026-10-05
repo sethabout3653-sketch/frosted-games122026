@@ -1,5 +1,5 @@
 import React, { memo } from "react";
-import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart, Music, Shuffle, Image as ImageIcon } from "lucide-react";
+import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart, Music, Shuffle, Image as ImageIcon, Zap } from "lucide-react";
 import { formatTagLabel } from "../utils";
 import { useCall } from "../context/CallContext";
 import { useFavorites } from "../lib/favorites";
@@ -11,11 +11,12 @@ interface HeaderProps {
   selectedTag: string;
   setSelectedTag: (tag: string) => void;
   tags: string[];
-  currentView?: "home" | "game" | "chat" | "assistant" | "music";
+  currentView?: "home" | "game" | "chat" | "assistant" | "music" | "sdk";
   onGoHome?: () => void;
   onChatClick?: () => void;
   onAssistantClick?: () => void;
   onMusicClick?: () => void;
+  onSdkClick?: () => void;
   onOpenSettings?: () => void;
   onOpenTheme?: () => void;
   onRandomGame?: () => void;
@@ -33,6 +34,7 @@ const Header = memo(function Header({
   onChatClick,
   onAssistantClick,
   onMusicClick,
+  onSdkClick,
   onOpenSettings,
   onOpenTheme,
   onRandomGame,
@@ -84,6 +86,7 @@ const Header = memo(function Header({
   const isChat = currentView === "chat";
   const isAssistant = currentView === "assistant";
   const isMusic = currentView === "music";
+  const isSdk = currentView === "sdk";
 
   return (
     <header
@@ -97,7 +100,7 @@ const Header = memo(function Header({
             id="frosted-logo-btn"
             onClick={handleLogoClick}
             className="flex items-center gap-2.5 text-left group cursor-pointer focus:outline-none rounded-2xl transition-all duration-200 active:scale-95 shrink-0"
-            title="Frosted Studying Home"
+            title="Frosted Study & Game Portal"
           >
             <div
               style={{
@@ -114,15 +117,15 @@ const Header = memo(function Header({
             </div>
             <div className="flex flex-col">
               <span className="text-base sm:text-lg font-black tracking-tight text-white group-hover:text-[var(--theme-text-accent)] transition-colors flex items-center gap-1.5">
-                Frosted Studying
+                Frosted
               </span>
               <span className="text-[10px] text-[var(--theme-text-muted)] font-medium -mt-1 hidden sm:inline">
-                Cozy games & study hub
+                Cozy Study & Games
               </span>
             </div>
           </button>
 
-          {/* Frosted Navigation Mode Tabs */}
+          {/* Navigation Mode Tabs */}
           <nav
             style={{
               backgroundColor: "var(--theme-surface)",
@@ -146,8 +149,30 @@ const Header = memo(function Header({
               }`}
             >
               <Gamepad2 size={15} className={isHome ? "text-[var(--theme-text-accent)]" : ""} />
-              <span>Games</span>
+              <span>Catalog</span>
             </button>
+
+            {/* Headless SDK Workbench Tab */}
+            {onSdkClick && (
+              <button
+                id="nav-sdk-btn"
+                type="button"
+                onClick={onSdkClick}
+                style={{
+                  backgroundColor: isSdk ? "var(--theme-accent)" : "transparent",
+                  borderColor: isSdk ? "var(--theme-border)" : "transparent",
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer ${
+                  isSdk
+                    ? "text-white shadow-md ring-1 ring-white/20 bg-[var(--theme-accent)]"
+                    : "text-indigo-300 hover:text-white hover:bg-white/5"
+                }`}
+                title="Headless SDK Workbench"
+              >
+                <Zap size={15} className={isSdk ? "text-amber-300 animate-bounce" : "text-indigo-400"} />
+                <span>SDK Workbench</span>
+              </button>
+            )}
 
             {/* Social Chat Tab */}
             <button
@@ -254,7 +279,7 @@ const Header = memo(function Header({
               type="text"
               value={searchQuery}
               onChange={handleInputChange}
-              placeholder="Search library..."
+              placeholder="Search games..."
               style={{
                 backgroundColor: "var(--theme-surface)",
                 borderColor: "var(--theme-border-subtle)",
@@ -374,25 +399,6 @@ const Header = memo(function Header({
             />
             <span className="text-xs font-semibold hidden md:inline">Theme</span>
           </button>
-
-          {/* Lumin Raw Images Extractor Button */}
-          {onOpenLuminImages && (
-            <button
-              id="frosted-lumin-images-btn"
-              type="button"
-              onClick={onOpenLuminImages}
-              style={{
-                backgroundColor: "var(--theme-surface)",
-                borderColor: "var(--theme-border-subtle)",
-              }}
-              className="h-9 px-3 rounded-xl border text-white transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-sm hover:border-[var(--theme-border-strong)] active:scale-95 shrink-0"
-              title="LuminSDK Raw Game Images Extractor"
-              aria-label="LuminSDK Raw Images"
-            >
-              <ImageIcon size={15} className="text-cyan-400" />
-              <span className="text-xs font-bold text-cyan-300 hidden xl:inline">Raw Images</span>
-            </button>
-          )}
 
           {/* Settings Button */}
           <button

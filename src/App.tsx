@@ -2,9 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback, useDeferredValue } fr
 import { motion, AnimatePresence } from "motion/react";
 import { Game } from "./types";
 import { fetchGamesList, getUniqueTags, isFnfGame, isFnfMod, deduplicateGames, formatTagLabel } from "./utils";
-import { fetchLuminGames, getLocalLuminGames, fetchLuminSessionId, getLocalLuminGamesWithSession } from "./lumin";
+import { fetchLuminGames } from "./lumin";
 import Header from "./components/Header";
 import GameGrid from "./components/GameGrid";
+import LuminGames from "./components/LuminGames";
 import GamePlayer from "./components/GamePlayer";
 import Chat from "./components/Chat";
 import AIAssistant from "./components/AIAssistant";
@@ -102,12 +103,9 @@ function AppContent() {
   const [games, setGames] = useState<Game[]>(() => {
     const catalogPrepared = (localZones as Game[])
       .filter((g) => g.id !== -1 && g.name !== "-3" && g.id !== 816)
-      .map((g) => prepareGame(g, "catalog"));
-    const luminPrepared = getLocalLuminGames()
-      .filter((g) => g.name !== "-3" && g.id !== 816)
-      .map((g) => prepareGame(g, "luminsdk"));
-    const catalog = deduplicateGames(catalogPrepared, luminPrepared).sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
-    return [SOUNDBOARD_GAME, ...catalog];
+      .map((g) => prepareGame(g, "catalog"))
+      .sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
+    return [SOUNDBOARD_GAME, ...catalogPrepared];
   });
   const [loadingLive, setLoadingLive] = useState(true);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
@@ -198,13 +196,6 @@ function AppContent() {
         let luminList: Game[] = [];
         if (luminGamesResult.status === "fulfilled" && luminGamesResult.value.length > 0) {
           luminList = luminGamesResult.value;
-        } else {
-          const freshSessionId = await fetchLuminSessionId();
-          if (freshSessionId) {
-            luminList = getLocalLuminGamesWithSession(freshSessionId);
-          } else {
-            luminList = getLocalLuminGames();
-          }
         }
 
         const luminPrepared = luminList.map((g) => prepareGame(g, "luminsdk"));
@@ -305,6 +296,7 @@ function AppContent() {
   const quickPillTags = [
     { id: "all", label: "All Games" },
     { id: "favorites", label: "Favorites", isHeart: true },
+    { id: "luminsdk", label: "LuminSDK" },
     { id: "action", label: "Action" },
     { id: "retro", label: "Retro" },
     { id: "arcade", label: "Arcade" },
@@ -507,12 +499,16 @@ function AppContent() {
               </div>
             </div>
 
-            <GameGrid
-              games={processedGames}
-              onSelectGame={handleSelectGame}
-              favoriteIds={favoriteIds}
-              onToggleFavorite={toggleFavorite}
-            />
+            {selectedTag === "luminsdk" ? (
+              <LuminGames theme="dark" />
+            ) : (
+              <GameGrid
+                games={processedGames}
+                onSelectGame={handleSelectGame}
+                favoriteIds={favoriteIds}
+                onToggleFavorite={toggleFavorite}
+              />
+            )}
           </section>
         </motion.div>
 
@@ -560,7 +556,7 @@ function AppContent() {
           <AIAssistant />
         </motion.div>
 
-        {/* Music View (SoundCloud & yt-dlp) */}
+        {/* Music View */}
         <motion.div
           animate={{
             opacity: currentView === "music" ? 1 : 0,

@@ -108,7 +108,7 @@ let currentGlobalActivity: UserActivity = {
 };
 
 let lastPlayingTimestamp = 0;
-let activeCurrentView: "home" | "game" | "chat" | "assistant" | "music" = "home";
+let activeCurrentView: "home" | "game" | "chat" | "assistant" | "music" | "sdk" = "home";
 let cachedSelectedGame: { name: string; cover?: string } | null = null;
 let cachedVideoTitle: string | null = null;
 
@@ -283,7 +283,7 @@ export function useActivityTracker({
   activeChannel,
   activeVideoTitle,
 }: {
-  currentView: "home" | "game" | "chat" | "assistant" | "music";
+  currentView: "home" | "game" | "chat" | "assistant" | "music" | "sdk";
   selectedGame?: { name: string; cover?: string } | null;
   searchQuery?: string;
   selectedTag?: string;
@@ -297,6 +297,14 @@ export function useActivityTracker({
     activeCurrentView = currentView as any;
     if (selectedGame) cachedSelectedGame = selectedGame;
     if (activeVideoTitle) cachedVideoTitle = activeVideoTitle;
+
+    if (currentView === "sdk") {
+      updateGlobalActivity({
+        type: "scrolling",
+        text: "Testing Lumin Headless SDK",
+      });
+      return;
+    }
 
     if (currentView === "assistant") {
       updateGlobalActivity({

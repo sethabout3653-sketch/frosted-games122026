@@ -67,7 +67,6 @@ export async function extractDominantColor(
 
   return new Promise((resolve) => {
     const img = new Image();
-    img.crossOrigin = "Anonymous";
     img.src = imageUrl;
 
     img.onload = () => {

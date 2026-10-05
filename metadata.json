@@ -1,5 +1,5 @@
 {
-  "name": "Frosted Studying And Chat",
+  "name": "Frosted",
   "description": "A cozy study portal and games library with high-quality voice/video calls, game favorites, custom reactions, reactive color themes, and social chat.",
   "requestFramePermissions": [
     "microphone",

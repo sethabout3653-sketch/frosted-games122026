@@ -17,7 +17,8 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "luminsdk": ["./src/lib/lumin.ts"]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true,

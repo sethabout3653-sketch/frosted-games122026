@@ -2,18 +2,26 @@ import { Game } from "./types";
 import localZones from "./zones.json";
 
 export const COVER_BASE = "https://raw.githubusercontent.com/gn-math/covers/main";
-export const HTML_BASE = "https://rawcdn.githack.com/gn-math/html/main";
+export const HTML_BASE = "/api/game-frame";
 export const ASSETS_JSON_URL = "https://raw.githubusercontent.com/gn-math/assets/main/zones.json";
 
 /**
- * Normalizes a game's cover URL by replacing placeholders with raw.githack URLs.
+ * Normalizes a game's cover URL by replacing placeholders with raw URLs.
  */
 export function formatCoverUrl(cover: string): string {
   if (!cover) return "";
-  let url = cover;
+  let url = cover.trim();
   if (url.startsWith("http://")) url = url.replace("http://", "https://");
   
-  if (url.startsWith("https://")) return url;
+  if (url.startsWith("https://") || url.startsWith("data:") || url.startsWith("blob:")) {
+    return url;
+  }
+
+  // Handle pure ID or filename like "1" or "1.png"
+  if (/^\d+(\.png|\.jpg|\.webp)?$/i.test(url)) {
+    const cleanId = url.replace(/\.[^.]+$/, "");
+    return `${COVER_BASE}/${cleanId}.png`;
+  }
   
   return url
     .replace(/{COVER_URL}/g, COVER_BASE)
@@ -21,7 +29,8 @@ export function formatCoverUrl(cover: string): string {
 }
 
 /**
- * Normalizes a game's play URL by replacing placeholders with raw.githack URLs.
+ * Normalizes a game's play URL by routing HTML5 catalog games through the local /api/game-frame proxy.
+ * Eliminates cross-origin "refused to connect" and frame-ancestor blocking.
  */
 export function formatGameUrl(url: string): string {
   if (!url) return "";
@@ -30,7 +39,9 @@ export function formatGameUrl(url: string): string {
 
   const rawUrl = formattedUrl
     .replace(/{HTML_URL}/g, HTML_BASE)
-    .replace(/{COVER_URL}/g, COVER_BASE);
+    .replace(/{COVER_URL}/g, COVER_BASE)
+    .replace(/https?:\/\/rawcdn\.githack\.com\/gn-math\/html\/main/g, HTML_BASE)
+    .replace(/https?:\/\/raw\.githubusercontent\.com\/gn-math\/html\/main/g, HTML_BASE);
 
   return rawUrl;
 }

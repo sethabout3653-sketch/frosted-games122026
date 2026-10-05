@@ -707,7 +707,6 @@ musicRouter.get("/stream", async (req, res) => {
         if (!headersSent) {
           headersSent = true;
           res.setHeader("Content-Type", mode === "video" ? "video/mp4" : "audio/mpeg");
-          res.setHeader("Access-Control-Allow-Origin", "*");
           res.status(200);
         }
         res.write(chunk);

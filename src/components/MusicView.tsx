@@ -428,7 +428,7 @@ export default function MusicView({ isActive = true }: MusicViewProps) {
               </span>
             </h1>
             <p style={{ color: "var(--theme-text-muted)" }} className="text-xs mt-0.5 font-medium">
-              Powered by music.youtube.com & yt-dlp
+              Your personal study music space
             </p>
           </div>
         </div>

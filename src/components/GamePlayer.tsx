@@ -46,7 +46,23 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
   const [usingDirectUrl, setUsingDirectUrl] = useState(false);
   const [gameLoadError, setGameLoadError] = useState(false);
   const [isGameLoading, setIsGameLoading] = useState(true);
-  const [broadcastSoundboard, setBroadcastSoundboard] = useState<boolean>(true);
+  const [broadcastSoundboard, setBroadcastSoundboard] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("frosted_broadcast_soundboard");
+      if (saved !== null) return saved === "true";
+    } catch {}
+    return true;
+  });
+
+  const toggleBroadcast = useCallback(() => {
+    setBroadcastSoundboard((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("frosted_broadcast_soundboard", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   const playAndBroadcastSound = (soundUrl: string) => {
     // 1. Play locally in caller's browser
@@ -94,6 +110,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const luminContainerRef = useRef<HTMLDivElement>(null);
 
   // Dynamic real-time container dimensions for automatic fit math
   const [containerDimensions, setContainerDimensions] = useState<{ width: number; height: number }>({
@@ -101,7 +118,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
     height: 0,
   });
 
-  const isLuminGame = game.source === "luminsdk";
+  const isLuminGame = game.source === "luminsdk" || (typeof game.id === "string" && game.id.startsWith("lumin-")) || !!game.luminId;
   const isMod = game.isMod ?? isFnfMod(game.name, game.special);
   const isFnf = isFnfGame(game.name, game.special);
   const isSoundboard = game.id === "soundboard" || (game.name && game.name.toLowerCase().includes("soundboard"));
@@ -289,9 +306,31 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
     }, 4000);
 
     async function loadGame() {
-      // 1. For Lumin SDK games, fetch the authentic a.luminsdk.com/g/ URL
-      if (isLuminGame && game.luminId) {
-        const luminUrl = await getLuminGameUrl(game.luminId);
+      // For Soundboard, embed soundboardguys.com
+      if (isSoundboard) {
+        const sbUrl = game.url || "https://soundboardguys.com/";
+        if (!isCancelled) {
+          setGameUrl(sbUrl);
+          setRawGameUrl(sbUrl);
+          setUsingDirectUrl(true);
+          setGameLoadError(false);
+          setIsGameLoading(false);
+        }
+        return;
+      }
+
+      // 1. For Lumin SDK games, let the LuminSDK mount or resolve directly
+      if (isLuminGame) {
+        const luminId = game.luminId || (typeof game.id === "string" && game.id.startsWith("lumin-") ? game.id.slice("lumin-".length) : String(game.id));
+        if (luminContainerRef.current) {
+          const success = await embedLuminGame(luminContainerRef.current, luminId);
+          if (!isCancelled && success) {
+            setIsGameLoading(false);
+            setGameLoadError(false);
+            return;
+          }
+        }
+        const luminUrl = await getLuminGameUrl(luminId);
         if (!isCancelled && luminUrl) {
           setGameUrl(luminUrl);
           setRawGameUrl(luminUrl);
@@ -327,19 +366,6 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
         if (!isCancelled) {
           setGameUrl(catalogUrl);
           setRawGameUrl(directRaw);
-          setUsingDirectUrl(false);
-          setGameLoadError(false);
-          return;
-        }
-      }
-
-      // 4. Fallback slug mirror for Selenite games
-      if (game.luminId) {
-        const slug = game.luminId.includes("/") ? game.luminId.split("/").pop()! : game.luminId;
-        const targetUrl = `https://rawcdn.githack.com/selenite-cc/selenite-old/main/games/${slug}/index.html`;
-        if (!isCancelled) {
-          setGameUrl(targetUrl);
-          setRawGameUrl(targetUrl);
           setUsingDirectUrl(false);
           setGameLoadError(false);
           return;
@@ -392,17 +418,21 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
     focusGame();
   };
 
-  const handleReload = () => {
+  const handleReload = async () => {
     setIsGameLoading(true);
     setTimeout(() => setIsGameLoading(false), 3500);
     if (isLuminGame && game.luminId) {
-      if (gameUrl && iframeRef.current) {
-        iframeRef.current.src = gameUrl;
-      } else if (containerRef.current) {
-        closeLuminGame();
-        embedLuminGame(containerRef.current, game.luminId);
+      const freshUrl = await getLuminGameUrl(game.luminId);
+      if (freshUrl) {
+        setGameUrl(freshUrl);
+        setRawGameUrl(freshUrl);
+        if (iframeRef.current) {
+          iframeRef.current.src = freshUrl;
+        }
+        return;
       }
-    } else if (iframeRef.current && gameUrl) {
+    }
+    if (iframeRef.current && gameUrl) {
       iframeRef.current.src = gameUrl;
     }
   };
@@ -516,6 +546,24 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
               {favorited ? "Favorited" : "Favorite"}
             </span>
           </button>
+
+          {/* Soundboard Voice Broadcast Toggle */}
+          {isSoundboard && (
+            <button
+              id="player-broadcast-toggle-btn"
+              type="button"
+              onClick={toggleBroadcast}
+              className={`flex items-center gap-1.5 h-8 px-3 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                broadcastSoundboard
+                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30"
+                  : "bg-white/10 border-white/10 text-neutral-400 hover:bg-white/15 hover:text-neutral-200"
+              }`}
+              title={`Voice Call Audio Broadcast: ${broadcastSoundboard ? "ON" : "OFF"}`}
+            >
+              <span className={`w-2 h-2 rounded-full ${broadcastSoundboard ? "bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400" : "bg-neutral-500"}`} />
+              <span className="font-semibold">Broadcast to Call: {broadcastSoundboard ? "ON" : "OFF"}</span>
+            </button>
+          )}
         </div>
 
         {/* Center/Right Reactions & Actions */}
@@ -571,19 +619,33 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
                 }
           }
         >
-          {/* Embedded Game iframe */}
+          {/* LuminSDK Native Container (when embedding via direct SDK DOM injection) */}
+          {isLuminGame && !gameUrl && (
+            <div
+              id="games"
+              ref={luminContainerRef}
+              className="w-full h-full flex-1 rounded-2xl relative overflow-hidden"
+              style={{ width: "100%", height: "100%", minHeight: "100%", display: "block" }}
+            />
+          )}
+
+          {/* Embedded Game iframe (Universal Frame Player) */}
           {gameUrl && !gameLoadError && (
             <iframe
+              id="games"
               ref={iframeRef}
               src={gameUrl}
               title={`${game.name} game`}
               width="100%"
               height="100%"
-              onLoad={() => setIsGameLoading(false)}
+              onLoad={() => {
+                setIsGameLoading(false);
+                if (gameUrl) console.log("Game 1 URL:", gameUrl);
+              }}
               className="w-full h-full flex-1 border-0 rounded-2xl"
               style={{ width: "100%", height: "100%", minHeight: "100%", display: "block" }}
               scrolling="yes"
-              allow="autoplay; encrypted-media; fullscreen"
+              allow="autoplay; encrypted-media; fullscreen; microphone; camera; gamepad; pointer-lock; focus-without-user-activation *"
             />
           )}
 
@@ -622,11 +684,11 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
             )}
           </AnimatePresence>
           {gameLoadError && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950 p-6 text-center">
-              <p className="text-sm font-semibold text-white">This game could not be embedded here.</p>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950 p-6 text-center rounded-2xl">
+              <p className="text-sm font-semibold text-white">This game could not be embedded directly.</p>
               <p className="max-w-md text-xs text-neutral-400">The game host returned a 404 or blocked embedding. Open the original game page instead.</p>
-              <button onClick={handleOpenInNewTab} className="rounded-lg bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200">Open original game</button>
-              <button onClick={() => { setGameLoadError(false); setUsingDirectUrl(false); setGameUrl(formatGameUrl(game.url)); }} className="text-xs text-neutral-400 underline hover:text-white">Retry embed</button>
+              <button onClick={handleOpenInNewTab} className="rounded-lg bg-white px-4 py-2 text-xs font-bold text-black hover:bg-neutral-200 cursor-pointer">Open original game</button>
+              <button onClick={() => { setGameLoadError(false); setUsingDirectUrl(false); setGameUrl(formatGameUrl(game.url)); }} className="text-xs text-neutral-400 underline hover:text-white cursor-pointer">Retry embed</button>
             </div>
           )}
         </div>
@@ -647,7 +709,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
               </p>
             </div>
             <button
-              onClick={() => setBroadcastSoundboard(!broadcastSoundboard)}
+              onClick={toggleBroadcast}
               className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-lg ${
                 broadcastSoundboard
                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-emerald-500/10"
