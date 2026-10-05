@@ -95,7 +95,7 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, posi
       (u) =>
         u.username.toLowerCase().includes(q) ||
         (u.activity?.gameName || "").toLowerCase().includes(q) ||
-        (u.activity?.details || "").toLowerCase().includes(q)
+        (u.activity?.text || "").toLowerCase().includes(q)
     );
   }, [onlineUsers, searchQuery]);
 

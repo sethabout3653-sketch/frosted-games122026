@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback, useDeferredValue } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Game } from "./types";
-import { fetchGamesList, getUniqueTags, isFnfGame, isFnfMod, deduplicateGames, formatTagLabel } from "./utils";
+import { Game, ChatProfile } from "./types";
+import { fetchGamesList, getUniqueTags, isFnfGame, isFnfMod, deduplicateGames, inferGameGenres } from "./utils";
 import { fetchLuminGames } from "./lumin";
-import Header from "./components/Header";
+import Sidebar from "./components/Sidebar";
+import TopBar from "./components/TopBar";
+import GenreScroller from "./components/GenreScroller";
 import GameGrid from "./components/GameGrid";
-import LuminGames from "./components/LuminGames";
 import GamePlayer from "./components/GamePlayer";
 import Chat from "./components/Chat";
 import AIAssistant from "./components/AIAssistant";
@@ -16,7 +17,7 @@ import BackgroundEditor, { DEFAULT_BACKGROUND, AppBackground } from "./component
 import SettingsModal from "./components/SettingsModal";
 import LoadingScreen from "./components/LoadingScreen";
 import { applyTabCloak, getSavedTabCloak } from "./tabCloaks";
-import { useActivityTracker } from "./lib/activity-tracker";
+import { useActivityTracker, getSavedProfile } from "./lib/activity-tracker";
 import { applyTheme, getSavedTheme } from "./utils/theme";
 import localZones from "./zones.json";
 import { CallProvider, useCall } from "./context/CallContext";
@@ -25,7 +26,7 @@ import IncomingCallNotification from "./components/IncomingCallNotification";
 import ActiveCallModal from "./components/ActiveCallModal";
 import { useFavorites } from "./lib/favorites";
 import { purgeNonAllowedUsers } from "./lib/user-filter";
-import { Sparkles, Gamepad2, Shuffle, Heart, Flame, Compass, Play } from "lucide-react";
+import { X } from "lucide-react";
 
 const SOUNDBOARD_GAME: Game = {
   id: "soundboard",
@@ -34,12 +35,15 @@ const SOUNDBOARD_GAME: Game = {
   url: "https://soundboardguys.com/",
   author: "Soundboard Guys",
   source: "catalog",
-  special: ["all genres", "soundboard"],
+  special: ["all genres", "soundboard", "rhythm"],
 };
 
 function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog"): Game {
   const isFnf = isFnfGame(g.name, g.special);
   const isMod = isFnf && isFnfMod(g.name, g.special);
+
+  // Infer all accurate primary and secondary genres
+  const inferredGenres = inferGameGenres(g.name, g.special);
 
   let sTags = g.special
     ? [
@@ -49,6 +53,13 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
         }),
       ]
     : [];
+
+  // Merge inferred genres without duplicates
+  inferredGenres.forEach((gen) => {
+    if (!sTags.includes(gen)) {
+      sTags.push(gen);
+    }
+  });
 
   if (isMod) {
     sTags.unshift("fnf-mod");
@@ -80,6 +91,9 @@ function AppContent() {
   const [chatInitialTab, setChatInitialTab] = useState<"chat" | "voice" | "profile">("chat");
   const [autoJoinVoice, setAutoJoinVoice] = useState(false);
   const [activeVideoTitle, setActiveVideoTitle] = useState<string | null>(null);
+  const [profile, setProfile] = useState<ChatProfile | null>(getSavedProfile);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const { setOnOpenGroupVoice } = useCall();
 
   const handleVoiceSessionStarted = useCallback(() => {
@@ -98,6 +112,14 @@ function AppContent() {
       setAutoJoinVoice(true);
     });
   }, [setOnOpenGroupVoice]);
+
+  useEffect(() => {
+    const handleProfileUpdate = (e: any) => {
+      if (e.detail) setProfile(e.detail);
+    };
+    window.addEventListener("frosted_profile_updated", handleProfileUpdate);
+    return () => window.removeEventListener("frosted_profile_updated", handleProfileUpdate);
+  }, []);
 
   const [showStartup, setShowStartup] = useState(true);
   const [games, setGames] = useState<Game[]>(() => {
@@ -245,17 +267,13 @@ function AppContent() {
     document.documentElement.style.overflow = "";
   }, []);
 
-  const handleOpenChat = useCallback(() => {
-    setCurrentView("chat");
-  }, []);
-
-  const handleOpenAssistant = useCallback(() => {
-    setCurrentView("assistant");
-  }, []);
-
-  const handleOpenMusic = useCallback(() => {
-    setCurrentView("music");
-  }, []);
+  const handleNavigate = useCallback((view: "home" | "chat" | "assistant" | "music") => {
+    if (view === "home" && selectedGame) {
+      setSelectedGame(null);
+    }
+    setCurrentView(view);
+    setIsMobileSidebarOpen(false);
+  }, [selectedGame]);
 
   const handleRandomGame = useCallback(() => {
     if (games.length === 0) return;
@@ -292,27 +310,6 @@ function AppContent() {
 
   const isSoundboardActive = currentView === "game" && (selectedGame?.id === "soundboard" || selectedGame?.name?.toLowerCase().includes("soundboard"));
 
-  // Popular quick tags for pill filter row
-  const quickPillTags = [
-    { id: "all", label: "All Games" },
-    { id: "favorites", label: "Favorites", isHeart: true },
-    { id: "luminsdk", label: "LuminSDK" },
-    { id: "action", label: "Action" },
-    { id: "retro", label: "Retro" },
-    { id: "arcade", label: "Arcade" },
-    { id: "puzzle", label: "Puzzle" },
-    { id: "fnf", label: "FNF" },
-    { id: "2-player", label: "2-Player" },
-    { id: "driving", label: "Driving" },
-    { id: "shooting", label: "Shooting" },
-    { id: "soundboard", label: "Soundboard" },
-  ];
-
-  // Featured spotlight games for hero section
-  const spotlightGame = useMemo(() => {
-    return games.find((g) => g.name.toLowerCase().includes("slope") || g.name.toLowerCase().includes("geometry dash") || g.name.toLowerCase().includes("retro arcade") || g.name.toLowerCase().includes("soundboard")) || games[0];
-  }, [games]);
-
   return (
     <>
       <AnimatePresence mode="wait">
@@ -320,303 +317,221 @@ function AppContent() {
           <LoadingScreen onComplete={() => setShowStartup(false)} />
         )}
       </AnimatePresence>
-      <div id="app-root" className={`${(currentView === "game" && !isSoundboardActive) || currentView === "chat" || currentView === "assistant" ? "h-screen overflow-hidden" : "min-h-screen"} ${showStartup ? "pointer-events-none select-none" : ""} text-white antialiased font-sans flex flex-col selection:bg-white/20 selection:text-white`} style={{ background: background.type === "image" ? `url(${background.value}) center / cover fixed` : background.value }}>
-      
-      {/* Interactive Top Header Component */}
-      <Header
-        searchQuery={searchQuery}
-        setSearchQuery={handleSearchChange}
-        selectedTag={selectedTag}
-        setSelectedTag={handleTagChange}
-        tags={tags}
-        currentView={currentView}
-        onGoHome={handleBackToHub}
-        onChatClick={handleOpenChat}
-        onAssistantClick={handleOpenAssistant}
-        onMusicClick={handleOpenMusic}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenTheme={() => setIsThemeOpen(true)}
-        onRandomGame={handleRandomGame}
-      />
 
-      {/* Main Content Area */}
-      <main className={`flex-1 w-full flex flex-col relative ${isSoundboardActive ? "min-h-0 overflow-visible" : "min-h-0"}`}>
-        
-        {/* Game Player View */}
-        <motion.div 
-          animate={{
-            opacity: (currentView === "game" && selectedGame) ? 1 : 0,
-            y: (currentView === "game" && selectedGame) ? 0 : 16,
-            scale: (currentView === "game" && selectedGame) ? 1 : 0.99,
-          }}
-          initial={{ opacity: 0, y: 16, scale: 0.99 }}
-          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          style={{ 
-            pointerEvents: (currentView === "game" && selectedGame) ? "auto" : "none",
-            transform: "translateZ(0)"
-          }}
-          className={`flex-1 w-full flex flex-col ${isSoundboardActive ? "min-h-0 overflow-visible" : "min-h-0"} ${(currentView === "game" && selectedGame) ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
-        >
-          {selectedGame && (
-            <GamePlayer
-              game={selectedGame}
-              onBack={handleBackToHub}
-            />
+      <div
+        id="app-root"
+        className={`h-screen w-screen overflow-hidden ${
+          showStartup ? "pointer-events-none select-none" : ""
+        } text-white antialiased font-sans flex flex-row selection:bg-white/20 selection:text-white`}
+        style={{
+          background:
+            background.type === "image"
+              ? `url(${background.value}) center / cover fixed`
+              : background.value,
+        }}
+      >
+        {/* Desktop Left Sidebar Rail */}
+        <div className="hidden md:flex h-full shrink-0">
+          <Sidebar
+            currentView={currentView}
+            onNavigate={handleNavigate}
+            selectedTag={selectedTag}
+            onSelectTag={handleTagChange}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenTheme={() => setIsThemeOpen(true)}
+            profile={profile}
+            collapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+          />
+        </div>
+
+        {/* Mobile Slide-Over Sidebar Drawer */}
+        <AnimatePresence>
+          {isMobileSidebarOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsMobileSidebarOpen(false)}
+                className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 md:hidden"
+              />
+              <motion.div
+                initial={{ x: "-100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "-100%" }}
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                className="fixed inset-y-0 left-0 w-64 z-50 md:hidden shadow-2xl flex flex-col"
+              >
+                <div className="absolute top-3 right-3 z-50">
+                  <button
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    className="p-1.5 rounded-lg text-neutral-400 hover:text-white bg-black/40 border border-white/10"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <Sidebar
+                  currentView={currentView}
+                  onNavigate={handleNavigate}
+                  selectedTag={selectedTag}
+                  onSelectTag={handleTagChange}
+                  onOpenSettings={() => {
+                    setIsMobileSidebarOpen(false);
+                    setIsSettingsOpen(true);
+                  }}
+                  onOpenTheme={() => {
+                    setIsMobileSidebarOpen(false);
+                    setIsThemeOpen(true);
+                  }}
+                  profile={profile}
+                  collapsed={false}
+                />
+              </motion.div>
+            </>
           )}
-        </motion.div>
+        </AnimatePresence>
 
-        {/* Catalog Grid View */}
-        <motion.div 
-          animate={{
-            opacity: currentView === "home" ? 1 : 0,
-            y: currentView === "home" ? 0 : 16,
-            scale: currentView === "home" ? 1 : 0.99,
-          }}
-          initial={{ opacity: 0, y: 0, scale: 1 }}
-          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          style={{ 
-            pointerEvents: currentView === "home" ? "auto" : "none",
-            transform: "translateZ(0)"
-          }}
-          className={`w-full max-w-7xl mx-auto px-4 py-5 md:px-8 flex-1 flex flex-col gap-6 ${currentView === "home" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
-        >
-          {/* Spotlight Hero Banner (Visible when not actively searching) */}
-          {!searchQuery && selectedTag === "all" && spotlightGame && (
+        {/* Central Main Viewport */}
+        <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
+          {/* Top Command & Search Bar */}
+          <TopBar
+            searchQuery={searchQuery}
+            onSearchChange={handleSearchChange}
+            selectedTag={selectedTag}
+            onSelectTag={handleTagChange}
+            tags={tags}
+            totalGamesCount={games.length}
+            onRandomGame={handleRandomGame}
+            onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
+          />
+
+          {/* Viewport Content Area */}
+          <main
+            className={`flex-1 w-full flex flex-col relative ${
+              isSoundboardActive || currentView === "home" ? "overflow-y-auto" : "overflow-hidden"
+            } custom-scrollbar`}
+          >
+            {/* 1. Game Player View */}
             <div
-              style={{
-                backgroundColor: "var(--theme-surface)",
-                borderColor: "var(--theme-border)",
-              }}
-              className="relative overflow-hidden rounded-3xl border p-5 sm:p-7 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-6 group"
+              className={`flex-1 w-full flex flex-col ${
+                currentView === "game" && selectedGame
+                  ? "flex"
+                  : "hidden"
+              }`}
             >
-              {/* Glow Accent Backdrop */}
-              <div
-                className="absolute -right-16 -top-16 w-80 h-80 rounded-full blur-3xl opacity-30 pointer-events-none"
-                style={{ backgroundColor: "var(--theme-accent-hover)" }}
+              {selectedGame && <GamePlayer game={selectedGame} onBack={handleBackToHub} />}
+            </div>
+
+            {/* 2. Catalog Grid View */}
+            <div
+              className={`w-full max-w-7xl mx-auto px-3 sm:px-6 py-4 flex-1 flex flex-col gap-4 ${
+                currentView === "home"
+                  ? "flex"
+                  : "hidden"
+              }`}
+            >
+              {/* Top Dedicated Genre Scroller */}
+              <GenreScroller
+                selectedTag={selectedTag}
+                onSelectTag={handleTagChange}
+                games={games}
+                favoriteCount={favoriteIds.size}
               />
 
-              <div className="flex-1 space-y-2.5 z-10 text-center sm:text-left">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase text-indigo-300 bg-indigo-500/15 border border-indigo-500/30">
-                  <Flame size={13} className="text-indigo-400" />
-                  <span>Featured Quick Launch</span>
-                </div>
-                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                  {spotlightGame.name}
-                </h1>
-                <p className="text-xs sm:text-sm text-neutral-300 max-w-xl font-normal leading-relaxed">
-                  Jump right into popular titles or explore the library of {games.length.toLocaleString()} unblocked games, social chat rooms, and study tools.
-                </p>
-
-                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 pt-2">
-                  <button
-                    onClick={() => handleSelectGame(spotlightGame)}
-                    style={{
-                      backgroundColor: "var(--theme-accent)",
-                      borderColor: "var(--theme-border-strong)",
-                    }}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-2xl border text-xs font-bold text-white shadow-lg hover:border-white/40 hover:scale-102 active:scale-98 transition-all cursor-pointer"
-                  >
-                    <Play size={14} className="fill-white" />
-                    <span>Play Now</span>
-                  </button>
-
-                  <button
-                    onClick={handleRandomGame}
-                    style={{
-                      backgroundColor: "var(--theme-darkest)",
-                      borderColor: "var(--theme-border-subtle)",
-                    }}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border text-xs font-bold text-neutral-200 hover:text-white hover:border-[var(--theme-border)] hover:bg-white/5 active:scale-98 transition-all cursor-pointer"
-                  >
-                    <Shuffle size={14} className="text-indigo-400" />
-                    <span>Surprise Me</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Spotlight Thumbnail Card */}
-              {spotlightGame.cover && (
-                <div
-                  onClick={() => handleSelectGame(spotlightGame)}
-                  style={{ borderColor: "var(--theme-border-strong)" }}
-                  className="w-32 h-32 sm:w-40 sm:h-40 rounded-2xl border overflow-hidden shadow-2xl shrink-0 cursor-pointer group-hover:scale-105 transition-transform duration-300 relative bg-black/60"
-                >
-                  <img
-                    src={spotlightGame.cover}
-                    alt={spotlightGame.name}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                  <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Play size={24} className="fill-white text-white drop-shadow-md" />
+              <section id="games-catalog-section" className="flex-1 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xs sm:text-sm font-bold tracking-wider uppercase text-neutral-300">
+                      <span>Library ({processedGames.length.toLocaleString()})</span>
+                    </h2>
+                    {searchQuery && (
+                      <span className="text-xs text-neutral-400 font-normal">
+                        matching &ldquo;{searchQuery}&rdquo;
+                      </span>
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
-          )}
 
-          {/* Quick Genre Filter Pills */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar no-scrollbar select-none">
-            {quickPillTags.map((pill) => {
-              const isPillActive = selectedTag === pill.id;
-              return (
-                <button
-                  key={pill.id}
-                  onClick={() => handleTagChange(pill.id)}
-                  style={{
-                    backgroundColor: isPillActive
-                      ? (pill.isHeart ? "rgba(244, 63, 94, 0.25)" : "var(--theme-accent)")
-                      : "var(--theme-surface)",
-                    borderColor: isPillActive
-                      ? (pill.isHeart ? "rgba(244, 63, 94, 0.7)" : "var(--theme-border-strong)")
-                      : "var(--theme-border-subtle)",
-                  }}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold whitespace-nowrap transition-all duration-200 cursor-pointer shrink-0 shadow-sm active:scale-95 ${
-                    isPillActive
-                      ? (pill.isHeart ? "text-rose-300 ring-1 ring-rose-500/40" : "text-white ring-1 ring-white/20")
-                      : "text-neutral-400 hover:text-white hover:bg-white/5"
-                  }`}
-                >
-                  {pill.isHeart && <Heart size={12} className={isPillActive ? "fill-rose-400 text-rose-400" : "text-rose-400"} />}
-                  <span>{pill.label}</span>
-                </button>
-              );
-            })}
-          </div>
+                <GameGrid
+                  games={processedGames}
+                  onSelectGame={handleSelectGame}
+                  favoriteIds={favoriteIds}
+                  onToggleFavorite={toggleFavorite}
+                />
+              </section>
 
-          {/* Catalog Grid View */}
-          <section id="games-catalog-section" className="flex-1 flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <h2 className="text-sm sm:text-base font-bold tracking-wider uppercase text-white flex items-center gap-2">
-                  <span>Library ({processedGames.length.toLocaleString()})</span>
-                </h2>
-                {searchQuery && (
-                  <span className="text-xs text-neutral-400 font-normal">
-                    for &ldquo;{searchQuery}&rdquo;
-                  </span>
-                )}
-              </div>
+              {/* Clean Minimalist Footer */}
+              <footer className="mt-8 pt-4 pb-6 border-t border-[var(--theme-border-subtle)] text-center text-xs text-neutral-500">
+                <p>Frosted &bull; Unblocked Library & Social Rooms</p>
+              </footer>
             </div>
 
-            <GameGrid
-              games={processedGames}
-              onSelectGame={handleSelectGame}
-              favoriteIds={favoriteIds}
-              onToggleFavorite={toggleFavorite}
-            />
-          </section>
-        </motion.div>
-
-        {/* Discord Chat View */}
-        <motion.div 
-          animate={{
-            opacity: currentView === "chat" ? 1 : 0,
-            y: currentView === "chat" ? 0 : 16,
-            scale: currentView === "chat" ? 1 : 0.99,
-          }}
-          initial={{ opacity: 0, y: 16, scale: 0.99 }}
-          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          style={{ 
-            pointerEvents: currentView === "chat" ? "auto" : "none",
-            transform: "translateZ(0)"
-          }}
-          className={`flex-1 w-full flex flex-col min-h-0 ${currentView === "chat" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
-        >
-          <Chat
-            isOpen={currentView === "chat"}
-            onClose={handleBackToHub}
-            onOpenVoiceChat={handleOpenVoiceChat}
-            initialTab={chatInitialTab}
-            autoJoinVoice={autoJoinVoice}
-            onVoiceSessionStarted={handleVoiceSessionStarted}
-            persistent
-          />
-        </motion.div>
-
-        {/* AI Assistant View */}
-        <motion.div
-          animate={{
-            opacity: currentView === "assistant" ? 1 : 0,
-            y: currentView === "assistant" ? 0 : 16,
-            scale: currentView === "assistant" ? 1 : 0.99,
-          }}
-          initial={{ opacity: 0, y: 16, scale: 0.99 }}
-          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          style={{
-            pointerEvents: currentView === "assistant" ? "auto" : "none",
-            transform: "translateZ(0)",
-          }}
-          className={`flex-1 w-full flex flex-col min-h-0 ${currentView === "assistant" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
-        >
-          <AIAssistant />
-        </motion.div>
-
-        {/* Music View */}
-        <motion.div
-          animate={{
-            opacity: currentView === "music" ? 1 : 0,
-            y: currentView === "music" ? 0 : 16,
-            scale: currentView === "music" ? 1 : 0.99,
-          }}
-          initial={{ opacity: 0, y: 16, scale: 0.99 }}
-          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          style={{
-            pointerEvents: currentView === "music" ? "auto" : "none",
-            transform: "translateZ(0)",
-          }}
-          className={`flex-1 w-full flex flex-col min-h-0 ${currentView === "music" ? "" : "absolute inset-x-0 top-0 invisible h-0 overflow-hidden"}`}
-        >
-          <MusicView isActive={currentView === "music"} />
-        </motion.div>
-      </main>
-
-      {/* Footer Branding Area (Home & Music view) */}
-      {(currentView === "home" || currentView === "music") && (
-        <footer id="app-footer" className="border-t border-[var(--theme-border-subtle)] bg-[var(--theme-darkest)]/90 px-4 py-6 md:px-8 text-center text-xs text-[var(--theme-text-muted)] backdrop-blur-md transition-colors duration-200">
-          <div className="mx-auto max-w-7xl flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p className="font-medium text-neutral-300">
-              Frosted Studying &bull; Fast, cozy, unblocked study library & games.
-            </p>
-            <div className="flex flex-wrap gap-4 font-semibold text-[var(--theme-text-accent)]">
-              <a href="https://discord.gg/D4c9VFYWyU" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
-                Community
-              </a>
-              <span className="text-[var(--theme-border-subtle)]">|</span>
-              <a href="https://github.com/gn-math" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
-                GN-Math
-              </a>
+            {/* 3. Chat & Friends View */}
+            <div
+              className={`flex-1 w-full flex flex-col min-h-0 ${
+                currentView === "chat"
+                  ? "flex"
+                  : "hidden"
+              }`}
+            >
+              <Chat
+                isOpen={currentView === "chat"}
+                onClose={handleBackToHub}
+                onOpenVoiceChat={handleOpenVoiceChat}
+                initialTab={chatInitialTab}
+                autoJoinVoice={autoJoinVoice}
+                onVoiceSessionStarted={handleVoiceSessionStarted}
+                persistent
+              />
             </div>
-          </div>
-        </footer>
-      )}
-  <BackgroundEditor
-    background={background}
-    onChange={setBackground}
-    isOpen={isThemeOpen}
-    onOpenChange={setIsThemeOpen}
-  />
-  <SettingsModal
-    isOpen={isSettingsOpen}
-    onClose={() => setIsSettingsOpen(false)}
-    onOpenTheme={() => {
-      setIsSettingsOpen(false);
-      setIsThemeOpen(true);
-    }}
-  />
 
-  {/* Real-time P2P Call Modals & In-App Top Right Notification */}
-  <IncomingCallNotification />
-  <ActiveCallModal />
+            {/* 4. AI Study Assistant View */}
+            <div
+              className={`flex-1 w-full flex flex-col min-h-0 ${
+                currentView === "assistant"
+                  ? "flex"
+                  : "hidden"
+              }`}
+            >
+              <AIAssistant />
+            </div>
 
-  {/* Global Announcements Banner & Mod Alerts (Active across all pages) */}
-  <GlobalAnnouncements />
+            {/* 5. Music Lounge View */}
+            <div
+              className={`flex-1 w-full flex flex-col min-h-0 ${
+                currentView === "music"
+                  ? "flex"
+                  : "hidden"
+              }`}
+            >
+              <MusicView isActive={currentView === "music"} />
+            </div>
+          </main>
+        </div>
 
-  {/* Persistent Bottom Music Mini Dock */}
-  <MusicDock onExpand={handleOpenMusic} />
-  
-  </div>
-  </>
+        {/* Global Modals & Notifications */}
+        <BackgroundEditor
+          background={background}
+          onChange={setBackground}
+          isOpen={isThemeOpen}
+          onOpenChange={setIsThemeOpen}
+        />
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          onOpenTheme={() => {
+            setIsSettingsOpen(false);
+            setIsThemeOpen(true);
+          }}
+        />
+
+        <IncomingCallNotification />
+        <ActiveCallModal />
+        <GlobalAnnouncements />
+        <MusicDock onExpand={() => handleNavigate("music")} />
+      </div>
+    </>
   );
 }
 

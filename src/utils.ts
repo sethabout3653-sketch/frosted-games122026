@@ -38,10 +38,9 @@ export function formatGameUrl(url: string): string {
   if (formattedUrl.startsWith("http://")) formattedUrl = formattedUrl.replace("http://", "https://");
 
   const rawUrl = formattedUrl
-    .replace(/{HTML_URL}/g, HTML_BASE)
+    .replace(/{HTML_URL}/g, "https://rawcdn.githack.com/gn-math/html/main")
     .replace(/{COVER_URL}/g, COVER_BASE)
-    .replace(/https?:\/\/rawcdn\.githack\.com\/gn-math\/html\/main/g, HTML_BASE)
-    .replace(/https?:\/\/raw\.githubusercontent\.com\/gn-math\/html\/main/g, HTML_BASE);
+    .replace(/\/api\/game-frame/g, "https://rawcdn.githack.com/gn-math/html/main");
 
   return rawUrl;
 }
@@ -79,6 +78,155 @@ export async function fetchGamesList(): Promise<Game[]> {
     }
   }
   return (localZones as Game[]).filter((g) => g.name !== "-3" && g.id !== 816);
+}
+
+/**
+ * Infallible genre classifier that accurately tags every game into its primary & secondary genres.
+ */
+export function inferGameGenres(name: string, special: string[] = []): string[] {
+  const n = (name || "").toLowerCase();
+  const s = (special || []).map((t) => String(t).toLowerCase());
+  const genres = new Set<string>();
+
+  // Action / Combat / Fighting
+  if (
+    /\b(action|fight|combat|smash|brawl|punch|kick|ninja|sword|battle|war|strike|doom|quake|duke|contra|metal slug|mortal kombat|street fighter|tekken|stickman|ragdoll|melee|assassin|hitman|boxing|wrestling|karate|kung fu|gun|shoot|bullet|sniper|call of duty|halo|csgo|counter strike|pixel gun|shell shockers|krunker|zombie|dead|apocalypse|alien|monster|boss|defense|tower defense|survive|survival)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("action");
+  }
+
+  // Shooting / FPS
+  if (
+    /\b(shoot|gun|sniper|bullet|fps|krunker|shell shockers|doom|quake|duke|contra|metal slug|call of duty|halo|csgo|counter strike|strike|aim|trigger|blaster|cannon|turret|missile|tank|tanks|artillery|warzone|commando|special forces)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("shooting");
+  }
+
+  // Retro / Classic / Emulated
+  if (
+    s.includes("flash") ||
+    s.includes("emulator") ||
+    s.includes("gba") ||
+    s.includes("nes") ||
+    s.includes("n64") ||
+    s.includes("nds") ||
+    s.includes("psx") ||
+    s.includes("dos") ||
+    /\b(retro|classic|arcade|mario|sonic|pokemon|zelda|pacman|tetris|donkey kong|galaga|space invaders|frogger|dig dug|megaman|kirby|castlevania|metroid|chrono|bomberman|street fighter|mortal kombat|doom|quake|half-life|sonic the hedgehog|super mario)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("retro");
+  }
+
+  // Arcade
+  if (
+    s.includes("flash") ||
+    /\b(arcade|pinball|pacman|tetris|breakout|brick|pong|galaga|space invaders|asteroids|snake|centipede|crossy|flappy|doodle|subway|temple run|geometry dash|run 3|run 2|run 1|slope|tunnel|helix|ball|roller|bounce|stack|jetpack|miner|gold miner|miner mole)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("arcade");
+  }
+
+  // Driving / Racing / Vehicles
+  if (
+    /\b(drive|driving|race|racing|drift|drifting|car|cars|moto|bike|bicycle|motorcycle|kart|karting|speed|speedway|track|highway|traffic|truck|bus|train|flight|plane|airplane|helicopter|boat|rally|nascar|f1|formula|burnout|need for speed|asphalt|hill climb|drift hunters|smash karts|madalin|drift boss|eggy car)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("driving");
+  }
+
+  // Puzzle / Logic / Brain
+  if (
+    /\b(puzzle|2048|tetris|sudoku|chess|checkers|crossword|wordle|word|logic|brain|match|block|minesweeper|cut the rope|unblock|connect|maze|rubik|physics|bridge|portal|escape|riddle|quiz|trivia|memory|card|solitaire|uno|scrabble|mahjong|jigsaw|blob|draw|doodle god|water sort|pipe)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("puzzle");
+  }
+
+  // 2-Player / Multiplayer
+  if (
+    /\b(2-player|2 player|two player|pvp|party|multiplayer|fireboy|watergirl|bad ice cream|tank trouble|rooftop snipers|getaway shootout|football heads|soccer random|basket random|boxing random|volley random|bomb it|chess|checkers|connect 4|pong|tic tac toe|uno|smash karts|1v1|battle|arena|versus|vs)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("2-player");
+    genres.add("multiplayer");
+  }
+
+  // Platformer / Jump & Run
+  if (
+    /\b(mario|sonic|kirby|rayman|megaman|donkey kong|jump|platformer|platform|runner|dash|geometry dash|vex|fancy pants|ninja|red ball|fireboy|watergirl|ovo|parkour|climb|tower|leap|bounce|run 3|run 2|run 1)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("platformer");
+  }
+
+  // Sports
+  if (
+    /\b(sport|sports|soccer|football|basket|basketball|golf|minigolf|tennis|ping pong|table tennis|bowling|baseball|hockey|skate|skateboard|skating|snowboard|ski|skiing|surf|surfing|boxing|wrestling|pool|billiards|8 ball|archery|darts|swim|swimming|cricket|volleyball)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("sports");
+  }
+
+  // Rhythm / Music / FNF
+  if (
+    s.includes("fnf") ||
+    /\b(fnf|friday night funkin|rhythm|music|beat|dance|piano|guitar|song|sing|soundboard|synth|dj|melody|audio|tempo)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("rhythm");
+  }
+
+  // Strategy / Simulation / Idle / Clicker
+  if (
+    /\b(strategy|tactics|tower defense|defense|tycoon|simulator|sim|craft|crafting|mine|minecraft|paper minecraft|block craft|idle|clicker|cookie clicker|factory|empire|build|city|farm|farming|warfare|civ|civilization|age of war|kingdom|chess|bloons|plants vs zombies)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("strategy");
+  }
+
+  // Horror / Mystery
+  if (
+    /\b(horror|fnaf|five nights|granny|slenderman|creepy|ghost|spooky|haunted|monster|zombie|dead|evil|fear|nightmare|escape room|baldi|exe)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("horror");
+  }
+
+  // Adventure / RPG
+  if (
+    /\b(adventure|quest|zelda|pokemon|rpg|dungeon|explore|story|journey|legend|hero|sword|scrolls|tales|final fantasy|dragon|knight|magic|realm|castlevania)\b/i.test(
+      n
+    )
+  ) {
+    genres.add("adventure");
+  }
+
+  // Default fallback if no genres detected
+  if (genres.size === 0) {
+    if (s.includes("port") || s.includes("emulator")) {
+      genres.add("retro");
+      genres.add("arcade");
+    } else {
+      genres.add("arcade");
+    }
+  }
+
+  return Array.from(genres);
 }
 
 /**

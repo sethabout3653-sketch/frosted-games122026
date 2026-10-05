@@ -1564,11 +1564,9 @@ Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtf
             <div className="w-full max-w-4xl mx-auto py-8 sm:py-12 flex flex-col items-center text-center">
               {/* Persona Avatar Display */}
               <div
-                className="h-20 w-20 rounded-3xl flex items-center justify-center shadow-2xl mb-4 text-3xl shrink-0 overflow-hidden ring-4 ring-cyan-500/30 transition-transform hover:scale-105"
+                className="h-16 w-16 rounded-2xl flex items-center justify-center mb-3 text-2xl shrink-0 overflow-hidden border border-[var(--theme-border-strong)] transition-transform hover:scale-105"
                 style={{
-                  backgroundColor: `${activePersona.accentColor || "#38bdf8"}25`,
-                  borderColor: activePersona.accentColor || "#38bdf8",
-                  boxShadow: `0 0 25px ${activePersona.accentColor || "#38bdf8"}35`,
+                  backgroundColor: "var(--theme-surface)",
                 }}
               >
                 {isCustomIcon ? (

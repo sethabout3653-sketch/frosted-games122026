@@ -285,7 +285,7 @@ export default function ChatPanel({
       tag: userTag,
       photoURL: photo,
       status: "online",
-      customStatus: user.activity?.details || "Online & studying",
+      customStatus: user.activity?.text || user.activity?.gameName || "Online & studying",
       lastSeen: Date.now(),
     };
 

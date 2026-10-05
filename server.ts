@@ -5393,6 +5393,17 @@ Platform context:
       html = html.replace(/top\.location\.replace/g, "console.log");
       html = html.replace(/top\.location\.href\s*=/g, "location.href =");
 
+      // Inject Ruffle publicPath configuration so companion .wasm files always load from our unblocked proxy
+      const ruffleConfigScript = `<script>window.RufflePlayer = window.RufflePlayer || {}; window.RufflePlayer.config = Object.assign({ publicPath: "/api/proxy-ruffle/", polyfills: true, autoplay: "on", unmuteOverlay: "hidden", letterbox: "on" }, window.RufflePlayer.config || {});</script>`;
+      if (/<head[^>]*>/i.test(html)) {
+        html = html.replace(/<head[^>]*>/i, `$&${ruffleConfigScript}`);
+      } else {
+        html = `${ruffleConfigScript}${html}`;
+      }
+
+      // Proxy Ruffle flash player script if present so school firewalls don't block unpkg
+      html = html.replace(/https?:\/\/(?:unpkg\.com|cdn\.jsdelivr\.net\/npm|cdnjs\.cloudflare\.com\/ajax\/libs\/ruffle-rs)\/@?ruffle(?:-rs)?(?:\/[^"'\s>]+)?/gi, "/api/proxy-ruffle/ruffle.js");
+
       // Ensure proper <base href="..."> so relative assets (js, css, images) resolve accurately
       const hasBase = /<base\s+[^>]*href=/i.test(html);
       if (!hasBase) {
@@ -5479,8 +5490,8 @@ Platform context:
     }
   });
 
-  // Endpoint for resolving Lumin game URL
-  const luminGameUrlCache = new Map<string, { url: string; timestamp: number }>();
+  // Endpoint for resolving Lumin game URL using the official Lumin SDK API dynamically
+  const luminGameUrlCache = new Map<string, { url: string; directUrl: string; timestamp: number }>();
 
   app.get(["/api/lumin-game-url/:id(*)", "/api/lumin-game-url/*"], async (req, res) => {
     try {
@@ -5494,58 +5505,195 @@ Platform context:
 
       const cached = luminGameUrlCache.get(luminId);
       if (cached && Date.now() - cached.timestamp < 1000 * 60 * 30) {
-        return res.json({ url: cached.url });
+        return res.json({ url: cached.url, directUrl: cached.directUrl });
       }
 
       const sessionId = await getLuminSessionId();
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-      // Keep slashes intact for Lumin API (e.g. selenite/wordlebot)
       const cleanPath = luminId.split("/").map(encodeURIComponent).join("/");
       const upstreamRes = await fetch(`https://a.luminsdk.com/api/v1/games/${cleanPath}`, {
-        headers: { "Authorization": `Bearer ${sessionId}` },
-        signal: controller.signal,
+        headers: { Authorization: `Bearer ${sessionId}` },
       }).catch(() => null);
-      clearTimeout(timeoutId);
 
       const data: any = upstreamRes ? await upstreamRes.json().catch(() => null) : null;
+      let token = sessionId;
+      let subPath = cleanPath;
       if (data) {
-        if (data.url && typeof data.url === "string" && !data.url.includes("/f/")) {
-          luminGameUrlCache.set(luminId, { url: data.url, timestamp: Date.now() });
-          return res.json({ url: data.url, meta: data });
-        }
-
-        const token = data.frame_token || data.token || data.game_token || sessionId;
-        const subPath = (data.path || data.game_path || cleanPath).replace(/^\/+/, "");
-        // Direct format and proxied iframe format
-        const directUrl = `https://a.luminsdk.com/g/${token}/${subPath}`;
-        const embedUrl = `/api/lumin-frame/${encodeURIComponent(token)}/${subPath}`;
-        luminGameUrlCache.set(luminId, { url: embedUrl, timestamp: Date.now() });
-        return res.json({ url: embedUrl, directUrl, meta: data });
+        token = data.frame_token || data.token || data.game_token || sessionId;
+        subPath = (data.path || data.game_path || cleanPath).replace(/^\/+/, "");
       }
+      const directUrl = data?.url && !data.url.includes("/f/") ? data.url : `https://a.luminsdk.com/g/${token}/${subPath}`;
 
-      // Fallback: check if we have a catalog matching in zones.json
-      const cleanTarget = luminId.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const zonesFile = path.join(process.cwd(), "src", "zones.json");
-      if (fs.existsSync(zonesFile)) {
-        try {
-          const zones = JSON.parse(fs.readFileSync(zonesFile, "utf-8"));
-          const matched = zones.find((z: any) => {
-            const zClean = (z.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-            return zClean === cleanTarget || (zClean.length > 3 && cleanTarget.includes(zClean)) || (cleanTarget.length > 3 && zClean.includes(cleanTarget));
-          });
-          if (matched && matched.url) {
-            const fallbackUrl = matched.url.replace("{HTML_URL}", "/api/game-frame");
-            return res.json({ url: fallbackUrl });
-          }
-        } catch {}
-      }
+      luminGameUrlCache.set(luminId, { url: directUrl, directUrl, timestamp: Date.now() });
 
-      return res.status(404).json({ error: "Game frame not found for Lumin ID" });
+      return res.json({ url: directUrl, directUrl, meta: data });
     } catch (err: any) {
       console.error("Error fetching Lumin game URL:", err);
       return res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  // Dedicated CORS-Anywhere Proxy Handler (Self-hosted CORS Proxy compatibility)
+  const allowedCorsOrigins = [
+    "https://frosted-poop.duckdns.org",
+    "https://ais-dev-ikdhwvgoxlnsqwuuibmk5e-534577608781.us-west2.run.app",
+    "https://ais-pre-ikdhwvgoxlnsqwuuibmk5e-534577608781.us-west2.run.app",
+    "http://localhost:3000"
+  ];
+
+  app.all(["/api/cors/:targetUrl(*)", "/cors/:targetUrl(*)"], async (req, res) => {
+    try {
+      let target = (req.params as any).targetUrl || "";
+      if (req.originalUrl.includes("/cors/")) {
+        const idx = req.originalUrl.indexOf("/cors/");
+        target = req.originalUrl.slice(idx + 6);
+      }
+      if (!target) return res.status(400).send("Missing target URL to proxy");
+      if (!/^https?:\/\//i.test(target)) {
+        target = "https://" + target;
+      }
+
+      const reqOrigin = req.headers["origin"] || "";
+      const allowOrigin = allowedCorsOrigins.some(o => reqOrigin.startsWith(o)) ? reqOrigin : "*";
+
+      res.setHeader("Access-Control-Allow-Origin", allowOrigin);
+      res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "*");
+      res.removeHeader("X-Frame-Options");
+      res.removeHeader("Content-Security-Policy");
+
+      if (req.method === "OPTIONS") {
+        return res.status(200).end();
+      }
+
+      const fetchHeaders: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      };
+      if (req.headers["accept"]) fetchHeaders["Accept"] = req.headers["accept"] as string;
+      if (req.headers["range"]) fetchHeaders["Range"] = req.headers["range"] as string;
+
+      const upstream = await fetch(target, {
+        method: req.method,
+        headers: fetchHeaders,
+        body: ["POST", "PUT", "PATCH"].includes(req.method) ? JSON.stringify(req.body) : undefined,
+      }).catch(() => null);
+
+      if (!upstream) {
+        return res.status(502).send("Bad gateway or remote host unreachable");
+      }
+
+      const contentType = upstream.headers.get("content-type");
+      if (contentType) res.setHeader("Content-Type", contentType);
+
+      const arrayBuffer = await upstream.arrayBuffer();
+      return res.status(upstream.status).send(Buffer.from(arrayBuffer));
+    } catch (err: any) {
+      return res.status(500).send("Proxy error: " + (err?.message || err));
+    }
+  });
+
+  // Universal Game Proxy for LuminSDK and Web Games
+  // Proxies any game URL requested by the client or Lumin SDK, stripping iframe restrictions and X-Frame-Options
+  app.get(["/api/proxy", "/api/game-proxy"], async (req, res) => {
+    try {
+      const targetUrl = req.query.url as string;
+      if (!targetUrl) {
+        return res.status(400).send("Missing target URL to proxy");
+      }
+
+      let parsedTarget: URL;
+      try {
+        parsedTarget = new URL(targetUrl);
+      } catch {
+        return res.status(400).send("Invalid target URL");
+      }
+
+      const fetchHeaders: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      };
+      if (req.headers["accept"]) fetchHeaders["Accept"] = req.headers["accept"] as string;
+      if (req.headers["range"]) fetchHeaders["Range"] = req.headers["range"] as string;
+
+      let response = await fetch(targetUrl, { headers: fetchHeaders }).catch(() => null);
+
+      if (!response || !response.ok) {
+        if (!targetUrl.endsWith("/")) {
+          const retryRes = await fetch(`${targetUrl}/`, { headers: fetchHeaders }).catch(() => null);
+          if (retryRes && retryRes.ok) response = retryRes;
+        }
+      }
+
+      if (!response || !response.ok) {
+        // Fallback: check if we have a catalog matching in zones.json
+        const pathname = parsedTarget.pathname.replace(/^\/+(?:g\/[^/]+\/)?/, "");
+        const cleanTarget = pathname.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const zonesFile = path.join(process.cwd(), "src", "zones.json");
+        if (fs.existsSync(zonesFile)) {
+          try {
+            const zones = JSON.parse(fs.readFileSync(zonesFile, "utf-8"));
+            const matched = zones.find((z: any) => {
+              const zClean = (z.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+              return zClean === cleanTarget || (zClean.length > 3 && cleanTarget.includes(zClean)) || (cleanTarget.length > 3 && zClean.includes(cleanTarget));
+            });
+            if (matched && matched.url) {
+              const catalogTarget = matched.url.replace("{HTML_URL}", "/api/game-frame");
+              return res.redirect(catalogTarget);
+            }
+          } catch {}
+        }
+        return res.status(response?.status || 404).send(`Failed to proxy game URL: ${response?.statusText || "Not found"}`);
+      }
+
+      const contentType = response.headers.get("content-type") || "text/html";
+      res.removeHeader("X-Frame-Options");
+      res.removeHeader("Content-Security-Policy");
+      res.removeHeader("Cross-Origin-Resource-Policy");
+      res.removeHeader("Cross-Origin-Embedder-Policy");
+      res.removeHeader("Cross-Origin-Opener-Policy");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+
+      if (contentType.includes("text/html")) {
+        let html = await response.text();
+
+        // Calculate proxy base path for relative resources
+        const baseUrl = new URL("./", targetUrl).href;
+        const proxyBaseUrl = `/api/proxy?url=${encodeURIComponent(baseUrl)}`;
+        const baseTag = `<base href="${proxyBaseUrl}">`;
+
+        html = html.replace(/<base[^>]*>/gi, "");
+        if (/<head[^>]*>/i.test(html)) {
+          html = html.replace(/<head[^>]*>/i, `$&${baseTag}`);
+        } else {
+          html = `${baseTag}${html}`;
+        }
+
+        // Ruffle publicPath configuration
+        const ruffleConfigScript = `<script>window.RufflePlayer = window.RufflePlayer || {}; window.RufflePlayer.config = Object.assign({ publicPath: "/api/proxy-ruffle/", polyfills: true, autoplay: "on", unmuteOverlay: "hidden", letterbox: "on" }, window.RufflePlayer.config || {});</script>`;
+        if (/<head[^>]*>/i.test(html)) {
+          html = html.replace(/<head[^>]*>/i, `$&${ruffleConfigScript}`);
+        } else {
+          html = `${ruffleConfigScript}${html}`;
+        }
+
+        // Defang third-party ad scripts
+        html = html.replace(/<script[^>]*src=["'][^"']*(?:r9x\.in|adnxs|doubleclick|googlesyndication|adservice|googletagmanager)[^"']*["'][^>]*><\/script>/gi, "");
+        html = html.replace(/<script[^>]*>[\s\S]*?gtag\([\s\S]*?<\/script>/gi, "");
+
+        // Rewrite direct upstream script references
+        html = html.replace(/https?:\/\/(?:unpkg\.com|cdn\.jsdelivr\.net\/npm|cdnjs\.cloudflare\.com\/ajax\/libs\/ruffle-rs)\/@?ruffle(?:-rs)?(?:\/[^"'\s>]+)?/gi, "/api/proxy-ruffle/ruffle.js");
+        html = html.replace(/src=["']\/js\/all\.min\.js["']/gi, `src="/js/all.min.js"`);
+
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        return res.send(html);
+      }
+
+      res.setHeader("Content-Type", contentType);
+      res.removeHeader("Content-Encoding");
+      const arrayBuf = await response.arrayBuffer();
+      return res.send(Buffer.from(arrayBuf));
+    } catch (e: any) {
+      console.error("Universal game proxy error:", e);
+      return res.status(500).send(e?.message || String(e));
     }
   });
 
@@ -5655,6 +5803,14 @@ Platform context:
           html = `${baseTag}${html}`;
         }
 
+        // Inject Ruffle publicPath configuration so companion .wasm files always load from our unblocked proxy
+        const ruffleConfigScript = `<script>window.RufflePlayer = window.RufflePlayer || {}; window.RufflePlayer.config = Object.assign({ publicPath: "/api/proxy-ruffle/", polyfills: true, autoplay: "on", unmuteOverlay: "hidden", letterbox: "on" }, window.RufflePlayer.config || {});</script>`;
+        if (/<head[^>]*>/i.test(html)) {
+          html = html.replace(/<head[^>]*>/i, `$&${ruffleConfigScript}`);
+        } else {
+          html = `${ruffleConfigScript}${html}`;
+        }
+
         // Defang third-party ad/tracking scripts that stall or fail on school firewalls
         html = html.replace(/<script[^>]*src=["'][^"']*(?:r9x\.in|adnxs|doubleclick|googlesyndication|adservice|googletagmanager)[^"']*["'][^>]*><\/script>/gi, "");
         html = html.replace(/<script[^>]*>[\s\S]*?gtag\([\s\S]*?<\/script>/gi, "");
@@ -5664,13 +5820,32 @@ Platform context:
         html = html.replace(/https:\/\/a\.luminsdk\.com\//g, "/api/lumin-frame/");
 
         // Proxy Ruffle flash player script if present so school firewalls don't block unpkg
-        html = html.replace(/https:\/\/unpkg\.com\/@ruffle-rs\/ruffle/g, "/api/proxy-ruffle");
+        html = html.replace(/https?:\/\/(?:unpkg\.com|cdn\.jsdelivr\.net\/npm|cdnjs\.cloudflare\.com\/ajax\/libs\/ruffle-rs)\/@?ruffle(?:-rs)?(?:\/[^"'\s>]+)?/gi, "/api/proxy-ruffle/ruffle.js");
 
         // Ensure /js/all.min.js doesn't 404
         html = html.replace(/src=["']\/js\/all\.min\.js["']/gi, `src="/api/lumin-frame/${encodeURIComponent(token)}/js/all.min.js"`);
 
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         return res.send(html);
+      }
+
+      // Fallback for Ruffle WASM files if upstream 404s
+      if (!response || !response.ok) {
+        if (subPath.endsWith(".wasm")) {
+          const wasmFilename = path.basename(subPath);
+          const ruffleRes = await fetch(`https://unpkg.com/@ruffle-rs/ruffle@0.6.0/${wasmFilename}`, {
+            headers: { "User-Agent": "Mozilla/5.0" },
+          }).catch(() => null);
+          if (ruffleRes && ruffleRes.ok) {
+            res.setHeader("Content-Type", "application/wasm");
+            res.setHeader("Cache-Control", "public, max-age=86400");
+            res.setHeader("Access-Control-Allow-Origin", "*");
+            res.removeHeader("Content-Encoding");
+            const buf = await ruffleRes.arrayBuffer();
+            return res.send(Buffer.from(buf));
+          }
+        }
+        return res.status(response?.status || 404).send(`Failed to fetch Lumin game frame: ${response?.statusText || "Not found"}`);
       }
 
       // Handle binary assets (WASM, .unityweb, SWF, audio, images, data packs)
@@ -5689,20 +5864,45 @@ Platform context:
     }
   });
 
-  // Dedicated proxy for unpkg Ruffle (Flash Player) for school Chromebooks
-  app.get("/api/proxy-ruffle", async (_req, res) => {
+  // Dedicated proxy for unpkg Ruffle (Flash Player) & WASM components for school Chromebooks
+  app.get(["/api/proxy-ruffle", "/api/proxy-ruffle/:path(*)", "/*.wasm", "/:file(*.wasm)"], async (req, res, next) => {
     try {
-      const resp = await fetch("https://unpkg.com/@ruffle-rs/ruffle", {
-        headers: { "User-Agent": "Mozilla/5.0" },
-      });
-      if (resp.ok) {
-        res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+      const fullPath = req.path;
+      let subPath = (req.params as any).path || (req.params as any).file || "";
+      if (!subPath && fullPath.startsWith("/api/proxy-ruffle/")) {
+        subPath = fullPath.slice("/api/proxy-ruffle/".length);
+      }
+      if (!subPath && fullPath.endsWith(".wasm")) {
+        subPath = path.basename(fullPath);
+      }
+      if (!subPath || subPath === "ruffle.js") {
+        subPath = "ruffle.js";
+      }
+
+      const upstreamUrl = `https://unpkg.com/@ruffle-rs/ruffle@0.6.0/${subPath}`;
+      const resp = await fetch(upstreamUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+      }).catch(() => null);
+
+      if (resp && resp.ok) {
+        let contentType = resp.headers.get("content-type") || "application/octet-stream";
+        if (subPath.endsWith(".wasm")) contentType = "application/wasm";
+        if (subPath.endsWith(".js")) contentType = "application/javascript; charset=utf-8";
+
+        res.setHeader("Content-Type", contentType);
         res.setHeader("Cache-Control", "public, max-age=86400");
         res.setHeader("Access-Control-Allow-Origin", "*");
-        return res.send(await resp.text());
+        res.removeHeader("X-Frame-Options");
+        res.removeHeader("Content-Security-Policy");
+        res.removeHeader("Content-Encoding");
+
+        const arrayBuf = await resp.arrayBuffer();
+        return res.send(Buffer.from(arrayBuf));
       }
-    } catch {}
-    res.status(502).send("// Ruffle proxy unavailable");
+    } catch (e) {
+      console.warn("Ruffle proxy error:", e);
+    }
+    next();
   });
 
   // Universal Root Proxy for EmulatorJS and Lumin Game Assets (/resources/*, /patch/*)
