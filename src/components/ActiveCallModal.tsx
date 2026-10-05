@@ -141,7 +141,7 @@ export default function ActiveCallModal() {
               <img
                 src={
                   outgoingCall.targetPhotoURL ||
-                  `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(outgoingCall.targetName)}`
+                  `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(outgoingCall.targetName)}`
                 }
                 alt={outgoingCall.targetName}
                 className="w-full h-full object-cover"
@@ -208,7 +208,7 @@ export default function ActiveCallModal() {
               <img
                 src={
                   activeCall.partnerPhotoURL ||
-                  `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(activeCall.partnerName)}`
+                  `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(activeCall.partnerName)}`
                 }
                 alt={activeCall.partnerName}
                 className="w-full h-full object-cover"
@@ -372,7 +372,7 @@ export default function ActiveCallModal() {
                       <img
                         src={
                           activeCall.partnerPhotoURL ||
-                          `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(activeCall.partnerName)}`
+                          `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(activeCall.partnerName)}`
                         }
                         alt={activeCall.partnerName}
                         className="w-full h-full object-cover"
@@ -504,7 +504,7 @@ export default function ActiveCallModal() {
                   <img
                     src={
                       activeCall.partnerPhotoURL ||
-                      `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(activeCall.partnerName)}`
+                      `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(activeCall.partnerName)}`
                     }
                     alt={activeCall.partnerName}
                     className="w-full h-full object-cover"

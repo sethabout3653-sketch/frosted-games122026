@@ -75,11 +75,14 @@ export function getStoredFriends(): FriendProfile[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        // Filter out any leftover fake bots and ensure valid tag exists on every friend
+        // Filter out any fake bots and ensure human avatars and valid tag exists on every friend
         return parsed
-          .filter((f) => !f.isBot && !f.uid?.startsWith("user_bot_"))
+          .filter((f) => !f.isBot && !f.uid?.startsWith("user_bot_") && !f.uid?.includes("echo_bot"))
           .map((f) => ({
             ...f,
+            photoURL: (f.photoURL || "").includes("bottts")
+              ? f.photoURL.replace("bottts", "thumbs")
+              : (f.photoURL || `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(f.username || "User")}`),
             tag: f.tag || getOrCreateUserTag(f.username || "User"),
           }));
       }

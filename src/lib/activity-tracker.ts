@@ -18,7 +18,7 @@ export function getSavedProfile(): ChatProfile {
         uid: "user_" + uname.toLowerCase().replace(/[^a-z0-9]/g, ""),
         username: uname,
         tag: getOrCreateUserTag(uname),
-        photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(uname)}`,
+        photoURL: `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(uname)}`,
       };
     }
 
@@ -63,7 +63,7 @@ export function getSavedProfile(): ChatProfile {
     const randNum = Math.floor(100 + Math.random() * 900);
     const generatedUsername = `${randAdj}_${randNoun}_${randNum}`;
     const generatedUid = `user_${generatedUsername.toLowerCase()}_tab_${tabId}`;
-    const generatedPhoto = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(generatedUsername)}`;
+    const generatedPhoto = `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(generatedUsername)}`;
 
     const autoProfile: ChatProfile = {
       uid: generatedUid,
@@ -81,7 +81,7 @@ export function getSavedProfile(): ChatProfile {
       uid: `user_${fallbackName.toLowerCase()}`,
       username: fallbackName,
       tag: getOrCreateUserTag(fallbackName),
-      photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(fallbackName)}`,
+      photoURL: `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(fallbackName)}`,
     };
   }
 }

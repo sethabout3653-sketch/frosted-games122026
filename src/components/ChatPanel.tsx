@@ -842,7 +842,7 @@ export default function ChatPanel({
           voiceMembers.push({
             uid,
             username: uname,
-            photoURL: data.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(uname)}`,
+            photoURL: data.photoURL || `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(uname)}`,
             status: "online",
             lastSeen: ts,
             isMuted: Boolean(data.isMuted),

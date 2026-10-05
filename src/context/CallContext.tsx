@@ -134,6 +134,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const ringtoneStopRef = useRef<(() => void) | null>(null);
   const ringbackStopRef = useRef<(() => void) | null>(null);
   const callTimeoutRef = useRef<any>(null);
+  const echoAudioContextRef = useRef<AudioContext | null>(null);
+  const echoTimerRef = useRef<any>(null);
 
   // References to keep state accessible in async signal handlers without stale closures
   const activeCallRef = useRef<ActiveCallData | null>(null);
@@ -236,7 +238,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (ts > 0 && now - ts <= 75000) {
           const userPhoto =
             data.photoURL ||
-            `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(uname)}`;
+            `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(uname)}`;
 
           map.set(data.uid, {
             uid: data.uid,
@@ -262,6 +264,24 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (callTimeoutRef.current) {
       clearTimeout(callTimeoutRef.current);
       callTimeoutRef.current = null;
+    }
+
+    if (echoTimerRef.current) {
+      clearTimeout(echoTimerRef.current);
+      echoTimerRef.current = null;
+    }
+
+    if (echoAudioContextRef.current) {
+      try {
+        echoAudioContextRef.current.close();
+      } catch (e) {}
+      echoAudioContextRef.current = null;
+    }
+
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
     }
 
     if (ringtoneStopRef.current) {
@@ -522,7 +542,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const match = onlineUsersRef.current.find((u) => u.uid === sig.uid);
             callerPhoto =
               match?.photoURL ||
-              `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(callerName)}`;
+              `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(callerName)}`;
           }
 
           // Start musical ringtone loop in the background
@@ -1040,7 +1060,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           targetName: targetUser.username,
           targetPhotoURL:
             targetUser.photoURL ||
-            `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(targetUser.username)}`,
+            `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(targetUser.username)}`,
           callType: type,
           status: "ringing",
           timestamp: Date.now(),
@@ -1049,6 +1069,84 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         outgoingCallRef.current = outData;
         currentCallIdRef.current = callId;
         setOutgoingCall(outData);
+        setIsCallMenuOpen(false);
+
+        const isEchoCall =
+          targetUser.uid === "echo_bot_assistant" ||
+          targetUser.uid.startsWith("echo_") ||
+          targetUser.username.toLowerCase().includes("echo");
+
+        if (isEchoCall) {
+          // Echo Call Test: Ring realistically for 1.6 seconds, then automatically answer!
+          echoTimerRef.current = setTimeout(() => {
+            if (ringbackStopRef.current) {
+              ringbackStopRef.current();
+              ringbackStopRef.current = null;
+            }
+            if (callTimeoutRef.current) {
+              clearTimeout(callTimeoutRef.current);
+              callTimeoutRef.current = null;
+            }
+
+            playCallTone("connected");
+            setOutgoingCall(null);
+            outgoingCallRef.current = null;
+
+            const connectedCall: ActiveCallData = {
+              callId,
+              partnerUid: targetUser.uid,
+              partnerName: targetUser.username || "Echo Sound Test",
+              partnerPhotoURL:
+                targetUser.photoURL ||
+                "https://api.dicebear.com/7.x/thumbs/svg?seed=EchoSoundTest",
+              callType: type,
+              startTime: Date.now(),
+              isMuted: false,
+              isDeafened: false,
+              isCameraOn: type === "video",
+              isInitiator: true,
+            };
+            setActiveCall(connectedCall);
+            activeCallRef.current = connectedCall;
+
+            // Connect media stream for local video & waveform visualizers
+            setRemoteStream(stream);
+
+            // Connect delayed Web Audio loopback so user can test and hear their own microphone
+            try {
+              const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+              if (AudioCtx) {
+                const echoCtx = new AudioCtx();
+                echoAudioContextRef.current = echoCtx;
+                if (echoCtx.state === "suspended") {
+                  echoCtx.resume().catch(() => {});
+                }
+                const source = echoCtx.createMediaStreamSource(stream);
+                const delay = echoCtx.createDelay(3.0);
+                delay.delayTime.value = 0.5; // 500ms realistic echo delay
+                const gain = echoCtx.createGain();
+                gain.gain.value = 0.8;
+                source.connect(delay);
+                delay.connect(gain);
+                gain.connect(echoCtx.destination);
+              }
+            } catch (echoErr) {
+              console.warn("Failed to initialize echo loopback audio context:", echoErr);
+            }
+
+            // Spoken status notification to guide the user
+            try {
+              if (typeof window !== "undefined" && "speechSynthesis" in window) {
+                window.speechSynthesis.cancel();
+                const utt = new SpeechSynthesisUtterance("Echo sound test connected. Speak into your microphone to test your audio.");
+                utt.rate = 1.0;
+                window.speechSynthesis.speak(utt);
+              }
+            } catch (e) {}
+          }, 1600);
+
+          return;
+        }
 
         // Send direct signal targeted to this specific user
         sendBroadcastSignal({
@@ -1059,11 +1157,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           callerName: myProf.username,
           callerPhotoURL:
             myProf.photoURL ||
-            `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(myProf.username)}`,
+            `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(myProf.username)}`,
           callType: type,
         });
-
-        setIsCallMenuOpen(false);
 
         // 35s timeout if no answer
         callTimeoutRef.current = setTimeout(() => {

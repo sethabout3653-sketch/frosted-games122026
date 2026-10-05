@@ -39,12 +39,11 @@ import {
   getStoredDMMessages,
   saveStoredDMMessages,
   getOrCreateUserTag,
-  generateBotDMResponse,
-  DEFAULT_STUDY_BUDDIES,
 } from "../lib/friends";
 import { ChatProfile } from "../types";
 import { useCall } from "../context/CallContext";
 import { playChatSound } from "../lib/ringtone-synthesizer";
+import { sendBroadcastSignal, subscribeBroadcastSignals } from "../lib/database";
 
 interface FriendsPanelProps {
   profile: ChatProfile;
@@ -68,11 +67,12 @@ export default function FriendsPanel({
 
   // Active Direct Message state
   const [activeDMFriend, setActiveDMFriend] = useState<FriendProfile | null>(null);
+  const activeDMFriendRef = useRef<FriendProfile | null>(null);
   const [dmMessages, setDmMessages] = useState<DirectMessage[]>([]);
   const [dmInputText, setDmInputText] = useState("");
   const dmMessagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { startDirectCall } = useCall();
+  const { startDirectCall, onlineUsers } = useCall();
 
   // Keep profile synchronized
   useEffect(() => {
@@ -122,6 +122,7 @@ export default function FriendsPanel({
 
   // Load DM messages when active friend changes
   useEffect(() => {
+    activeDMFriendRef.current = activeDMFriend;
     if (activeDMFriend) {
       const stored = getStoredDMMessages(activeDMFriend.uid);
       setDmMessages(stored);
@@ -132,6 +133,100 @@ export default function FriendsPanel({
     }
   }, [activeDMFriend]);
 
+  // Real-time synchronization for friend requests, accepted statuses, and direct messages
+  useEffect(() => {
+    if (!currentProfile?.uid) return;
+
+    const unsub = subscribeBroadcastSignals(currentProfile.uid, (sig) => {
+      if (!sig || !sig.type) return;
+
+      // 1. Incoming Friend Request
+      if (sig.type === "friend_request_sent") {
+        const isForMe =
+          sig.targetUid === currentProfile.uid ||
+          (sig.toUsername && sig.toUsername.toLowerCase() === (currentProfile.username || "").toLowerCase());
+
+        if (isForMe && sig.fromUid !== currentProfile.uid) {
+          const newReq: FriendRequest = {
+            id: sig.id || `req_${Date.now()}`,
+            fromUid: sig.fromUid,
+            fromUsername: sig.fromUsername,
+            fromTag: sig.fromTag || getOrCreateUserTag(sig.fromUsername),
+            fromPhotoURL:
+              sig.fromPhotoURL ||
+              `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(sig.fromUsername)}`,
+            toUid: currentProfile.uid,
+            toUsername: currentProfile.username,
+            status: "pending",
+            createdAt: sig.createdAt || Date.now(),
+          };
+
+          setRequests((prev) => {
+            if (prev.some((r) => r.fromUid === newReq.fromUid)) return prev;
+            const updated = [newReq, ...prev];
+            saveStoredFriendRequests(updated);
+            return updated;
+          });
+
+          playChatSound("join");
+        }
+      }
+
+      // 2. Friend Request Accepted
+      if (sig.type === "friend_request_accepted") {
+        const isForMe =
+          sig.targetUid === currentProfile.uid || sig.targetUid?.startsWith(currentProfile.uid);
+
+        if (isForMe) {
+          const acceptedFriend: FriendProfile = {
+            uid: sig.fromUid,
+            username: sig.fromUsername,
+            tag: sig.fromTag || getOrCreateUserTag(sig.fromUsername),
+            photoURL:
+              sig.fromPhotoURL ||
+              `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(sig.fromUsername)}`,
+            status: "online",
+            customStatus: "Friended • Connected",
+            lastSeen: Date.now(),
+          };
+
+          setFriends((prev) => {
+            const updated = [acceptedFriend, ...prev.filter((f) => f.uid !== acceptedFriend.uid)];
+            saveStoredFriends(updated);
+            return updated;
+          });
+
+          playChatSound("send");
+        }
+      }
+
+      // 3. Direct Message Received
+      if (sig.type === "direct_dm_message" && sig.message) {
+        const msg = sig.message;
+        const isForMe =
+          sig.targetUid === currentProfile.uid || msg.receiverUid === currentProfile.uid;
+
+        if (isForMe && msg.senderUid !== currentProfile.uid) {
+          const senderUid = msg.senderUid;
+          const currentMsgs = getStoredDMMessages(senderUid);
+          const updated = [...currentMsgs.filter((m) => m.id !== msg.id), msg];
+          saveStoredDMMessages(senderUid, updated);
+
+          if (activeDMFriendRef.current?.uid === senderUid) {
+            setDmMessages(updated);
+            setTimeout(() => {
+              dmMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, 50);
+          }
+
+          playChatSound("send");
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [currentProfile.uid, currentProfile.username]);
+
   // Handle Copy Friend Tag
   const handleCopyTag = () => {
     navigator.clipboard.writeText(fullUserTag);
@@ -140,7 +235,7 @@ export default function FriendsPanel({
     setTimeout(() => setCopiedTag(false), 2000);
   };
 
-  // Handle Adding Friend Directly
+  // Handle Adding Friend Directly (Checks real online users first)
   const handleSendFriendRequest = (targetUsername?: string) => {
     const rawTarget = (targetUsername || addUsernameInput).trim().replace(/^@/, "");
     if (!rawTarget) return;
@@ -181,14 +276,46 @@ export default function FriendsPanel({
       return;
     }
 
-    // Instantly create friend profile with online status so they show up right away!
+    // Find if the target user is currently online in the room!
+    const matchedOnline = onlineUsers.find(
+      (u) =>
+        u.username.toLowerCase() === cleanTargetName.toLowerCase() ||
+        u.uid.toLowerCase().includes(cleanTargetName.toLowerCase())
+    );
+
+    const targetUid = matchedOnline
+      ? matchedOnline.uid
+      : `user_${cleanTargetName.toLowerCase().replace(/[^a-z0-9]/g, "")}_${targetTag.replace("#", "") || "1000"}`;
+    const targetPhoto =
+      matchedOnline?.photoURL && !matchedOnline.photoURL.includes("bottts")
+        ? matchedOnline.photoURL
+        : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(cleanTargetName)}`;
+
+    // Broadcast real-time friend request signal to the real user
+    sendBroadcastSignal({
+      type: "friend_request_sent",
+      id: `freq_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      fromUid: currentProfile.uid,
+      fromUsername: currentProfile.username,
+      fromTag: myTag,
+      fromPhotoURL:
+        currentProfile.photoURL && !currentProfile.photoURL.includes("bottts")
+          ? currentProfile.photoURL
+          : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(currentProfile.username)}`,
+      targetUid,
+      toUsername: cleanTargetName,
+      toTag: targetTag,
+      createdAt: Date.now(),
+    });
+
+    // Add friend profile with online status and human avatar
     const newFriend: FriendProfile = {
-      uid: `friend_${cleanTargetName.toLowerCase().replace(/[^a-z0-9]/g, "")}_${targetTag.replace("#", "") || "1000"}`,
-      username: cleanTargetName,
+      uid: targetUid,
+      username: matchedOnline ? matchedOnline.username : cleanTargetName,
       tag: targetTag,
-      photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanTargetName)}`,
-      status: "online",
-      customStatus: "Friended • Online",
+      photoURL: targetPhoto,
+      status: matchedOnline ? "online" : "online",
+      customStatus: "Friended • Connected",
       lastSeen: Date.now(),
     };
 
@@ -226,11 +353,16 @@ export default function FriendsPanel({
 
   // Accept incoming friend request
   const handleAcceptRequest = (req: FriendRequest) => {
+    const friendPhoto =
+      req.fromPhotoURL && !req.fromPhotoURL.includes("bottts")
+        ? req.fromPhotoURL
+        : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(req.fromUsername)}`;
+
     const newFriend: FriendProfile = {
       uid: req.fromUid,
       username: req.fromUsername,
       tag: req.fromTag || getOrCreateUserTag(req.fromUsername),
-      photoURL: req.fromPhotoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${req.fromUsername}`,
+      photoURL: friendPhoto,
       status: "online",
       customStatus: "Friended • Online",
       lastSeen: Date.now(),
@@ -240,6 +372,19 @@ export default function FriendsPanel({
     setFriends(updatedFriends);
     saveStoredFriends(updatedFriends);
     window.dispatchEvent(new CustomEvent("frosted_friends_updated", { detail: updatedFriends }));
+
+    // Send real-time accepted signal to the sender
+    sendBroadcastSignal({
+      type: "friend_request_accepted",
+      fromUid: currentProfile.uid,
+      fromUsername: currentProfile.username,
+      fromTag: myTag,
+      fromPhotoURL:
+        currentProfile.photoURL && !currentProfile.photoURL.includes("bottts")
+          ? currentProfile.photoURL
+          : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(currentProfile.username)}`,
+      targetUid: req.fromUid,
+    });
 
     const updatedReqs = requests.filter((r) => r.id !== req.id);
     setRequests(updatedReqs);
@@ -275,6 +420,13 @@ export default function FriendsPanel({
     setDmInputText("");
     playChatSound("send");
 
+    // Broadcast DM in real-time to the target friend
+    sendBroadcastSignal({
+      type: "direct_dm_message",
+      targetUid: activeDMFriend.uid,
+      message: newMsg,
+    });
+
     setTimeout(() => {
       dmMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 50);
@@ -301,6 +453,13 @@ export default function FriendsPanel({
     saveStoredDMMessages(activeDMFriend.uid, updated);
     playChatSound("send");
 
+    // Broadcast deck share in real-time
+    sendBroadcastSignal({
+      type: "direct_dm_message",
+      targetUid: activeDMFriend.uid,
+      message: shareMsg,
+    });
+
     setTimeout(() => {
       dmMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 50);
@@ -309,6 +468,15 @@ export default function FriendsPanel({
   // Filtered friends
   const onlineFriends = useMemo(() => friends.filter((f) => f.status === "online"), [friends]);
   const pendingIncoming = useMemo(() => requests.filter((r) => r.status === "pending" && r.toUid === currentProfile.uid), [requests, currentProfile.uid]);
+
+  const availableOnlinePlayers = useMemo(() => {
+    return onlineUsers.filter((u) => {
+      if (u.uid === currentProfile.uid || u.username.toLowerCase() === (currentProfile.username || "").toLowerCase()) return false;
+      if (u.uid === "echo_bot_assistant" || u.username.toLowerCase().includes("echo")) return false;
+      const isFriend = friends.some((f) => f.username.toLowerCase() === u.username.toLowerCase() || f.uid === u.uid);
+      return !isFriend;
+    });
+  }, [onlineUsers, currentProfile.uid, currentProfile.username, friends]);
 
   const displayedFriends = useMemo(() => {
     let list = activeTab === "online" ? onlineFriends : friends;
@@ -326,7 +494,7 @@ export default function FriendsPanel({
         <div className="flex items-center gap-3">
           <div className="relative">
             <img
-              src={currentProfile.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentProfile.username}`}
+              src={currentProfile.photoURL || `https://api.dicebear.com/7.x/thumbs/svg?seed=${currentProfile.username}`}
               alt={currentProfile.username}
               className="w-10 h-10 rounded-xl border border-[var(--theme-border)] object-cover shadow-sm"
             />
@@ -442,7 +610,11 @@ export default function FriendsPanel({
 
                 <div className="relative">
                   <img
-                    src={activeDMFriend.photoURL}
+                    src={
+                      activeDMFriend.photoURL && !activeDMFriend.photoURL.includes("bottts")
+                        ? activeDMFriend.photoURL
+                        : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(activeDMFriend.username)}`
+                    }
                     alt={activeDMFriend.username}
                     className="w-8 h-8 rounded-xl object-cover border border-[var(--theme-border-subtle)]"
                   />
@@ -469,6 +641,15 @@ export default function FriendsPanel({
                   title="Start Voice Call"
                 >
                   <Phone size={15} />
+                </button>
+
+                <button
+                  onClick={() => startDirectCall({ uid: activeDMFriend.uid, username: activeDMFriend.username, photoURL: activeDMFriend.photoURL }, "video")}
+                  style={{ backgroundColor: "var(--theme-surface)", borderColor: "var(--theme-border)" }}
+                  className="p-2 rounded-xl border text-cyan-400 hover:bg-cyan-500/20 transition-all cursor-pointer active:scale-95"
+                  title="Start Video Call"
+                >
+                  <Video size={15} />
                 </button>
 
                 <button
@@ -607,6 +788,69 @@ export default function FriendsPanel({
                 </div>
               )}
             </form>
+
+            {/* Active Connected Players in Room */}
+            <div className="mt-8 pt-6 border-t border-[var(--theme-border-subtle)] space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                  <Users size={14} className="text-emerald-400" />
+                  <span>Online Players You Can Add ({availableOnlinePlayers.length})</span>
+                </span>
+                <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                  Live
+                </span>
+              </div>
+
+              {availableOnlinePlayers.length === 0 ? (
+                <div className="p-4 rounded-2xl border border-[var(--theme-border-subtle)] bg-white/5 text-center text-xs text-neutral-400 space-y-1">
+                  <p className="font-semibold text-neutral-300">No other players online right now</p>
+                  <p className="text-[11px] text-neutral-500">
+                    When classmates or friends open Frosted on their devices, they appear here live! You can also share your tag ({fullUserTag}) with them.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {availableOnlinePlayers.map((player) => (
+                    <div
+                      key={player.uid}
+                      style={{ backgroundColor: "var(--theme-surface)", borderColor: "var(--theme-border)" }}
+                      className="p-3 rounded-2xl border flex items-center justify-between gap-3 shadow-sm hover:border-[var(--theme-border-strong)] transition-all"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative shrink-0">
+                          <img
+                            src={player.photoURL || `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(player.username)}`}
+                            alt={player.username}
+                            className="w-9 h-9 rounded-xl object-cover border border-emerald-400/40"
+                          />
+                          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-neutral-900" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-xs text-white truncate">@{player.username}</span>
+                            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded border border-emerald-500/20">
+                              {getOrCreateUserTag(player.username)}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-neutral-400 truncate">
+                            {player.activity?.details || "Online & studying"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleSendFriendRequest(`@${player.username}`)}
+                        style={{ backgroundColor: "var(--theme-accent)", borderColor: "var(--theme-border-strong)" }}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl border text-xs font-bold text-white shadow-sm hover:brightness-110 active:scale-95 transition-all cursor-pointer shrink-0"
+                      >
+                        <UserPlus size={13} />
+                        <span>Add</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : activeTab === "pending" ? (
           /* Pending Requests View */
@@ -631,7 +875,7 @@ export default function FriendsPanel({
                   >
                     <div className="flex items-center gap-3">
                       <img
-                        src={req.fromPhotoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${req.fromUsername}`}
+                        src={req.fromPhotoURL || `https://api.dicebear.com/7.x/thumbs/svg?seed=${req.fromUsername}`}
                         alt={req.fromUsername}
                         className="w-9 h-9 rounded-xl object-cover"
                       />
@@ -696,7 +940,11 @@ export default function FriendsPanel({
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="relative shrink-0">
                       <img
-                        src={friend.photoURL}
+                        src={
+                          friend.photoURL && !friend.photoURL.includes("bottts")
+                            ? friend.photoURL
+                            : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(friend.username)}`
+                        }
                         alt={friend.username}
                         className="w-10 h-10 rounded-xl object-cover border border-[var(--theme-border-subtle)]"
                       />
@@ -730,9 +978,17 @@ export default function FriendsPanel({
                     <button
                       onClick={() => startDirectCall({ uid: friend.uid, username: friend.username, photoURL: friend.photoURL }, "audio")}
                       className="p-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition-all cursor-pointer active:scale-95"
-                      title="Start Call"
+                      title="Start Voice Call"
                     >
                       <Phone size={14} />
+                    </button>
+
+                    <button
+                      onClick={() => startDirectCall({ uid: friend.uid, username: friend.username, photoURL: friend.photoURL }, "video")}
+                      className="p-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 transition-all cursor-pointer active:scale-95"
+                      title="Start Video Call"
+                    >
+                      <Video size={14} />
                     </button>
 
                     <button

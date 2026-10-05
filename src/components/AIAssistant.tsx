@@ -804,7 +804,7 @@ export default function AIAssistant() {
     return {
       uid: "user_guest",
       username: "Guest",
-      photoURL: "https://api.dicebear.com/7.x/bottts/svg?seed=Guest",
+      photoURL: "https://api.dicebear.com/7.x/thumbs/svg?seed=Guest",
     };
   });
 

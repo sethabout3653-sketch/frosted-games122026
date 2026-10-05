@@ -29,7 +29,7 @@ export default function IncomingCallNotification() {
               <img
                 src={
                   incomingCall.callerPhotoURL ||
-                  `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(incomingCall.callerName)}`
+                  `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(incomingCall.callerName)}`
                 }
                 alt={incomingCall.callerName}
                 className="w-full h-full object-cover"

@@ -285,8 +285,8 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, posi
                     unlockMobileAudio();
                     startDirectCall({
                       uid: "echo_bot_assistant",
-                      username: "Echo Companion Bot",
-                      photoURL: "https://api.dicebear.com/7.x/bottts/svg?seed=EchoCompanion"
+                      username: "Echo Sound Test",
+                      photoURL: "https://api.dicebear.com/7.x/thumbs/svg?seed=EchoSoundTest"
                     }, "audio");
                     onClose();
                   }}
@@ -321,7 +321,7 @@ export default function CallMenuDropdown({ isOpen, onClose, onOpenSettings, posi
                           <img
                             src={
                               user.photoURL ||
-                              `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.username)}`
+                              `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(user.username)}`
                             }
                             alt={user.username}
                             className="w-full h-full object-cover"
