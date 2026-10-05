@@ -235,63 +235,38 @@ export default function FriendsPanel({
     setTimeout(() => setCopiedTag(false), 2000);
   };
 
-  // Handle Adding Friend Directly (Checks real online users first)
-  const handleSendFriendRequest = (targetUsername?: string) => {
-    const rawTarget = (targetUsername || addUsernameInput).trim().replace(/^@/, "");
-    if (!rawTarget) return;
+  // 1-Click Direct Add from the Online Players list
+  const handleAddOnlinePlayerDirect = (player: any) => {
+    if (!player || !player.uid) return;
 
-    // Parse username and gamer tag
-    let cleanTargetName = rawTarget;
-    let targetTag = "";
-    if (rawTarget.includes("#")) {
-      const parts = rawTarget.split("#");
-      cleanTargetName = parts[0].trim();
-      const digits = parts[1].trim().replace(/\D/g, "").slice(0, 4);
-      targetTag = digits.length > 0 ? `#${digits.padEnd(4, "0")}` : "";
-    }
-    if (!targetTag || !/^#\d{4}$/.test(targetTag)) {
-      targetTag = getOrCreateUserTag(cleanTargetName);
-    }
-
-    // Prevent adding yourself
     if (
-      cleanTargetName.toLowerCase() === (currentProfile.username || "").toLowerCase() &&
-      targetTag.toLowerCase() === myTag.toLowerCase()
+      player.uid === currentProfile.uid ||
+      player.username.toLowerCase() === (currentProfile.username || "").toLowerCase()
     ) {
       setAddFeedback({ type: "error", msg: "You cannot add yourself as a friend!" });
       return;
     }
 
-    // Check if already friends
-    const existing = friends.find(
+    const alreadyFriend = friends.find(
       (f) =>
-        f.username.toLowerCase() === cleanTargetName.toLowerCase() &&
-        (f.tag.toLowerCase() === targetTag.toLowerCase() || !f.tag)
+        f.uid === player.uid ||
+        f.username.toLowerCase() === player.username.toLowerCase()
     );
-    if (existing) {
+    if (alreadyFriend) {
       setAddFeedback({
         type: "error",
-        msg: `@${existing.username}${existing.tag} is already on your friends list!`,
+        msg: `@${player.username} is already on your friends list!`,
       });
       return;
     }
 
-    // Find if the target user is currently online in the room!
-    const matchedOnline = onlineUsers.find(
-      (u) =>
-        u.username.toLowerCase() === cleanTargetName.toLowerCase() ||
-        u.uid.toLowerCase().includes(cleanTargetName.toLowerCase())
-    );
+    const playerTag = player.tag || getOrCreateUserTag(player.username);
+    const playerPhoto =
+      player.photoURL && !player.photoURL.includes("bottts")
+        ? player.photoURL
+        : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(player.username)}`;
 
-    const targetUid = matchedOnline
-      ? matchedOnline.uid
-      : `user_${cleanTargetName.toLowerCase().replace(/[^a-z0-9]/g, "")}_${targetTag.replace("#", "") || "1000"}`;
-    const targetPhoto =
-      matchedOnline?.photoURL && !matchedOnline.photoURL.includes("bottts")
-        ? matchedOnline.photoURL
-        : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(cleanTargetName)}`;
-
-    // Broadcast real-time friend request signal to the real user
+    // Broadcast real-time friend request signal
     sendBroadcastSignal({
       type: "friend_request_sent",
       id: `freq_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -302,20 +277,19 @@ export default function FriendsPanel({
         currentProfile.photoURL && !currentProfile.photoURL.includes("bottts")
           ? currentProfile.photoURL
           : `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(currentProfile.username)}`,
-      targetUid,
-      toUsername: cleanTargetName,
-      toTag: targetTag,
+      targetUid: player.uid,
+      toUsername: player.username,
+      toTag: playerTag,
       createdAt: Date.now(),
     });
 
-    // Add friend profile with online status and human avatar
     const newFriend: FriendProfile = {
-      uid: targetUid,
-      username: matchedOnline ? matchedOnline.username : cleanTargetName,
-      tag: targetTag,
-      photoURL: targetPhoto,
-      status: matchedOnline ? "online" : "online",
-      customStatus: "Friended • Connected",
+      uid: player.uid,
+      username: player.username,
+      tag: playerTag,
+      photoURL: playerPhoto,
+      status: "online",
+      customStatus: player.activity?.details || "Online & studying",
       lastSeen: Date.now(),
     };
 
@@ -331,10 +305,112 @@ export default function FriendsPanel({
     setAddUsernameInput("");
     playChatSound("send");
 
-    // Automatically navigate to friends list so the user immediately sees the friended person!
     setTimeout(() => {
       setActiveTab("all");
     }, 400);
+  };
+
+  // Handle Adding Friend by searching username or tag
+  const handleSendFriendRequest = (targetInput?: string) => {
+    const rawTarget = (targetInput || addUsernameInput).trim().replace(/^@/, "");
+    if (!rawTarget) return;
+
+    let matchedOnline: any = undefined;
+
+    // Strategy 1: Check if input is pure gamer tag (e.g. "#4821" or "4821")
+    if (/^#?\d{3,5}$/.test(rawTarget)) {
+      const searchTag = (rawTarget.startsWith("#") ? rawTarget : `#${rawTarget}`).toUpperCase();
+      matchedOnline = onlineUsers.find((u) => {
+        const uTag = (u.tag || getOrCreateUserTag(u.username)).toUpperCase();
+        return uTag === searchTag;
+      });
+    }
+
+    // Strategy 2: If input contains "#" like "Frost_Wolf_382#4821" or "@Frost_Wolf_382#4821"
+    if (!matchedOnline && rawTarget.includes("#")) {
+      const parts = rawTarget.split("#");
+      const namePart = parts[0].trim().toLowerCase();
+      const tagDigits = parts[1].trim().replace(/\D/g, "");
+      const searchTag = tagDigits ? `#${tagDigits}`.toUpperCase() : "";
+
+      // Try exact name AND tag match first
+      matchedOnline = onlineUsers.find((u) => {
+        const uName = u.username.toLowerCase();
+        const uTag = (u.tag || getOrCreateUserTag(u.username)).toUpperCase();
+        if (namePart && searchTag) {
+          return uName === namePart && uTag === searchTag;
+        }
+        if (searchTag) {
+          return uTag === searchTag;
+        }
+        return uName === namePart;
+      });
+
+      // If still not matched, check if tag matches alone or name matches alone
+      if (!matchedOnline && searchTag) {
+        matchedOnline = onlineUsers.find((u) => {
+          const uTag = (u.tag || getOrCreateUserTag(u.username)).toUpperCase();
+          return uTag === searchTag;
+        });
+      }
+      if (!matchedOnline && namePart) {
+        matchedOnline = onlineUsers.find((u) => u.username.toLowerCase() === namePart);
+      }
+    }
+
+    // Strategy 3: Username exact or case-insensitive match
+    if (!matchedOnline) {
+      const searchName = rawTarget.toLowerCase();
+      matchedOnline = onlineUsers.find(
+        (u) =>
+          u.username.toLowerCase() === searchName ||
+          u.uid.toLowerCase() === searchName ||
+          u.username.toLowerCase().replace(/[^a-z0-9]/g, "") === searchName.replace(/[^a-z0-9]/g, "")
+      );
+    }
+
+    // Strategy 4: Substring match on username
+    if (!matchedOnline) {
+      const searchName = rawTarget.toLowerCase();
+      if (searchName.length >= 3) {
+        matchedOnline = onlineUsers.find((u) => u.username.toLowerCase().includes(searchName));
+      }
+    }
+
+    // CRITICAL: If no real user is currently online or found, DO NOT CREATE A FAKE FRIEND!
+    if (!matchedOnline) {
+      setAddFeedback({
+        type: "error",
+        msg: `No online player found matching "${rawTarget}". Check the gamer tag (e.g. #4821) or click Add next to their name in the Online Players list below!`,
+      });
+      return;
+    }
+
+    // Prevent adding yourself
+    if (
+      matchedOnline.uid === currentProfile.uid ||
+      matchedOnline.username.toLowerCase() === (currentProfile.username || "").toLowerCase()
+    ) {
+      setAddFeedback({ type: "error", msg: "You cannot add yourself as a friend!" });
+      return;
+    }
+
+    // Check if already friends
+    const existing = friends.find(
+      (f) =>
+        f.uid === matchedOnline.uid ||
+        f.username.toLowerCase() === matchedOnline.username.toLowerCase()
+    );
+    if (existing) {
+      setAddFeedback({
+        type: "error",
+        msg: `@${existing.username}${existing.tag || ""} is already on your friends list!`,
+      });
+      return;
+    }
+
+    // Add the real verified online player
+    handleAddOnlinePlayerDirect(matchedOnline);
   };
 
   // Handle removing a friend
@@ -839,7 +915,7 @@ export default function FriendsPanel({
                       </div>
 
                       <button
-                        onClick={() => handleSendFriendRequest(`@${player.username}`)}
+                        onClick={() => handleAddOnlinePlayerDirect(player)}
                         style={{ backgroundColor: "var(--theme-accent)", borderColor: "var(--theme-border-strong)" }}
                         className="flex items-center gap-1 px-3 py-1.5 rounded-xl border text-xs font-bold text-white shadow-sm hover:brightness-110 active:scale-95 transition-all cursor-pointer shrink-0"
                       >

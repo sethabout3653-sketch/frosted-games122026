@@ -20,13 +20,14 @@ import {
 } from "../lib/ringtone-synthesizer";
 import { collection, onSnapshot, query, db, toTimestampMs, doc, getDoc, deleteDoc, updateDoc } from "../supabase-adapter";
 import { wsClient } from "../lib/websocket-client";
-
+import { getOrCreateUserTag } from "../lib/friends";
 
 import { isAllowedUsername, isGuestUser } from "../lib/user-filter";
 
 export interface CallUser {
   uid: string;
   username: string;
+  tag?: string;
   photoURL?: string;
   status?: string;
   activity?: any;
@@ -243,6 +244,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           map.set(data.uid, {
             uid: data.uid,
             username: uname,
+            tag: data.tag || getOrCreateUserTag(uname),
             photoURL: userPhoto,
             status: data.status || "online",
             activity: data.activity,
@@ -1133,16 +1135,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } catch (echoErr) {
               console.warn("Failed to initialize echo loopback audio context:", echoErr);
             }
-
-            // Spoken status notification to guide the user
-            try {
-              if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                window.speechSynthesis.cancel();
-                const utt = new SpeechSynthesisUtterance("Echo sound test connected. Speak into your microphone to test your audio.");
-                utt.rate = 1.0;
-                window.speechSynthesis.speak(utt);
-              }
-            } catch (e) {}
           }, 1600);
 
           return;

@@ -75,9 +75,14 @@ export function getStoredFriends(): FriendProfile[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        // Filter out any fake bots and ensure human avatars and valid tag exists on every friend
+        // Filter out fake bots and broken fake friends (empty names or pure 4-digit tag names)
         return parsed
-          .filter((f) => !f.isBot && !f.uid?.startsWith("user_bot_") && !f.uid?.includes("echo_bot"))
+          .filter((f) => {
+            if (!f || f.isBot || f.uid?.startsWith("user_bot_") || f.uid?.includes("echo_bot")) return false;
+            const uname = (f.username || "").trim();
+            if (!uname || /^\d{3,5}$/.test(uname)) return false;
+            return true;
+          })
           .map((f) => ({
             ...f,
             photoURL: (f.photoURL || "").includes("bottts")
