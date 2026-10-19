@@ -26,8 +26,10 @@ export function getSavedProfile(): ChatProfile {
     if (sessionSaved) {
       const parsed = JSON.parse(sessionSaved);
       if (parsed && parsed.username && parsed.username.trim().toLowerCase() !== "anonymous") {
+        const canonicalUid = parsed.uid ? parsed.uid.split("_tab_")[0] : ("user_" + parsed.username.toLowerCase().replace(/[^a-z0-9]/g, ""));
         return {
           ...parsed,
+          uid: canonicalUid,
           tag: parsed.tag || getOrCreateUserTag(parsed.username),
         };
       }
@@ -37,14 +39,10 @@ export function getSavedProfile(): ChatProfile {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && parsed.username && parsed.username.trim().toLowerCase() !== "anonymous") {
-        let tabId = sessionStorage.getItem("frosted_tab_id");
-        if (!tabId) {
-          tabId = Math.random().toString(36).substring(2, 6);
-          sessionStorage.setItem("frosted_tab_id", tabId);
-        }
+        const canonicalUid = parsed.uid ? parsed.uid.split("_tab_")[0] : ("user_" + parsed.username.toLowerCase().replace(/[^a-z0-9]/g, ""));
         const profile = {
           ...parsed,
-          uid: parsed.uid.includes("_tab_") ? parsed.uid : `${parsed.uid}_tab_${tabId}`,
+          uid: canonicalUid,
           tag: parsed.tag || getOrCreateUserTag(parsed.username),
         };
         sessionStorage.setItem("frosted_chat_profile", JSON.stringify(profile));
@@ -62,7 +60,7 @@ export function getSavedProfile(): ChatProfile {
     const randNoun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
     const randNum = Math.floor(100 + Math.random() * 900);
     const generatedUsername = `${randAdj}_${randNoun}_${randNum}`;
-    const generatedUid = `user_${generatedUsername.toLowerCase()}_tab_${tabId}`;
+    const generatedUid = `user_${generatedUsername.toLowerCase()}`;
     const generatedPhoto = `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(generatedUsername)}`;
 
     const autoProfile: ChatProfile = {

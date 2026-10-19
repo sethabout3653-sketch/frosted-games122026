@@ -32,6 +32,52 @@ try {
     }
   }
 } catch (e) {}
+
+// Read and sync keys from keys.txt file (stores keys like GROQ_API_KEY=key in a txt file instead of environment tab)
+export function readKeysTxt(): Record<string, string> {
+  const keys: Record<string, string> = {};
+  const candidates = [
+    path.join(process.cwd(), "keys.txt"),
+    path.resolve("./keys.txt"),
+    "/keys.txt",
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const text = fs.readFileSync(p, "utf-8");
+        for (const line of text.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) continue;
+          const eqIdx = trimmed.indexOf("=");
+          if (eqIdx !== -1) {
+            const k = trimmed.slice(0, eqIdx).trim();
+            const v = trimmed.slice(eqIdx + 1).trim();
+            if (k) {
+              keys[k] = v;
+            }
+          }
+        }
+        break;
+      }
+    } catch {}
+  }
+  return keys;
+}
+
+export function syncKeysFromTxt() {
+  const keys = readKeysTxt();
+  for (const [k, v] of Object.entries(keys)) {
+    if (v) {
+      process.env[k] = v;
+    }
+  }
+}
+syncKeysFromTxt();
+
+export function getGroqApiKey(): string {
+  const keys = readKeysTxt();
+  return (keys.GROQ_API_KEY && keys.GROQ_API_KEY !== "key" ? keys.GROQ_API_KEY : "") || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || keys.GROQ_API_KEY || "";
+}
 import { Readable } from "stream";
 import { Filter } from "bad-words";
 import Tesseract from "tesseract.js";
@@ -42,14 +88,11 @@ import dbDataHandler, { addLocalSubscriber, memoryStore, notifyLocalSubscribers 
 import dbStreamHandler from "./api/db/stream";
 import { getLibSQLClient, initSQLite } from "./src/db/sqlite";
 
-import { createPool, db } from "./src/db/index";
-import { records, webrtcSignals } from "./src/db/schema";
-import { eq, and, gt, ne, or } from "drizzle-orm";
 import Database from "better-sqlite3";
-import { musicRouter } from "./src/server/musicService";
 
-// Initialize dedicated ultra-fast synchronous better-sqlite3 database for WebRTC signaling (0ms delay)
-const voiceDbFile = path.join(process.cwd(), "uploads", "voice_signaling.db");
+
+// Initialize single ultra-fast synchronous database for both records and WebRTC signaling (0ms delay)
+const voiceDbFile = path.join(process.cwd(), "uploads", "app.db");
 try {
   if (!fs.existsSync(path.dirname(voiceDbFile))) {
     fs.mkdirSync(path.dirname(voiceDbFile), { recursive: true });
@@ -62,6 +105,14 @@ voiceDb.pragma("synchronous = NORMAL");
 voiceDb.pragma("busy_timeout = 5000");
 
 voiceDb.exec(`
+  CREATE TABLE IF NOT EXISTS records (
+    collection TEXT NOT NULL,
+    id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    PRIMARY KEY (collection, id)
+  );
+
   CREATE TABLE IF NOT EXISTS webrtc_signals (
     id TEXT PRIMARY KEY,
     target_uid TEXT,
@@ -79,13 +130,14 @@ voiceDb.exec(`
     timestamp INTEGER NOT NULL
   );
 
+  CREATE INDEX IF NOT EXISTS idx_records_col_ts ON records(collection, timestamp);
   CREATE INDEX IF NOT EXISTS idx_webrtc_target_ts ON webrtc_signals(target_uid, timestamp);
   CREATE INDEX IF NOT EXISTS idx_rtc_receiver_ts ON rtc_signals(receiver_id, timestamp);
 `);
 
 export const app = express();
 export const httpServer = http.createServer(app);
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = 3000;
 
   // Ensure uploads directory exists (fall back to /tmp/uploads on read-only environments like Cloud Run)
   let uploadsDir = path.join(process.cwd(), "uploads");
@@ -359,8 +411,7 @@ const PORT = Number(process.env.PORT) || 3000;
     } catch (e) {}
   };
 
-  // API routes go here FIRST
-  app.use(["/api/music", "/music"], musicRouter);
+
 
   app.get("/api/ping", (req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
@@ -1121,7 +1172,6 @@ const PORT = Number(process.env.PORT) || 3000;
         if (!targetUid || targetUid === "all") {
           try {
             client.send(webrtcPayload);
-            client.send(signalPayload);
           } catch (e) {
             wsClients.delete(client);
           }
@@ -1144,7 +1194,6 @@ const PORT = Number(process.env.PORT) || 3000;
         if (isMatch) {
           try {
             client.send(webrtcPayload);
-            client.send(signalPayload);
           } catch (e) {
             wsClients.delete(client);
           }
@@ -1523,9 +1572,6 @@ const PORT = Number(process.env.PORT) || 3000;
   };
 
   const broadcastWebRTCSignal = (signal: any) => {
-    // Also notify WebSockets
-    broadcastWebSocketSignal(signal);
-
     const payload = JSON.stringify({
       type: "webrtc_signal",
       payload: signal,
@@ -1808,11 +1854,22 @@ const PORT = Number(process.env.PORT) || 3000;
     res.json({ success: true, message: "CQL Execution Simulated." });
   });
 
+  // Endpoint to check keys status from keys.txt
+  app.get("/api/keys", (req, res) => {
+    const keys = readKeysTxt();
+    const groqKey = getGroqApiKey();
+    res.json({
+      hasGroqKey: Boolean(groqKey && groqKey !== "key"),
+      source: "keys.txt",
+      keysCount: Object.keys(keys).length,
+    });
+  });
+
   // ==========================================
   // High-Resilience AI Inference Proxy Config
   // ==========================================
   app.get("/api/ai/config", (req, res) => {
-    const hasKey = Boolean(process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY);
+    const hasKey = Boolean(getGroqApiKey() || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY);
     res.json({
       hasEnvKey: hasKey,
       defaultModel: "openai/gpt-oss-120b",
@@ -1831,11 +1888,11 @@ const PORT = Number(process.env.PORT) || 3000;
   app.post("/api/ai/test", async (req, res) => {
     try {
       let authHeader = req.headers.authorization || "";
-      const effectiveKey = authHeader.replace(/^Bearer\s+/i, "").trim() || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY || "";
+      const effectiveKey = authHeader.replace(/^Bearer\s+/i, "").trim() || getGroqApiKey() || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || process.env.AI_API_KEY || process.env.GITHUB_TOKEN || process.env.GEMINI_API_KEY || "";
       const { endpoint } = req.body || {};
 
       // 1. Prioritize Groq free test with active model
-      const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (effectiveKey && !effectiveKey.startsWith("ghp_") && !effectiveKey.startsWith("github_pat_") && !effectiveKey.startsWith("AIza") ? effectiveKey : "");
+      const groqKey = getGroqApiKey() || process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || (effectiveKey && !effectiveKey.startsWith("ghp_") && !effectiveKey.startsWith("github_pat_") && !effectiveKey.startsWith("AIza") ? effectiveKey : "");
       if (groqKey) {
         for (const testModel of ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "groq/compound-mini", "qwen/qwen3.8-27b"]) {
           try {
@@ -2736,7 +2793,7 @@ You MUST respond strictly in valid JSON format matching this schema:
   // =========================================================================
   // 🛡️ OpenRouter Multi-Modal Content Moderation Engine
   // =========================================================================
-  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") || "";
+  const OPENROUTER_API_KEY = getGroqApiKey() || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.GROQ_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : "") || "";
   
   // Separate Dedicated Models per Medium (Omni, Audio, Image, Video, Text)
   export const MODERATION_GROQ_MODELS = {
@@ -4455,55 +4512,36 @@ Respond strictly in valid JSON format:
   let lastOpenRouterFetchTime = 0;
 
   const OPENROUTER_MODEL_ALIASES: Record<string, string> = {
-    "groq/compound": "llama-3.3-70b-versatile",
-    "groq/compound-mini": "llama-3.1-8b-instant",
-    "openrouter/free": "llama-3.3-70b-versatile",
-    "openrouter/auto": "llama-3.3-70b-versatile",
-    "auto": "llama-3.3-70b-versatile",
-    "free": "llama-3.3-70b-versatile",
-    "llama-3.3-70b-versatile": "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant": "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768": "mixtral-8x7b-32768",
-    "gemma2-9b-it": "gemma2-9b-it",
-    "deepseek-r1-distill-llama-70b": "deepseek-r1-distill-llama-70b",
-    "deepseek/deepseek-r1:free": "deepseek-r1-distill-llama-70b",
-    "deepseek/deepseek-r1": "deepseek-r1-distill-llama-70b",
-    "deepseek/deepseek-chat:free": "llama-3.3-70b-versatile",
-    "deepseek/deepseek-chat": "llama-3.3-70b-versatile",
-    "qwen-2.5-32b": "llama-3.3-70b-versatile",
-    "qwen-2.5-coder-32b": "llama-3.3-70b-versatile",
-    "qwen/qwen-2.5-coder-32b-instruct:free": "llama-3.3-70b-versatile",
-    "google/gemini-2.0-flash-exp:free": "llama-3.1-8b-instant",
-    "google/gemini-2.0-flash-thinking-exp:free": "llama-3.3-70b-versatile",
-    "mistralai/mistral-small-24b-instruct-2501:free": "mixtral-8x7b-32768",
-    "microsoft/phi-4:free": "gemma2-9b-it",
-    "google/gemma-2-9b-it:free": "gemma2-9b-it",
-    "meta-llama/llama-3.2-3b-instruct:free": "llama-3.1-8b-instant",
-    "meta-llama/llama-3.2-1b-instruct:free": "llama-3.1-8b-instant",
-    "meta-llama/llama-3.3-70b-instruct:free": "llama-3.3-70b-versatile",
-    "meta-llama/llama-3.1-8b-instruct:free": "llama-3.1-8b-instant"
+    "groq/compound": "openai/gpt-oss-120b",
+    "groq/compound-mini": "openai/gpt-oss-20b",
+    "openrouter/free": "openai/gpt-oss-120b",
+    "openrouter/auto": "openai/gpt-oss-120b",
+    "auto": "openai/gpt-oss-120b",
+    "free": "openai/gpt-oss-120b",
+    "openai/gpt-oss-120b": "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b": "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b": "qwen/qwen3.8-27b",
+    "allam-2-7b": "allam-2-7b",
+    "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+    "llama-3.1-8b-instant": "openai/gpt-oss-20b"
   };
 
   const FALLBACK_OPENROUTER_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "gemma2-9b-it",
-    "mixtral-8x7b-32768",
-    "deepseek-r1-distill-llama-70b"
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
+    "allam-2-7b"
   ];
 
   function getFriendlyModelName(id: string): string {
-    if (id === "llama-3.3-70b-versatile" || id === "llama-3.3-70b-specdec") return "Llama 3.3 70B (Powerhouse)";
-    if (id === "llama-3.1-8b-instant") return "Llama 3.1 8B (Instant)";
-    if (id === "gemma2-9b-it") return "Gemma 2 (9B)";
-    if (id === "mixtral-8x7b-32768") return "Mixtral 8x7B";
-    if (id === "deepseek-r1-distill-llama-70b") return "DeepSeek R1 (70B Distill)";
+    if (id === "openai/gpt-oss-120b") return "GPT OSS 120B (Powerhouse)";
+    if (id === "openai/gpt-oss-20b") return "GPT OSS 20B (Fast)";
+    if (id === "qwen/qwen3.8-27b") return "Qwen 3.8 27B (Reasoning)";
+    if (id === "allam-2-7b") return "ALLaM 2 7B";
     
     return id
-      .replace(/^meta-llama\//i, "Llama ")
-      .replace(/^google\//i, "Gemma ")
-      .replace(/-instruct/gi, "")
-      .replace(/-(preview|instant|versatile|specdec|8192|32768)/gi, "")
+      .replace(/^openai\//i, "GPT ")
+      .replace(/^qwen\//i, "Qwen ")
       .replace(/-/g, " ")
       .trim();
   }
@@ -4534,7 +4572,12 @@ Respond strictly in valid JSON format:
               typeof id === "string" &&
               !id.includes("whisper") &&
               !id.includes("audio") &&
-              !id.includes("guard")
+              !id.includes("guard") &&
+              !id.includes("orpheus") &&
+              !id.includes("canopylabs") &&
+              !id.includes("embedding") &&
+              !id.includes("tts") &&
+              !id.includes("stt")
             );
 
           const combinedIds = Array.from(new Set([
@@ -4542,14 +4585,13 @@ Respond strictly in valid JSON format:
             ...ids
           ]));
           
-          // Sort to prioritize Llama 3.3 70b
+          // Sort to prioritize GPT OSS 120B
           combinedIds.sort((a: string, b: string) => {
             const score = (id: string) => {
-              if (id === "llama-3.3-70b-versatile") return 20;
-              if (id === "deepseek-r1-distill-llama-70b") return 19;
-              if (id === "llama-3.1-8b-instant") return 18;
-              if (id === "gemma2-9b-it") return 17;
-              if (id === "mixtral-8x7b-32768") return 16;
+              if (id === "openai/gpt-oss-120b") return 30;
+              if (id === "openai/gpt-oss-20b") return 25;
+              if (id === "qwen/qwen3.8-27b") return 20;
+              if (id === "allam-2-7b") return 15;
               return 1;
             };
             return score(b) - score(a);
@@ -4587,7 +4629,7 @@ Respond strictly in valid JSON format:
   app.get("/api/ai/models", async (req, res) => {
     const authHeader = req.headers.authorization || "";
     const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
-    const serverKey = process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.AI_API_KEY || "";
+    const serverKey = getGroqApiKey() || process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.AI_API_KEY || "";
     const activeKey = (bearerToken.startsWith("gsk_") ? bearerToken : "") || serverKey;
 
     if (activeKey) {
@@ -4617,7 +4659,7 @@ Respond strictly in valid JSON format:
 
     res.json({
       models: modelsToSend,
-      hasServerKey: Boolean(process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.AI_API_KEY || process.env.GEMINI_API_KEY),
+      hasServerKey: Boolean(getGroqApiKey() || process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || process.env.AI_API_KEY || process.env.GEMINI_API_KEY),
       provider: "groq",
     });
   });
@@ -4645,7 +4687,7 @@ Respond strictly in valid JSON format:
     } = opts || {};
 
     const cleanCustomKey = sanitizeApiKey(customKey);
-    const serverKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
+    const serverKey = sanitizeApiKey(getGroqApiKey() || process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
     const groqKey = cleanCustomKey || serverKey;
 
     let baseMappedModel = OPENROUTER_MODEL_ALIASES[model] || model || "llama-3.3-70b-versatile";
@@ -4822,7 +4864,7 @@ Respond strictly in valid JSON format:
       const isClientGithub = cleanCustomKey.startsWith("ghp_") || cleanCustomKey.startsWith("github_pat_") || bearerToken.startsWith("ghp_") || bearerToken.startsWith("github_pat_");
       const isClientGemini = cleanCustomKey.startsWith("AIza") || bearerToken.startsWith("AIza");
 
-      const serverKey = sanitizeApiKey(process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
+      const serverKey = sanitizeApiKey(getGroqApiKey() || process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.VITE_OPENROUTER_API_KEY || (process.env.AI_API_KEY && !process.env.AI_API_KEY.startsWith("ghp_") && !process.env.AI_API_KEY.startsWith("AIza") ? process.env.AI_API_KEY : ""));
       const groqKey = (!isClientGithub && !isClientGemini ? (cleanCustomKey || bearerToken) : "") || serverKey;
 
        // Extract last user query to determine if web search is needed
@@ -4876,23 +4918,12 @@ Respond strictly in valid JSON format:
       }
 
       // Natural, intelligent, un-robotic knowledge base with File & App Creator capabilities
-      const frostedKnowledge = `You are Frosted AI, the built-in intelligent study companion, live web research assistant, and interactive app/file creator for Frosted Studying.
-You are articulate, insightful, creative, patient, and conversational.
-Never use canned robotic phrases like "As an AI language model...", "I am programmed to...", "Processing query...", or "Certainly! I would be pleased to assist you with that."
-Speak directly, warmly, and naturally, like a world-class tutor and senior full-stack software engineer.
-
-🚀 CAPABILITIES:
-1. 🌐 Live Web Search & Research: You have access to real-time internet search results. Cite sources, explain current events, and find the latest docs and guides.
-2. 📱 Interactive App & Game Creator: When asked to build an app, mini-game, calculator, simulation, or widget:
-   - Provide complete, beautiful, working single-file HTML/CSS/JS applications!
-   - Include inline CSS and JavaScript with interactive Canvas, animations, sound effects, or responsive controls.
-   - Use standard code blocks with the target filename, e.g. \`\`\`html:game.html or \`\`\`html:app.html. The chat UI renders a live interactive preview sandbox!
-3. 📁 File Generator: When asked to create files (Python scripts, JSON datasets, Markdown cheat sheets, SVG illustrations, CSVs, shell scripts), output them completely without placeholders with filenames like \`\`\`python:solver.py, \`\`\`json:config.json, \`\`\`markdown:notes.md.
+      const frostedKnowledge = `Give short, simple, and direct answers without long explanations or filler. NEVER use emojis. NEVER generate HTML or code blocks unless explicitly requested.
+When asked to build an app, mini-game, calculator, simulation, or widget, provide complete working single-file HTML/CSS/JS applications.
+When asked to create files, output them completely without placeholders.
 
 Platform context:
-- Tab Cloaking & Stealth: Disguises the tab title and favicon (Google Drive, Canvas, Clever, Google Classroom) and provides Panic Keys.
-- Games Suite: Unblocked web games (Slope, Retro Arcade, Chess, 2048, Geometry Dash, Sudoku, etc.).
-- Productivity: Multi-persona AI tutor, active recall flashcards, markdown study notes, Pomodoro timer, step-by-step math solver.${webSearchContext}`;
+- Tab Cloaking & Stealth, Unblocked Games Suite, Productivity tools.${webSearchContext}`;
 
       const openrouterMessages: any[] = [];
       const hasSystemMessage = messages.some((m: any) => m.role === "system");
@@ -5436,48 +5467,104 @@ Platform context:
     }
   });
 
-  // Proxy endpoint for Lumin SDK games list
-  let cachedLuminGamesData: any = null;
-  let cachedLuminGamesExpiry = 0;
+  // Proxy endpoint for gmshelf / ugs games list
+  let cachedGmshelfGamesData: any = null;
+  let cachedGmshelfGamesExpiry = 0;
 
-  app.get("/api/lumin-games", async (_req, res) => {
+  app.get(["/api/gmshelf-games", "/api/lumin-games"], async (_req, res) => {
     try {
       const now = Date.now();
-      if (cachedLuminGamesData && now < cachedLuminGamesExpiry) {
-        return res.json(cachedLuminGamesData);
+      if (cachedGmshelfGamesData && now < cachedGmshelfGamesExpiry) {
+        return res.json(cachedGmshelfGamesData);
       }
 
-      const firstRes = await fetch("https://a.luminsdk.com/api/v1/games?limit=100&page=1");
-      const firstData: any = await firstRes.json().catch(() => null);
-      if (firstData && Array.isArray(firstData.games) && firstData.games.length > 0) {
-        const allGames: any[] = [...firstData.games];
-        const totalPages = firstData.pages || (firstData.total ? Math.ceil(firstData.total / 100) : 12);
+      // Fetch from gmshelf repository (ugs.json)
+      const mirrors = [
+        "https://raw.githack.com/gmshelf/ugs/main/ugs.json",
+        "https://cdn.jsdelivr.net/gh/gmshelf/ugs@main/ugs.json",
+        "https://raw.githubusercontent.com/gmshelf/ugs/main/ugs.json",
+      ];
 
-        if (totalPages > 1) {
-          const promises = [];
-          for (let p = 2; p <= totalPages; p++) {
-            promises.push(
-              fetch(`https://a.luminsdk.com/api/v1/games?limit=100&page=${p}`)
-                .then((r) => r.json())
-                .then((d: any) => d.games || [])
-                .catch(() => [])
-            );
+      for (const u of mirrors) {
+        try {
+          const resp = await fetch(u, { signal: AbortSignal.timeout(6000) });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (Array.isArray(data) && data.length > 0) {
+              cachedGmshelfGamesData = data;
+              cachedGmshelfGamesExpiry = now + 60 * 60 * 1000; // 1 hour cache
+              return res.json(data);
+            }
           }
-          const restResults = await Promise.all(promises);
-          for (const list of restResults) {
-            allGames.push(...list);
-          }
-        }
+        } catch {}
+      }
 
-        const resultData = { games: allGames, total: allGames.length };
-        cachedLuminGamesData = resultData;
-        cachedLuminGamesExpiry = now + 60 * 60 * 1000; // 1 hour
-        return res.json(resultData);
+      // Fallback: local public/ugs.json
+      const localUgsPath = path.join(process.cwd(), "public", "ugs.json");
+      if (fs.existsSync(localUgsPath)) {
+        const localData = JSON.parse(fs.readFileSync(localUgsPath, "utf-8"));
+        return res.json(localData);
       }
     } catch (e) {
-      console.warn("Lumin games proxy error, serving cached or empty:", e);
+      console.warn("gmshelf games proxy error:", e);
     }
-    return res.json(cachedLuminGamesData || { games: [] });
+    return res.json(cachedGmshelfGamesData || []);
+  });
+
+  // Dedicated proxy endpoint for gmshelf / ugs HTML games and assets
+  app.get(["/api/ugs/:path(*)", "/api/ugs/*", "/ugs/:path(*)", "/ugs/*"], async (req, res) => {
+    try {
+      let subPath = (req.params as any).path || (req.params as any)[0] || "";
+      if (subPath.startsWith("/")) subPath = subPath.slice(1);
+      if (subPath.startsWith("ugs/")) subPath = subPath.slice("ugs/".length);
+
+      if (!subPath) return res.status(400).send("Missing ugs game path");
+
+      const mirrors = [
+        `https://rawcdn.githack.com/gmshelf/ugs/main/ugs/${subPath}`,
+        `https://cdn.jsdelivr.net/gh/gmshelf/ugs@main/ugs/${subPath}`,
+        `https://raw.githubusercontent.com/gmshelf/ugs/main/ugs/${subPath}`,
+      ];
+
+      let response: Response | null = null;
+      for (const upstreamUrl of mirrors) {
+        try {
+          response = await fetch(upstreamUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            },
+            signal: AbortSignal.timeout(6000),
+          });
+          if (response && response.ok) break;
+        } catch {}
+      }
+
+      if (!response || !response.ok) {
+        return res.status(404).send("Failed to load gmshelf game frame");
+      }
+
+      const contentType = response.headers.get("content-type") || "text/html";
+      res.removeHeader("X-Frame-Options");
+      res.removeHeader("Content-Security-Policy");
+      res.removeHeader("Cross-Origin-Resource-Policy");
+      res.removeHeader("Cross-Origin-Embedder-Policy");
+      res.removeHeader("Cross-Origin-Opener-Policy");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+
+      if (contentType.includes("text/html") || subPath.endsWith(".html")) {
+        let html = await response.text();
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        return res.send(html);
+      }
+
+      res.setHeader("Content-Type", contentType);
+      const arrayBuf = await response.arrayBuffer();
+      return res.send(Buffer.from(arrayBuf));
+    } catch (e: any) {
+      console.error("gmshelf frame proxy error:", e);
+      return res.status(500).send(e?.message || String(e));
+    }
   });
 
   // Endpoint for obtaining Lumin session ID
@@ -5971,10 +6058,7 @@ Platform context:
   });
 
   // Vite integration and static asset serving
-  const isMain = typeof require !== 'undefined' && require.main === module;
-  const isStandalone = typeof process !== 'undefined' && process.argv[1]?.includes('server');
-  
-  if (isMain || isStandalone) {
+  if (true) {
     (async () => {
       if (process.env.NODE_ENV !== "production") {
         const vite = await createViteServer({

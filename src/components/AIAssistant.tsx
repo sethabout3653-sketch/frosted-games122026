@@ -178,46 +178,25 @@ const AVAILABLE_MODELS: AIModelOption[] = [
     badge: "Web Search",
   },
   {
-    id: "groq/compound-mini",
-    name: "Groq Compound Mini",
-    provider: "Groq Compound Systems",
-    description: "Low-latency browser search, link clicking, and facts synthesis.",
-    badge: "Fast Search",
-  },
-  {
-    id: "llama-3.3-70b-versatile",
-    name: "Llama 3.3 70B",
-    provider: "Meta via Groq",
-    description: "Deep reasoning, analytical processing, and versatile problem solving (High Speed).",
+    id: "openai/gpt-oss-120b",
+    name: "GPT OSS 120B",
+    provider: "OpenAI via Groq",
+    description: "High-capacity reasoning and versatile problem solving.",
     badge: "Recommended",
   },
   {
-    id: "deepseek-r1-distill-llama-70b",
-    name: "DeepSeek R1 (70B Distill)",
-    provider: "DeepSeek via Groq",
-    description: "Unprecedented complex logical reasoning, math, and code distillations.",
-    badge: "Reasoning",
-  },
-  {
-    id: "llama-3.1-8b-instant",
-    name: "Llama 3.1 8B",
-    provider: "Meta via Groq",
-    description: "Sub-second ultra-low latency responses for instant, fluid chats.",
+    id: "openai/gpt-oss-20b",
+    name: "GPT OSS 20B",
+    provider: "OpenAI via Groq",
+    description: "Sub-second ultra-low latency responses for instant chats.",
     badge: "Ultra Fast",
   },
   {
-    id: "gemma2-9b-it",
-    name: "Gemma 2 9B",
-    provider: "Google via Groq",
-    description: "Efficient, creative writing, instruction-following, and safety analysis.",
-    badge: "Gemma",
-  },
-  {
-    id: "mixtral-8x7b-32768",
-    name: "Mixtral 8x7B",
-    provider: "Mistral via Groq",
-    description: "High quality MoE architecture with deep 32k context capability.",
-    badge: "MoE",
+    id: "qwen/qwen3.8-27b",
+    name: "Qwen 3.8 27B",
+    provider: "Alibaba via Groq",
+    description: "Advanced multilingual reasoning and code analysis.",
+    badge: "Reasoning",
   },
   {
     id: "gemini-3.8-flash",
@@ -1167,10 +1146,10 @@ export default function AIAssistant() {
     abortControllerRef.current = controller;
 
     // Persona Directives
-    const personaDirectives = `You are ${activePersona.name}.
-${activePersona.systemPrompt}
-Tone & Style: ${activePersona.toneStyle || "Helpful, clear, and friendly"}
-Formatting: Use clean Markdown formatting when helpful. Provide direct, thoughtful, and natural responses.`;
+    const personaDirectives = `Give short, simple, and not long answers. Never write long explanations or filler. NEVER use emojis. NEVER generate HTML or code blocks unless explicitly requested.
+
+You are ${activePersona.name}.
+${activePersona.systemPrompt}`;
 
     const conversationHistory = currentThreadMessages.map((m) => ({
       role: m.role,

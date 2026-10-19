@@ -175,21 +175,25 @@ export default function Chat({
       const userMap = new Map<string, any>();
       const myNameClean = (profile?.username || "").trim().toLowerCase();
 
+      const myBaseUid = (profile?.uid || "").split("_tab_")[0];
+
       // 1. Ingest from voice_users collection
       latestVoiceDocs.forEach((d) => {
         const data = d.data();
         const uname = (data?.username || "").trim();
-        const uUid = data?.uid || "";
-        if (!uUid || !uname || !isAllowedUsername(uname, uUid, profile?.uid)) {
+        const rawUid = data?.uid || d.id || "";
+        if (!rawUid || !uname || !isAllowedUsername(uname, rawUid, profile?.uid)) {
           return;
         }
-        const ts = toTimestampMs(data.timestamp || data.lastSeen);
-        const isSelf = uUid === profile?.uid;
+        const canonicalUid = rawUid.split("_tab_")[0] || ("user_" + uname.toLowerCase().replace(/[^a-z0-9]/g, ""));
+        const isSelf = canonicalUid === myBaseUid || rawUid === profile?.uid || uname.toLowerCase() === myNameClean;
         if (isSelf && !isInVoiceSession) return;
+
+        const ts = toTimestampMs(data.timestamp || data.lastSeen);
         if (ts > 0 && Math.abs(now - ts) <= 60000 && data.inVoice !== false) {
-          const existing = userMap.get(uUid);
-          if (!existing || isSelf || ts > (existing.timestamp || 0)) {
-            userMap.set(uUid, { ...data, uid: isSelf ? profile?.uid : uUid, timestamp: ts });
+          const existing = userMap.get(canonicalUid);
+          if (!existing || isSelf || ts >= (existing.timestamp || 0)) {
+            userMap.set(canonicalUid, { ...data, uid: isSelf ? profile?.uid : canonicalUid, timestamp: ts });
           }
         }
       });
@@ -198,20 +202,21 @@ export default function Chat({
       latestPresenceDocs.forEach((d) => {
         const data = d.data();
         const uname = (data?.username || "").trim();
-        const uUid = data?.uid || "";
-        if (!uUid || !uname || !isAllowedUsername(uname, uUid, profile?.uid)) {
+        const rawUid = data?.uid || d.id || "";
+        if (!rawUid || !uname || !isAllowedUsername(uname, rawUid, profile?.uid)) {
           return;
         }
-        const isSelf = uUid === profile?.uid;
+        const canonicalUid = rawUid.split("_tab_")[0] || ("user_" + uname.toLowerCase().replace(/[^a-z0-9]/g, ""));
+        const isSelf = canonicalUid === myBaseUid || rawUid === profile?.uid || uname.toLowerCase() === myNameClean;
         if (isSelf && !isInVoiceSession) return;
 
         if (data.inVoice) {
           const ts = toTimestampMs(data.lastSeen || data.timestamp);
           if (ts > 0 && Math.abs(now - ts) <= 60000) {
-            const existing = userMap.get(uUid);
-            if (!existing || isSelf || ts > (existing.timestamp || 0)) {
-              userMap.set(uUid, {
-                uid: isSelf ? profile?.uid : uUid,
+            const existing = userMap.get(canonicalUid);
+            if (!existing || isSelf || ts >= (existing.timestamp || 0)) {
+              userMap.set(canonicalUid, {
+                uid: isSelf ? profile?.uid : canonicalUid,
                 username: uname,
                 photoURL: data.photoURL || existing?.photoURL || "",
                 isMuted: data.isMuted !== undefined ? data.isMuted : existing?.isMuted ?? false,

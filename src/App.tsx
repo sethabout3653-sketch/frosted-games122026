@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useDeferredValue } fr
 import { motion, AnimatePresence } from "motion/react";
 import { Game, ChatProfile } from "./types";
 import { fetchGamesList, getUniqueTags, isFnfGame, isFnfMod, deduplicateGames, inferGameGenres } from "./utils";
-import { fetchLuminGames } from "./lumin";
+import { fetchGmshelfGames } from "./gmshelf";
 import Sidebar from "./components/Sidebar";
 import TopBar from "./components/TopBar";
 import GenreScroller from "./components/GenreScroller";
@@ -10,8 +10,7 @@ import GameGrid from "./components/GameGrid";
 import GamePlayer from "./components/GamePlayer";
 import Chat from "./components/Chat";
 import AIAssistant from "./components/AIAssistant";
-import MusicView from "./components/MusicView";
-import MusicDock from "./components/MusicDock";
+
 import GlobalAnnouncements from "./components/GlobalAnnouncements";
 import BackgroundEditor, { DEFAULT_BACKGROUND, AppBackground } from "./components/BackgroundEditor";
 import SettingsModal from "./components/SettingsModal";
@@ -21,7 +20,6 @@ import { useActivityTracker, getSavedProfile } from "./lib/activity-tracker";
 import { applyTheme, getSavedTheme } from "./utils/theme";
 import localZones from "./zones.json";
 import { CallProvider, useCall } from "./context/CallContext";
-import { MusicProvider } from "./context/MusicContext";
 import IncomingCallNotification from "./components/IncomingCallNotification";
 import ActiveCallModal from "./components/ActiveCallModal";
 import { useFavorites } from "./lib/favorites";
@@ -38,7 +36,7 @@ const SOUNDBOARD_GAME: Game = {
   special: ["all genres", "soundboard", "rhythm"],
 };
 
-function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog"): Game {
+function prepareGame(g: Game, defaultSource: "catalog" | "gmshelf" = "catalog"): Game {
   const isFnf = isFnfGame(g.name, g.special);
   const isMod = isFnf && isFnfMod(g.name, g.special);
 
@@ -49,7 +47,7 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
     ? [
         ...g.special.filter((t) => {
           const clean = t.toLowerCase();
-          return clean !== "luminsdk" && clean !== "fnf" && clean !== "fnf-mod";
+          return clean !== "luminsdk" && clean !== "gmshelf" && clean !== "fnf" && clean !== "fnf-mod";
         }),
       ]
     : [];
@@ -87,7 +85,7 @@ function prepareGame(g: Game, defaultSource: "catalog" | "luminsdk" = "catalog")
 }
 
 function AppContent() {
-  const [currentView, setCurrentView] = useState<"home" | "game" | "chat" | "assistant" | "music">("home");
+  const [currentView, setCurrentView] = useState<"home" | "game" | "chat" | "assistant">("home");
   const [chatInitialTab, setChatInitialTab] = useState<"chat" | "voice" | "profile">("chat");
   const [autoJoinVoice, setAutoJoinVoice] = useState(false);
   const [activeVideoTitle, setActiveVideoTitle] = useState<string | null>(null);
@@ -200,9 +198,9 @@ function AppContent() {
 
     const loadLibraries = async () => {
       try {
-        const [liveGamesResult, luminGamesResult] = await Promise.allSettled([
+        const [liveGamesResult, gmshelfGamesResult] = await Promise.allSettled([
           fetchGamesList(),
-          fetchLuminGames(),
+          fetchGmshelfGames(),
         ]);
 
         if (!isMounted) return;
@@ -215,13 +213,13 @@ function AppContent() {
           .filter((g) => g.id !== -1 && g.name !== "-3" && g.id !== 816)
           .map((g) => prepareGame(g, "catalog"));
 
-        let luminList: Game[] = [];
-        if (luminGamesResult.status === "fulfilled" && luminGamesResult.value.length > 0) {
-          luminList = luminGamesResult.value;
+        let gmshelfList: Game[] = [];
+        if (gmshelfGamesResult.status === "fulfilled" && gmshelfGamesResult.value.length > 0) {
+          gmshelfList = gmshelfGamesResult.value;
         }
 
-        const luminPrepared = luminList.map((g) => prepareGame(g, "luminsdk"));
-        const combined = deduplicateGames(baseList, luminPrepared).sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
+        const gmshelfPrepared = gmshelfList.map((g) => prepareGame(g, "gmshelf"));
+        const combined = deduplicateGames(baseList, gmshelfPrepared).sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
         setGames([SOUNDBOARD_GAME, ...combined.filter((g) => g.id !== SOUNDBOARD_GAME.id)]);
         setLoadingLive(false);
       } catch {
@@ -267,7 +265,7 @@ function AppContent() {
     document.documentElement.style.overflow = "";
   }, []);
 
-  const handleNavigate = useCallback((view: "home" | "chat" | "assistant" | "music") => {
+  const handleNavigate = useCallback((view: "home" | "chat" | "assistant") => {
     if (view === "home" && selectedGame) {
       setSelectedGame(null);
     }
@@ -497,16 +495,7 @@ function AppContent() {
               <AIAssistant />
             </div>
 
-            {/* 5. Music Lounge View */}
-            <div
-              className={`flex-1 w-full flex flex-col min-h-0 ${
-                currentView === "music"
-                  ? "flex"
-                  : "hidden"
-              }`}
-            >
-              <MusicView isActive={currentView === "music"} />
-            </div>
+
           </main>
         </div>
 
@@ -529,7 +518,6 @@ function AppContent() {
         <IncomingCallNotification />
         <ActiveCallModal />
         <GlobalAnnouncements />
-        <MusicDock onExpand={() => handleNavigate("music")} />
       </div>
     </>
   );
@@ -538,9 +526,7 @@ function AppContent() {
 export default function App() {
   return (
     <CallProvider>
-      <MusicProvider>
-        <AppContent />
-      </MusicProvider>
+      <AppContent />
     </CallProvider>
   );
 }

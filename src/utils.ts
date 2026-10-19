@@ -273,14 +273,10 @@ export function getBaldiTargetGroup(name: string): string | null {
 }
 
 /**
- * Deduplicates games between the primary gn-math catalog and secondary sources (LuminSDK),
+ * Deduplicates games between the primary gn-math catalog and secondary sources (gmshelf / ugs),
  * and eliminates duplicate copies within the catalog itself.
- * Specifically:
- * 1. For "Friday Night Funkin" / "FNF", the gn-math version is strictly preserved.
- * 2. For "Baldi's Basics", "Baldi's Basics Plus", and "Baldi's Basics Classic Remastered",
- *    the LuminSDK version is preferred over the gn-math catalog version.
  */
-export function deduplicateGames(catalogGames: Game[], luminGames: Game[]): Game[] {
+export function deduplicateGames(catalogGames: Game[], secondaryGames: Game[]): Game[] {
   const seenCanonical = new Set<string>();
   const result: Game[] = [];
 
@@ -291,26 +287,20 @@ export function deduplicateGames(catalogGames: Game[], luminGames: Game[]): Game
       .replace(/['’":.-]/g, "")
       .replace(/\s+/g, " ");
 
-  // Identify which Baldi target groups are present in LuminSDK
-  const luminBaldiGroups = new Set<string>();
-  for (const lg of luminGames) {
-    if (lg.id === -1) continue;
-    const group = getBaldiTargetGroup(lg.name);
+  // Identify which Baldi target groups are present in secondary games
+  const secondaryBaldiGroups = new Set<string>();
+  for (const sg of secondaryGames) {
+    if (sg.id === -1) continue;
+    const group = getBaldiTargetGroup(sg.name);
     if (group) {
-      luminBaldiGroups.add(group);
+      secondaryBaldiGroups.add(group);
     }
   }
 
-  // 1. Process primary gn-math catalog games
+  // 1. Process primary catalog games
   for (const game of catalogGames) {
     if (game.id === -1) continue;
     const canon = getCanonical(game.name);
-
-    // If this catalog game is a Baldi target game that exists in LuminSDK, skip catalog version
-    const baldiGroup = getBaldiTargetGroup(game.name);
-    if (baldiGroup && luminBaldiGroups.has(baldiGroup)) {
-      continue;
-    }
 
     if (!seenCanonical.has(canon)) {
       seenCanonical.add(canon);
@@ -318,17 +308,12 @@ export function deduplicateGames(catalogGames: Game[], luminGames: Game[]): Game
     }
   }
 
-  // 2. Add secondary LuminSDK games
-  for (const game of luminGames) {
+  // 2. Add secondary gmshelf games
+  for (const game of secondaryGames) {
     if (game.id === -1) continue;
     const canon = getCanonical(game.name);
 
-    // Explicitly delete Lumin's duplicate copy of Friday Night Funkin / FNF
-    if (canon === "friday night funkin" || canon === "fnf") {
-      continue;
-    }
-
-    // Discard any Lumin game that duplicates a catalog game (unless it's a target Baldi game that was skipped)
+    // Skip exact duplicate if already exists in primary catalog
     if (seenCanonical.has(canon)) {
       continue;
     }

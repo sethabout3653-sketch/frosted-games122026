@@ -245,8 +245,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
   // Filter out local user (since local user is rendered via renderLocalTile) and deduplicate remote participants
   const activeParticipants = useMemo(() => {
-    const myUid = profile?.uid;
-    const myBaseUid = myUid?.split("_tab_")[0];
+    const myUid = profile?.uid || "";
+    const myBaseUid = myUid.split("_tab_")[0];
+    const myName = (profile?.username || "").trim().toLowerCase();
     const remoteMap = new Map<string, Participant>();
 
     participants.forEach((p) => {
@@ -260,14 +261,12 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         return;
       }
 
-      // STRICTLY EXCLUDE LOCAL USER
-      // We keep other tabs of the same user in the list so they don't "disappear",
-      // but we filter their audio playback separately to prevent echo loops.
-      if (uUid === myUid) {
+      // STRICTLY EXCLUDE LOCAL USER - prevents duplicate connection of self in remote list
+      if (uUid === myUid || uBaseUid === myBaseUid || uName.toLowerCase() === myName) {
         return;
       }
 
-      const pc = peersRef.current[uUid];
+      const pc = peersRef.current[uBaseUid] || peersRef.current[uUid];
       const isConnected = pc && (pc.connectionState === "connected" || pc.iceConnectionState === "connected");
       const ts = toTimestampMs(p.timestamp);
 
@@ -275,16 +274,17 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         return;
       }
 
-      const existing = remoteMap.get(uUid);
-      if (!existing || isConnected || ts > toTimestampMs(existing.timestamp)) {
-        remoteMap.set(uUid, p);
+      // Group by canonical base UID so remote users never have duplicate connections
+      const existing = remoteMap.get(uBaseUid);
+      if (!existing || isConnected || ts >= toTimestampMs(existing.timestamp)) {
+        remoteMap.set(uBaseUid, { ...p, uid: uBaseUid });
       }
     });
 
     return Array.from(remoteMap.values()).sort((a, b) => {
       return (a.username || "").localeCompare(b.username || "");
     });
-  }, [participants, currentTime, profile?.uid]);
+  }, [participants, currentTime, profile?.uid, profile?.username]);
 
   // Active Screen Share descriptor (local or remote)
   const activeScreenShare = useMemo(() => {
@@ -1650,22 +1650,23 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           const userMap = new Map<string, Participant>();
           const now = Date.now();
           const myNameClean = (profile.username || "").trim().toLowerCase();
+          const myBaseUid = (profile.uid || "").split("_tab_")[0];
 
           // 1. Process voice_users collection
           latestVoiceDocs.forEach((d) => {
             const u = d.data() as Participant;
             const uName = (u?.username || "").trim() || `Guest_${(u?.uid || "").slice(0, 5)}`;
-            const uUid = u?.uid || "";
-            if (!uUid) {
-              return;
-            }
+            const rawUid = u?.uid || d.id || "";
+            if (!rawUid) return;
+            const canonicalUid = rawUid.split("_tab_")[0] || ("user_" + uName.toLowerCase().replace(/[^a-z0-9]/g, ""));
+            const isSelf = canonicalUid === myBaseUid || rawUid === profile.uid || uName.toLowerCase() === myNameClean;
+
             let ts = toTimestampMs(u.timestamp || (u as any).lastSeen);
             if (ts <= 0) ts = now;
             if (Math.abs(now - ts) <= 60000 && (u as any).inVoice !== false) {
-              const existing = userMap.get(uUid);
-              const isSelf = uUid === profile.uid;
-              if (!existing || isSelf || ts > (existing.timestamp || 0)) {
-                userMap.set(uUid, { ...u, uid: isSelf ? profile.uid : uUid, timestamp: ts });
+              const existing = userMap.get(canonicalUid);
+              if (!existing || isSelf || ts >= (existing.timestamp || 0)) {
+                userMap.set(canonicalUid, { ...u, uid: isSelf ? profile.uid : canonicalUid, timestamp: ts });
               }
             }
           });
@@ -1674,19 +1675,19 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
           latestPresenceDocs.forEach((d) => {
             const pData = d.data();
             const uName = (pData?.username || "").trim() || `Guest_${(pData?.uid || "").slice(0, 5)}`;
-            const uUid = pData?.uid || "";
-            if (!uUid) {
-              return;
-            }
+            const rawUid = pData?.uid || d.id || "";
+            if (!rawUid) return;
+            const canonicalUid = rawUid.split("_tab_")[0] || ("user_" + uName.toLowerCase().replace(/[^a-z0-9]/g, ""));
+            const isSelf = canonicalUid === myBaseUid || rawUid === profile.uid || uName.toLowerCase() === myNameClean;
+
             if (pData.inVoice) {
               let ts = toTimestampMs(pData.lastSeen || pData.timestamp);
               if (ts <= 0) ts = now;
               if (Math.abs(now - ts) <= 60000) {
-                const existing = userMap.get(uUid);
-                const isSelf = uUid === profile.uid;
-                if (!existing || isSelf || ts > (existing.timestamp || 0)) {
-                  userMap.set(uUid, {
-                    uid: isSelf ? profile.uid : uUid,
+                const existing = userMap.get(canonicalUid);
+                if (!existing || isSelf || ts >= (existing.timestamp || 0)) {
+                  userMap.set(canonicalUid, {
+                    uid: isSelf ? profile.uid : canonicalUid,
                     username: uName,
                     photoURL: pData.photoURL || existing?.photoURL || "",
                     channelId: existing?.channelId || "general",
@@ -1705,7 +1706,7 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
           // Ensure local user profile is present in userMap with FRESH values from Refs
           if (profile && profile.uid) {
-            const existingSelf = userMap.get(profile.uid);
+            const existingSelf = userMap.get(myBaseUid) || userMap.get(profile.uid);
             userMap.set(profile.uid, {
               uid: profile.uid,
               username: profile.username,
@@ -1719,6 +1720,9 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
               activity: getCurrentActivity(),
               timestamp: now,
             });
+            if (myBaseUid !== profile.uid) {
+              userMap.delete(myBaseUid);
+            }
           }
 
           setParticipants(() => {

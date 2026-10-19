@@ -464,7 +464,12 @@ class UniversalDatabaseManager {
 
     if (!this.listeners.has(colName)) {
       this.listeners.set(colName, new Set());
-      this.startSSEStream(colName);
+      // Subscribe over single WebSocket connection (no duplicate SSE connection)
+      if (wsClient.isConnected()) {
+        try {
+          (wsClient as any).sendRaw?.({ type: "subscribe", collection: colName });
+        } catch (e) {}
+      }
     }
 
     const entry = { cb: callback, queryObj: queryObject };
@@ -494,7 +499,7 @@ class UniversalDatabaseManager {
       } catch (e) {}
     }
 
-    // Async background refresh from serverless database
+    // Async background refresh from database
     this.fetchCollection(colName).then((items) => {
       try {
         if (isDoc && docId) {
@@ -520,11 +525,6 @@ class UniversalDatabaseManager {
         set.delete(entry);
         if (set.size === 0) {
           this.listeners.delete(colName);
-          const sseCtrl = this.sseControllers.get(colName);
-          if (sseCtrl) {
-            sseCtrl.abort();
-            this.sseControllers.delete(colName);
-          }
         }
       }
     };
@@ -549,12 +549,13 @@ class UniversalDatabaseManager {
     // 1. Optimistic zero-latency update locally
     this.applyChange(op, collection, id, payload, true);
 
-    // 2. Instant real-time broadcast via WebSocket (primary fast pathway)
+    // 2. Instant real-time broadcast via primary WebSocket connection
+    let sentWs = false;
     try {
-      wsClient.sendChange(op, collection, id, payload);
+      sentWs = wsClient.sendChange(op, collection, id, payload);
     } catch (e) {}
 
-    // 3. Persist to backing endpoints fully in the background asynchronously so the UI is 100% pure zero-lag
+    // 3. Persist to backing database via single clean endpoint (no duplicate requests)
     const bodyObj = {
       op,
       collection,
@@ -564,13 +565,6 @@ class UniversalDatabaseManager {
     };
 
     fetch("/api/db/data", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(bodyObj),
-      keepalive: true,
-    }).catch(() => {});
-
-    fetch("/api/cassandra/write", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(bodyObj),
@@ -787,18 +781,21 @@ export function sendBroadcastSignal(payload: any) {
     timestamp: payload.timestamp || Date.now(),
   };
 
-  // 1. Instant 0ms WebSocket Peer-to-Peer Signaling
+  // 1. Instant 0ms WebSocket Peer-to-Peer Signaling (single authoritative connection)
+  let sentOverWs = false;
   try {
-    wsClient.sendSignal(sig);
+    sentOverWs = wsClient.sendSignal(sig);
   } catch (e) {}
 
-  // 2. Fallback to server endpoint for cross-network reliability
-  fetch("/api/webrtc/signal", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(sig),
-    keepalive: true,
-  }).catch(() => {});
+  // 2. Fallback to server endpoint ONLY if WebSocket is offline
+  if (!sentOverWs && !wsClient.isConnected()) {
+    fetch("/api/webrtc/signal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sig),
+      keepalive: true,
+    }).catch(() => {});
+  }
 }
 
 export function subscribeBroadcastSignals(
@@ -835,40 +832,21 @@ export function subscribeBroadcastSignals(
 
     if (processedSignals.has(sig.id)) return;
     processedSignals.add(sig.id);
+    if (processedSignals.size > 200) {
+      const first = processedSignals.values().next().value;
+      if (first) processedSignals.delete(first);
+    }
     onSignal(sig);
   };
 
-  // 1. WebSocket listener
+  // Single Authoritative WebSocket listener (no duplicate SSE connection)
   const unsubWs = wsClient.onSignal((sig) => {
     handleSignal(sig);
   });
 
-  // 2. Real-time Server-Sent Events (SSE) Signaling Stream (0ms latency fallback)
-  let es: EventSource | null = null;
-  if (typeof window !== "undefined" && typeof EventSource !== "undefined") {
-    try {
-      es = new EventSource("/api/cassandra/stream");
-      
-      const onSseMessage = (event: MessageEvent) => {
-        try {
-          const parsed = JSON.parse(event.data);
-          if (parsed && (parsed.type === "webrtc_signal" || parsed.type === "signal")) {
-            if (parsed.payload) {
-              handleSignal(parsed.payload);
-            }
-          }
-        } catch {}
-      };
-
-      es.addEventListener("message", onSseMessage);
-      es.addEventListener("webrtc_signal", onSseMessage);
-    } catch (e) {
-      console.warn("[WebRTC SSE Connection error]", e);
-    }
-  }
-
-  // 3. Resilient Polling backup (reduced frequency to 4s to minimize network overhead)
+  // Resilient Polling fallback ONLY active if WebSocket is disconnected
   const interval = setInterval(async () => {
+    if (wsClient.isConnected()) return; // Skip polling when WebSocket is connected!
     try {
       const res = await fetch(`/api/webrtc/signals?uid=${encodeURIComponent(myUid)}`);
       if (res.ok) {
@@ -879,13 +857,10 @@ export function subscribeBroadcastSignals(
         }
       }
     } catch (e) {}
-  }, 4000);
+  }, 5000);
 
   return () => {
     unsubWs();
-    if (es) {
-      es.close();
-    }
     clearInterval(interval);
   };
 }

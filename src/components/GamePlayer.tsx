@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Game } from "../types";
 import { formatGameUrl } from "../utils";
-import { getLuminGameUrl } from "../lumin";
+import { getGmshelfGameUrl } from "../gmshelf";
 import {
   ArrowLeft,
   Maximize2,
@@ -74,7 +74,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const isLuminGame = game.source === "luminsdk" || (typeof game.id === "string" && game.id.startsWith("lumin-")) || !!game.luminId;
+  const isGmshelfGame = game.source === "gmshelf" || game.source === "luminsdk" || (typeof game.id === "string" && (game.id.startsWith("gmshelf-") || game.id.startsWith("lumin-"))) || !!game.gmshelfUrl || !!game.luminId;
   const isSoundboard = game.id === "soundboard" || (game.name && game.name.toLowerCase().includes("soundboard"));
 
   // Load and resolve game URL
@@ -90,9 +90,9 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
         return;
       }
 
-      if (isLuminGame) {
-        const luminId = game.luminId || (typeof game.id === "string" && game.id.startsWith("lumin-") ? game.id.slice("lumin-".length) : String(game.id));
-        const url = await getLuminGameUrl(luminId);
+      if (isGmshelfGame) {
+        const target = game.gmshelfUrl || (game.url && game.url.startsWith("/api/ugs") ? game.url : "") || game.url || game.luminId || String(game.id);
+        const url = getGmshelfGameUrl(target);
         if (!isCancelled && url) {
           setGameUrl(url);
         }
@@ -112,7 +112,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
     return () => {
       isCancelled = true;
     };
-  }, [game, isLuminGame, isSoundboard]);
+  }, [game, isGmshelfGame, isSoundboard]);
 
   const handleFullscreen = () => {
     const target = containerRef.current || iframeRef.current;
@@ -150,7 +150,7 @@ export default function GamePlayer({ game, onBack }: GamePlayerProps) {
           <div>
             <h1 className="text-sm font-bold text-neutral-100">{game.name}</h1>
             <p className="text-[10px] text-neutral-400 font-mono tracking-wider uppercase">
-              {isLuminGame ? "Selenite" : "HTML5 Web Game"}
+              {isGmshelfGame ? "gmshelf / ugs" : "HTML5 Web Game"}
             </p>
           </div>
         </div>

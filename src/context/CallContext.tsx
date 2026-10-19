@@ -226,33 +226,43 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const now = Date.now();
       const current = getMyProfile();
       const myUid = current?.uid || "";
+      const myBaseUid = myUid.split("_tab_")[0];
       const myName = (current?.username || "").trim().toLowerCase();
-      const map = new Map<string, CallUser>();
+      const map = new Map<string, { user: CallUser; ts: number }>();
 
       snapshot.docs.forEach((d: any) => {
         const data = d.data();
         const uname = (data.username || "").trim();
-        if (!uname || uname.toLowerCase() === "anonymous" || !isAllowedUsername(uname, data.uid, myUid)) return;
-        if (data.uid === myUid) return;
+        const rawUid = data.uid || d.id || "";
+        const canonicalUid = rawUid.split("_tab_")[0] || ("user_" + uname.toLowerCase().replace(/[^a-z0-9]/g, ""));
+
+        if (!uname || uname.toLowerCase() === "anonymous" || !isAllowedUsername(uname, canonicalUid, myUid)) return;
+        // Never include local user or any previous tab of the local user
+        if (canonicalUid === myBaseUid || rawUid === myUid || uname.toLowerCase() === myName) return;
 
         const ts = toTimestampMs(data.lastSeen || data.timestamp);
-        if (ts > 0 && now - ts <= 75000) {
+        if (ts > 0 && Math.abs(now - ts) <= 75000) {
           const userPhoto =
             data.photoURL ||
             `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(uname)}`;
 
-          map.set(data.uid, {
-            uid: data.uid,
+          const userObj: CallUser = {
+            uid: canonicalUid,
             username: uname,
             tag: data.tag || getOrCreateUserTag(uname),
             photoURL: userPhoto,
             status: data.status || "online",
             activity: data.activity,
-          });
+          };
+
+          const existing = map.get(canonicalUid);
+          if (!existing || ts >= existing.ts) {
+            map.set(canonicalUid, { user: userObj, ts });
+          }
         }
       });
 
-      const usersList = Array.from(map.values());
+      const usersList = Array.from(map.values()).map((v) => v.user);
       setOnlineUsers(usersList);
       onlineUsersRef.current = usersList;
     });

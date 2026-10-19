@@ -86,11 +86,8 @@ export class WebSocketClient {
     if (this.isConnected()) {
       this.sendRaw({
         type: "register",
-        peerId: uid,
-      });
-      this.sendRaw({
-        type: "register_uid",
         uid,
+        peerId: uid,
       });
     }
   }
@@ -147,8 +144,7 @@ export class WebSocketClient {
 
         // Register user UID if set
         if (this.myUid) {
-          this.sendRaw({ type: "register", peerId: this.myUid });
-          this.sendRaw({ type: "register_uid", uid: this.myUid });
+          this.sendRaw({ type: "register", uid: this.myUid, peerId: this.myUid });
         }
 
         // Re-subscribe to all active collections
@@ -373,15 +369,10 @@ export class WebSocketClient {
   public sendSignal(payload: any) {
     const senderId = payload.uid || this.myUid;
     const targetId = payload.targetUid || "all";
-    this.sendRaw({
-      type: "signal",
-      senderId,
-      targetId,
-      payload,
-      timestamp: Date.now(),
-    });
     return this.sendRaw({
       type: "webrtc_signal",
+      senderId,
+      targetId,
       payload,
       timestamp: Date.now(),
     });

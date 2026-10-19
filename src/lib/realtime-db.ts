@@ -36,7 +36,7 @@ export class RealtimeDB {
     let eventSource: EventSource | null = null;
     let isSubscribed = true;
 
-    // 1. WebSocket Live Stream (Instant 0ms latency)
+    // 1. WebSocket Live Stream (Instant 0ms latency - Primary single connection)
     const unsubWs = wsClient.onCollectionChange(cleanPath, (change) => {
       if (!isSubscribed) return;
       try {
@@ -52,57 +52,34 @@ export class RealtimeDB {
       }
     });
 
-    const connect = () => {
-      if (!isSubscribed) return;
-
-      eventSource = new EventSource(url);
-
-      eventSource.addEventListener("snapshot", (event) => {
-        try {
-          const snapshotData = JSON.parse(event.data);
-          callbacks.onSnapshot?.(snapshotData);
-        } catch (e) {
-          callbacks.onError?.(e);
+    // 2. Fetch initial snapshot once over WebSocket or REST without holding an open SSE stream
+    if (wsClient.isConnected()) {
+      wsClient.fetchCollection(cleanPath).then((items) => {
+        if (!isSubscribed) return;
+        const snapObj: Record<string, T> = {};
+        if (Array.isArray(items)) {
+          items.forEach((it: any) => {
+            if (it && it.id) snapObj[it.id] = it;
+          });
         }
-      });
-
-      eventSource.addEventListener("change", (event) => {
-        try {
-          const changeData: RealtimeChangeEvent<T> = JSON.parse(event.data);
-          callbacks.onChange?.(changeData);
-        } catch (e) {
-          callbacks.onError?.(e);
-        }
-      });
-
-      eventSource.onerror = (err) => {
-        callbacks.onError?.(err);
-        // Browser EventSource automatically reconnects with backoff
-      };
-    };
-
-    connect();
-
-    // Fallback Polling Mechanism for Vercel/Serverless environments
-    // where SSE clients might be isolated on different function instances
-    const interval = setInterval(async () => {
-      if (!isSubscribed) return;
-      try {
-        const query = new URLSearchParams({ path: cleanPath });
-        const res = await fetch(`${this.baseUrl}/api/db/data?${query.toString()}`);
-        if (res.ok) {
-           const json = await res.json();
-           if (json.data) callbacks.onSnapshot?.(json.data);
-        }
-      } catch (e) {
-        // ignore poll errors
-      }
-    }, 2500);
+        callbacks.onSnapshot?.(snapObj);
+      }).catch(() => {});
+    } else {
+      // Fallback REST fetch if WebSocket offline
+      const query = new URLSearchParams({ path: cleanPath });
+      fetch(`${this.baseUrl}/api/db/data?${query.toString()}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (isSubscribed && json?.data) {
+            callbacks.onSnapshot?.(json.data);
+          }
+        })
+        .catch(() => {});
+    }
 
     return () => {
       isSubscribed = false;
       unsubWs();
-      clearInterval(interval);
       if (eventSource) {
         eventSource.close();
         eventSource = null;

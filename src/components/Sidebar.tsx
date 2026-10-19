@@ -3,7 +3,6 @@ import {
   Snowflake,
   Gamepad2,
   MessageSquare,
-  Music,
   Sparkles,
   Phone,
   Palette,
@@ -19,8 +18,8 @@ import { getOrCreateUserTag } from "../lib/friends";
 import CallMenuDropdown from "./CallMenuDropdown";
 
 interface SidebarProps {
-  currentView: "home" | "game" | "chat" | "assistant" | "music";
-  onNavigate: (view: "home" | "chat" | "assistant" | "music") => void;
+  currentView: "home" | "game" | "chat" | "assistant";
+  onNavigate: (view: "home" | "chat" | "assistant") => void;
   selectedTag?: string;
   onSelectTag?: (tag: string) => void;
   onOpenSettings?: () => void;
@@ -66,13 +65,6 @@ export const Sidebar = memo(function Sidebar({
       icon: Sparkles,
       active: currentView === "assistant",
       onClick: () => onNavigate("assistant"),
-    },
-    {
-      id: "music" as const,
-      label: "Music Lounge",
-      icon: Music,
-      active: currentView === "music",
-      onClick: () => onNavigate("music"),
     },
   ];
 

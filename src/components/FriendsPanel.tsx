@@ -570,12 +570,23 @@ export default function FriendsPanel({
   const pendingIncoming = useMemo(() => requests.filter((r) => r.status === "pending" && r.toUid === currentProfile.uid), [requests, currentProfile.uid]);
 
   const availableOnlinePlayers = useMemo(() => {
-    return onlineUsers.filter((u) => {
-      if (u.uid === currentProfile.uid || u.username.toLowerCase() === (currentProfile.username || "").toLowerCase()) return false;
-      if (u.uid === "echo_bot_assistant" || u.username.toLowerCase().includes("echo")) return false;
-      const isFriend = friends.some((f) => f.username.toLowerCase() === u.username.toLowerCase() || f.uid === u.uid);
-      return !isFriend;
+    const map = new Map<string, any>();
+    onlineUsers.forEach((u) => {
+      const uname = (u.username || "").toLowerCase();
+      const myName = (currentProfile.username || "").toLowerCase();
+      const myBaseUid = (currentProfile.uid || "").split("_tab_")[0];
+      const uBaseUid = (u.uid || "").split("_tab_")[0];
+
+      if (uBaseUid === myBaseUid || u.uid === currentProfile.uid || uname === myName) return;
+      if (u.uid === "echo_bot_assistant" || uname.includes("echo")) return;
+      const isFriend = friends.some((f) => f.username.toLowerCase() === uname || f.uid === u.uid || f.uid === uBaseUid);
+      if (isFriend) return;
+
+      if (!map.has(uBaseUid)) {
+        map.set(uBaseUid, u);
+      }
     });
+    return Array.from(map.values());
   }, [onlineUsers, currentProfile.uid, currentProfile.username, friends]);
 
   const displayedFriends = useMemo(() => {

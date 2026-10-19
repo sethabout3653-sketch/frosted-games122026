@@ -10,6 +10,7 @@ export interface Game {
   isMod?: boolean;
   source?: string;
   luminId?: string;
+  gmshelfUrl?: string;
   _search?: string;
 }
 

@@ -1,5 +1,5 @@
 import React, { memo } from "react";
-import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart, Music, Shuffle, Image as ImageIcon, Zap } from "lucide-react";
+import { Search, Snowflake, MessageSquare, SlidersHorizontal, X, Sparkles, Gamepad2, Phone, Heart, Shuffle, Image as ImageIcon, Zap } from "lucide-react";
 import { formatTagLabel } from "../utils";
 import { useCall } from "../context/CallContext";
 import { useFavorites } from "../lib/favorites";
@@ -11,11 +11,10 @@ interface HeaderProps {
   selectedTag: string;
   setSelectedTag: (tag: string) => void;
   tags: string[];
-  currentView?: "home" | "game" | "chat" | "assistant" | "music" | "sdk";
+  currentView?: "home" | "game" | "chat" | "assistant" | "sdk";
   onGoHome?: () => void;
   onChatClick?: () => void;
   onAssistantClick?: () => void;
-  onMusicClick?: () => void;
   onSdkClick?: () => void;
   onOpenSettings?: () => void;
   onOpenTheme?: () => void;
@@ -33,7 +32,6 @@ const Header = memo(function Header({
   onGoHome,
   onChatClick,
   onAssistantClick,
-  onMusicClick,
   onSdkClick,
   onOpenSettings,
   onOpenTheme,
@@ -82,10 +80,10 @@ const Header = memo(function Header({
     }
   };
 
+
   const isHome = currentView === "home" || currentView === "game";
   const isChat = currentView === "chat";
   const isAssistant = currentView === "assistant";
-  const isMusic = currentView === "music";
   const isSdk = currentView === "sdk";
 
   return (
@@ -214,25 +212,7 @@ const Header = memo(function Header({
               <span>Assistant</span>
             </button>
 
-            {/* Music Tab */}
-            <button
-              id="nav-music-btn"
-              type="button"
-              onClick={onMusicClick}
-              style={{
-                backgroundColor: isMusic ? "var(--theme-accent)" : "transparent",
-                borderColor: isMusic ? "var(--theme-border)" : "transparent",
-              }}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer ${
-                isMusic
-                  ? "text-white shadow-md ring-1 ring-white/20 bg-[var(--theme-accent)]"
-                  : "text-neutral-400 hover:text-white hover:bg-white/5"
-              }`}
-              title="Music"
-            >
-              <Music size={15} className={isMusic ? "text-white" : "text-[var(--theme-text-accent)]"} />
-              <span>Music</span>
-            </button>
+
 
             {/* Calling & Voice Tab */}
             <div className="relative">
