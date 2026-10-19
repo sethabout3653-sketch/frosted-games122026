@@ -805,7 +805,7 @@ export default function AIAssistant() {
     if (saved && AVAILABLE_MODELS.some((m) => m.id === saved)) {
       return saved;
     }
-    return "llama-3.3-70b-versatile";
+    return "openai/gpt-oss-120b";
   });
 
   // Persona management
@@ -1174,7 +1174,7 @@ ${activePersona.systemPrompt}`;
         method: "POST",
         headers: fetchHeaders,
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: selectedModel || "openai/gpt-oss-120b",
           messages: apiMessages,
           systemPrompt: personaDirectives,
           temperature: temperature,
@@ -1190,7 +1190,7 @@ ${activePersona.systemPrompt}`;
           method: "POST",
           headers: fetchHeaders,
           body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
+            model: selectedModel || "openai/gpt-oss-120b",
             messages: apiMessages,
             systemPrompt: personaDirectives,
             temperature: temperature,
