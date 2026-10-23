@@ -103,8 +103,9 @@ export function resolveGameCover(name: string, rawImg?: string): string {
 
 export function formatGmshelfGame(item: { name: string; url: string; img?: string }, idx: number): Game {
   const name = (item.name || "Untitled Game").trim();
-  const url = item.url || "";
-  const idStr = url || name;
+  const rawUrl = item.url || "";
+  const cleanUrl = rawUrl.replace(/^\/api\/ugs\//, "/").replace(/^\/ugs\//, "/");
+  const idStr = rawUrl || name;
   const cover = resolveGameCover(name, item.img);
   const genres = inferGameGenres(name);
   const special = ["gmshelf", "ugs", ...genres];
@@ -114,8 +115,8 @@ export function formatGmshelfGame(item: { name: string; url: string; img?: strin
     id: hashStringToId(idStr, idx),
     name,
     cover,
-    url: url.startsWith("http") ? url : `/api/ugs${url.startsWith("/") ? "" : "/"}${url.replace(/^\/ugs\//, "/")}`,
-    gmshelfUrl: url,
+    url: rawUrl.startsWith("http") ? rawUrl : `/api/ugs${cleanUrl.startsWith("/") ? "" : "/"}${cleanUrl}`,
+    gmshelfUrl: rawUrl,
     author: "gmshelf / ugs",
     authorLink: "https://github.com/gmshelf/ugs",
     featured: idx < 10,
@@ -176,19 +177,14 @@ export function getGmshelfGameUrl(pathOrUrl: string): string {
     return `/api/proxy?url=${encodeURIComponent(clean)}`;
   }
 
-  // Normalize path
+  // Strip duplicated /api/ugs/ or /ugs/ prefixes
+  clean = clean.replace(/^\/api\/ugs\//, "/").replace(/^\/ugs\//, "/");
   if (!clean.startsWith("/")) {
     clean = "/" + clean;
   }
 
-  // Remove duplicate /ugs prefixes
-  let subPath = clean;
-  if (subPath.startsWith("/ugs/")) {
-    subPath = subPath.replace(/^\/ugs\//, "/");
-  }
-
-  // Return server proxy endpoint that strips iframe restrictions
-  return `/api/ugs${subPath}`;
+  // Return server proxy endpoint that strips iframe restrictions and injects base href
+  return `/api/ugs${clean}`;
 }
 
 // Backward-compatible exports to replace LuminSDK smoothly

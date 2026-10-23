@@ -34,15 +34,29 @@ export function formatCoverUrl(cover: string): string {
  */
 export function formatGameUrl(url: string): string {
   if (!url) return "";
-  let formattedUrl = url;
+  let formattedUrl = url.trim();
   if (formattedUrl.startsWith("http://")) formattedUrl = formattedUrl.replace("http://", "https://");
 
-  const rawUrl = formattedUrl
-    .replace(/{HTML_URL}/g, "https://rawcdn.githack.com/gn-math/html/main")
-    .replace(/{COVER_URL}/g, COVER_BASE)
-    .replace(/\/api\/game-frame/g, "https://rawcdn.githack.com/gn-math/html/main");
+  if (formattedUrl.startsWith("/api/ugs") || formattedUrl.startsWith("/ugs/")) {
+    const clean = formattedUrl.replace(/^\/api\/ugs\//, "/").replace(/^\/ugs\//, "/");
+    return `/api/ugs${clean.startsWith("/") ? "" : "/"}${clean}`;
+  }
 
-  return rawUrl;
+  if (formattedUrl.includes("{HTML_URL}")) {
+    return formattedUrl.replace(/{HTML_URL}/g, "/api/game-frame");
+  }
+
+  if (formattedUrl.startsWith("https://raw.githubusercontent.com/gn-math/html/main/")) {
+    const fn = formattedUrl.replace("https://raw.githubusercontent.com/gn-math/html/main/", "");
+    return `/api/game-frame/${fn}`;
+  }
+
+  if (formattedUrl.startsWith("https://rawcdn.githack.com/gn-math/html/main/")) {
+    const fn = formattedUrl.replace("https://rawcdn.githack.com/gn-math/html/main/", "");
+    return `/api/game-frame/${fn}`;
+  }
+
+  return formattedUrl;
 }
 
 /**

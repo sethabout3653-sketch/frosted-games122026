@@ -986,12 +986,19 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
 
   const createPeerConnection = useCallback(
     (partnerUid: string, micStream: MediaStream): RTCPeerConnection => {
-      if (peersRef.current[partnerUid]) {
+      const existingPc = peersRef.current[partnerUid];
+      if (existingPc && existingPc.signalingState !== "closed" && existingPc.connectionState !== "failed" && existingPc.connectionState !== "closed") {
+        if (existingPc.connectionState === "connected" || existingPc.connectionState === "connecting" || existingPc.iceConnectionState === "checking") {
+          return existingPc;
+        }
+      }
+
+      if (existingPc) {
         try {
-          peersRef.current[partnerUid].onicecandidate = null;
-          peersRef.current[partnerUid].ontrack = null;
-          peersRef.current[partnerUid].onconnectionstatechange = null;
-          peersRef.current[partnerUid].close();
+          existingPc.onicecandidate = null;
+          existingPc.ontrack = null;
+          existingPc.onconnectionstatechange = null;
+          existingPc.close();
         } catch (e) {}
         delete peersRef.current[partnerUid];
       }
@@ -1030,23 +1037,21 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
         } catch (e) {}
       }
 
-      // 2. Add camera track if local video is active
-      if (videoStreamRef.current) {
-        videoStreamRef.current.getVideoTracks().forEach((track) => {
-          const cameraSender = pc.addTrack(track, videoStreamRef.current!);
-          cameraSendersRef.current[partnerUid] = cameraSender;
-        });
-      }
+      // 2. Add camera track (real or dummy to ensure m-line exists)
+      const cameraSource = videoStreamRef.current || new MediaStream([getOrCreateDummyVideoTrack()]);
+      cameraSource.getVideoTracks().forEach((track) => {
+        const cameraSender = pc.addTrack(track, cameraSource);
+        cameraSendersRef.current[partnerUid] = cameraSender;
+      });
 
-      // 3. Add screen share track if local screen sharing is active
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getVideoTracks().forEach((track) => {
-          try {
-            const screenSender = pc.addTrack(track, screenStreamRef.current!);
-            screenSendersRef.current[partnerUid] = screenSender;
-          } catch (e) {}
-        });
-      }
+      // 3. Add screen share track (real or dummy to ensure m-line exists)
+      const screenSource = screenStreamRef.current || new MediaStream([getOrCreateDummyScreenTrack()]);
+      screenSource.getVideoTracks().forEach((track) => {
+        try {
+          const screenSender = pc.addTrack(track, screenSource);
+          screenSendersRef.current[partnerUid] = screenSender;
+        } catch (e) {}
+      });
 
       // Handle local ICE candidates
       pc.onicecandidate = (event) => {
@@ -1279,12 +1284,18 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
   const handleSignal = useCallback(
     async (signal: VoiceSignal, micStream: MediaStream) => {
       if (!signal || !signal.type || !signal.uid) return;
-      const partnerUid = signal.uid;
-      if (partnerUid === profile.uid) return;
+      
+      // Always normalize to base UID for remote participants to prevent duplicate connections from multi-tab users
+      const partnerFullUid = signal.uid;
+      const partnerUid = partnerFullUid.split("_tab_")[0];
+      const myFullUid = profile.uid;
+      const myBaseUid = myFullUid.split("_tab_")[0];
+
+      if (partnerUid === myBaseUid) return;
 
       const sigKey = signal.type === "candidate"
-        ? `${signal.uid}_cand_${(signal.sdp || (signal as any).candidate || "").slice(0, 80)}_${signal.id || ""}`
-        : (signal.id || `${signal.uid}_${signal.type}_${signal.timestamp || ""}`);
+        ? `${partnerFullUid}_cand_${(signal.sdp || (signal as any).candidate || "").slice(0, 80)}_${signal.id || ""}`
+        : (signal.id || `${partnerFullUid}_${signal.type}_${signal.timestamp || ""}`);
 
       if (processedSignalsRef.current.has(sigKey)) {
         return;
@@ -1659,14 +1670,19 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
             const rawUid = u?.uid || d.id || "";
             if (!rawUid) return;
             const canonicalUid = rawUid.split("_tab_")[0] || ("user_" + uName.toLowerCase().replace(/[^a-z0-9]/g, ""));
-            const isSelf = canonicalUid === myBaseUid || rawUid === profile.uid || uName.toLowerCase() === myNameClean;
+            const isSelf = canonicalUid === myBaseUid || rawUid === profile.uid;
 
             let ts = toTimestampMs(u.timestamp || (u as any).lastSeen);
             if (ts <= 0) ts = now;
             if (Math.abs(now - ts) <= 60000 && (u as any).inVoice !== false) {
               const existing = userMap.get(canonicalUid);
-              if (!existing || isSelf || ts >= (existing.timestamp || 0)) {
-                userMap.set(canonicalUid, { ...u, uid: isSelf ? profile.uid : canonicalUid, timestamp: ts });
+              // For remote users, prefer the most recently updated tab
+              if (!existing || isSelf || ts > (existing.timestamp || 0)) {
+                userMap.set(canonicalUid, { 
+                  ...u, 
+                  uid: isSelf ? profile.uid : rawUid, 
+                  timestamp: ts 
+                });
               }
             }
           });
@@ -1685,9 +1701,10 @@ function getUserColorSync(photoURL?: string | null, username: string = "User") {
               if (ts <= 0) ts = now;
               if (Math.abs(now - ts) <= 60000) {
                 const existing = userMap.get(canonicalUid);
-                if (!existing || isSelf || ts >= (existing.timestamp || 0)) {
+                // Only overwrite if this entry is newer than what we have
+                if (!existing || isSelf || ts > (existing.timestamp || 0)) {
                   userMap.set(canonicalUid, {
-                    uid: isSelf ? profile.uid : canonicalUid,
+                    uid: isSelf ? profile.uid : rawUid,
                     username: uName,
                     photoURL: pData.photoURL || existing?.photoURL || "",
                     channelId: existing?.channelId || "general",

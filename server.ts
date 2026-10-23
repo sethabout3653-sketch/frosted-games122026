@@ -5483,6 +5483,7 @@ Platform context:
     try {
       let subPath = (req.params as any).path || (req.params as any)[0] || "";
       if (subPath.startsWith("/")) subPath = subPath.slice(1);
+      if (subPath.startsWith("api/ugs/")) subPath = subPath.slice("api/ugs/".length);
       if (subPath.startsWith("ugs/")) subPath = subPath.slice("ugs/".length);
 
       if (!subPath) return res.status(400).send("Missing ugs game path");
@@ -5521,6 +5522,37 @@ Platform context:
 
       if (contentType.includes("text/html") || subPath.endsWith(".html")) {
         let html = await response.text();
+
+        // 1. Remove Google Tag Manager tracking
+        html = html.replace(/<script[^>]*src="[^"]*googletagmanager\.com[^"]*"[^>]*><\/script>/gi, "");
+        html = html.replace(/<script[^>]*>\s*window\.dataLayer[\s\S]*?<\/script>/gi, "");
+
+        // 2. Remove obfuscated domain lock scripts
+        html = html.replace(/<script[^>]*>(?:(?!<\/script>)[\s\S])*sFfEkK[\s\S]*?<\/script>/gi, "");
+        html = html.replace(/<script[^>]*>(?:(?!<\/script>)[\s\S])*IuySzzpOiISwZDDrwmF[\s\S]*?<\/script>/gi, "");
+
+        // 3. Neutralize frame-busting scripts to prevent top-level navigation crashes
+        html = html.replace(/top\.location\s*!==\s*window\.location/g, "false");
+        html = html.replace(/window\.top\s*!==\s*window\.self/g, "false");
+        html = html.replace(/window\.top\s*!=\s*window\.self/g, "false");
+        html = html.replace(/top\s*!=\s*self/g, "false");
+        html = html.replace(/top\.location\.replace/g, "console.log");
+        html = html.replace(/top\.location\.href\s*=/g, "location.href =");
+        html = html.replace(/window\.top\.location\s*=/g, "window.location =");
+
+        // 4. Inject base tag so relative sub-resources resolve accurately via /api/ugs
+        const lastSlash = subPath.lastIndexOf("/");
+        const parentPath = lastSlash !== -1 ? subPath.slice(0, lastSlash + 1) : "";
+        const baseHref = `/api/ugs/${parentPath}`;
+        const baseTag = `<base href="${baseHref}">`;
+
+        html = html.replace(/<base[^>]*>/gi, "");
+        if (/<head[^>]*>/i.test(html)) {
+          html = html.replace(/<head[^>]*>/i, `$&${baseTag}`);
+        } else {
+          html = `${baseTag}${html}`;
+        }
+
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         return res.send(html);
       }
@@ -6046,70 +6078,74 @@ Platform context:
       }
 
       // Periodic background maintenance for stale presence (backup to the change-based pruning)
-      setInterval(() => {
-        getDb().then(async (db) => {
-          try {
-            const now = Date.now();
-            const staleThreshold = now - 45000; // 45s hard prune from database
-            await db.run("DELETE FROM records WHERE collection = ? AND timestamp < ?", ["presence", staleThreshold]);
-            await db.run("DELETE FROM records WHERE collection = ? AND timestamp < ?", ["voice_users", staleThreshold]);
-            
-            // Memory store maintenance
-            ["presence", "voice_users"].forEach(col => {
-              if (memoryStore[col]) {
-                const memoryStaleThreshold = now - 20000; // 20s soft prune from RAM
-                Object.keys(memoryStore[col]).forEach(k => {
-                  const item = memoryStore[col][k];
-                  const itemTs = item.timestamp || item.lastSeen || 0;
-                  if (itemTs < memoryStaleThreshold) {
-                    delete memoryStore[col][k];
-                  }
-                });
-              }
-            });
-          } catch (e) {}
-        }).catch(() => {});
-      }, 30000);
-
-      httpServer.listen(PORT, "0.0.0.0", () => {
-        console.log(`Server running with WebSockets enabled on http://localhost:${PORT}`);
-
-        // Self-ping keepalive loop to prevent inactivity timeouts on Render and cloud hosts
-        const keepAliveBase =
-          process.env.RENDER_EXTERNAL_URL ||
-          process.env.APP_URL ||
-          process.env.KEEP_ALIVE_URL ||
-          "https://ais-dev-ovp2lvnduxwm4gh3dbqu3j-534577608781.us-west2.run.app";
-
-        const PING_INTERVAL_MS = 13 * 60 * 1000; // 13 minutes (safely under the 15-minute inactivity limit)
-
-        const pingServerKeepAlive = async () => {
-          const targetUrl = keepAliveBase.endsWith("/")
-            ? `${keepAliveBase}api/ping`
-            : `${keepAliveBase}/api/ping`;
-          try {
-            const res = await fetch(targetUrl, {
-              headers: { "User-Agent": "Render-KeepAlive/1.0" },
-              signal: AbortSignal.timeout(12000),
-            });
-            console.log(`[KeepAlive] Pinged ${targetUrl} - HTTP status ${res.status}`);
-          } catch {
+      // Only run on long-running servers, not serverless functions
+      if (!process.env.VERCEL) {
+        setInterval(() => {
+          getDb().then(async (db) => {
             try {
-              const res = await fetch(keepAliveBase, {
+              const now = Date.now();
+              const staleThreshold = now - 45000; // 45s hard prune from database
+              await db.run("DELETE FROM records WHERE collection = ? AND timestamp < ?", ["presence", staleThreshold]);
+              await db.run("DELETE FROM records WHERE collection = ? AND timestamp < ?", ["voice_users", staleThreshold]);
+              
+              // Memory store maintenance
+              ["presence", "voice_users"].forEach(col => {
+                if (memoryStore[col]) {
+                  const memoryStaleThreshold = now - 20000; // 20s soft prune from RAM
+                  Object.keys(memoryStore[col]).forEach(k => {
+                    const item = memoryStore[col][k];
+                    const itemTs = item.timestamp || item.lastSeen || 0;
+                    if (itemTs < memoryStaleThreshold) {
+                      delete memoryStore[col][k];
+                    }
+                  });
+                }
+              });
+            } catch (e) {}
+          }).catch(() => {});
+        }, 30000);
+
+        httpServer.listen(PORT, "0.0.0.0", () => {
+          console.log(`Server running with WebSockets enabled on http://localhost:${PORT}`);
+
+          // Self-ping keepalive loop to prevent inactivity timeouts on serverless and cloud hosts
+          const keepAliveBase =
+            process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` :
+            process.env.APP_URL ||
+            process.env.RENDER_EXTERNAL_URL ||
+            process.env.KEEP_ALIVE_URL ||
+            "https://frosted-games.vercel.app";
+
+          const PING_INTERVAL_MS = 13 * 60 * 1000; // 13 minutes (safely under the 15-minute inactivity limit)
+
+          const pingServerKeepAlive = async () => {
+            const targetUrl = keepAliveBase.endsWith("/")
+              ? `${keepAliveBase}api/ping`
+              : `${keepAliveBase}/api/ping`;
+            try {
+              const res = await fetch(targetUrl, {
                 headers: { "User-Agent": "Render-KeepAlive/1.0" },
                 signal: AbortSignal.timeout(12000),
               });
-              console.log(`[KeepAlive] Fallback pinged ${keepAliveBase} - HTTP status ${res.status}`);
-            } catch (err: any) {
-              console.warn(`[KeepAlive] Ping failed:`, err?.message || err);
+              console.log(`[KeepAlive] Pinged ${targetUrl} - HTTP status ${res.status}`);
+            } catch {
+              try {
+                const res = await fetch(keepAliveBase, {
+                  headers: { "User-Agent": "Render-KeepAlive/1.0" },
+                  signal: AbortSignal.timeout(12000),
+                });
+                console.log(`[KeepAlive] Fallback pinged ${keepAliveBase} - HTTP status ${res.status}`);
+              } catch (err: any) {
+                console.warn(`[KeepAlive] Ping failed:`, err?.message || err);
+              }
             }
-          }
-        };
+          };
 
-        // Ping after 10 seconds of startup and then continuously every 13 minutes
-        setTimeout(pingServerKeepAlive, 10000);
-        setInterval(pingServerKeepAlive, PING_INTERVAL_MS);
-      });
+          // Ping after 10 seconds of startup and then continuously every 13 minutes
+          setTimeout(pingServerKeepAlive, 10000);
+          setInterval(pingServerKeepAlive, PING_INTERVAL_MS);
+        });
+      }
     })();
   }
 
