@@ -354,16 +354,7 @@ class UniversalDatabaseManager {
         const json = await res.json();
         const serverData = json.data || {};
         if (typeof serverData === "object") {
-          // Remove keys from local map that do not exist on the server (only for messages) or are in tombstones
-          if (collection === "messages") {
-            Array.from(map.keys()).forEach((key) => {
-              if (!(key in serverData) || tombstones.has(key)) {
-                map.delete(key);
-              }
-            });
-          }
-
-          // Insert/Update from server
+          // Insert/Update from server without deleting existing local cache
           Object.entries(serverData).forEach(([k, v]) => {
             if (!tombstones.has(k)) {
               const parsed = typeof v === "string" ? JSON.parse(v) : v;
@@ -381,15 +372,6 @@ class UniversalDatabaseManager {
         if (res2.ok) {
           const serverData2 = await res2.json() || {};
           if (typeof serverData2 === "object") {
-            // Remove keys from local map that do not exist on the server (only for messages) or are in tombstones
-            if (collection === "messages") {
-              Array.from(map.keys()).forEach((key) => {
-                if (!(key in serverData2) || tombstones.has(key)) {
-                  map.delete(key);
-                }
-              });
-            }
-
             Object.entries(serverData2).forEach(([k, v]: [string, any]) => {
               if (!tombstones.has(k)) {
                 map.set(k, { ...(v || {}), id: k });

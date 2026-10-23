@@ -40,6 +40,7 @@
     "drizzle-orm": "^0.45.2",
     "express": "^4.21.2",
     "fastify": "^5.12.5",
+    "firebase": "^13.1.0",
     "framer-motion": "^13.2.0",
     "hls.js": "^1.7.3",
     "jszip": "^3.10.2",

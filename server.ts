@@ -88,52 +88,8 @@ import dbDataHandler, { addLocalSubscriber, memoryStore, notifyLocalSubscribers 
 import dbStreamHandler from "./api/db/stream";
 import { getLibSQLClient, initSQLite } from "./src/db/sqlite";
 
-import Database from "better-sqlite3";
-
-
-// Initialize single ultra-fast synchronous database for both records and WebRTC signaling (0ms delay)
-const voiceDbFile = path.join(process.cwd(), "uploads", "app.db");
-try {
-  if (!fs.existsSync(path.dirname(voiceDbFile))) {
-    fs.mkdirSync(path.dirname(voiceDbFile), { recursive: true });
-  }
-} catch (e) {}
-
-const voiceDb = new Database(voiceDbFile);
-voiceDb.pragma("journal_mode = WAL");
-voiceDb.pragma("synchronous = NORMAL");
-voiceDb.pragma("busy_timeout = 5000");
-
-voiceDb.exec(`
-  CREATE TABLE IF NOT EXISTS records (
-    collection TEXT NOT NULL,
-    id TEXT NOT NULL,
-    data TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    PRIMARY KEY (collection, id)
-  );
-
-  CREATE TABLE IF NOT EXISTS webrtc_signals (
-    id TEXT PRIMARY KEY,
-    target_uid TEXT,
-    uid TEXT,
-    payload TEXT,
-    timestamp INTEGER
-  );
-  
-  CREATE TABLE IF NOT EXISTS rtc_signals (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    room_id TEXT,
-    sender_id TEXT NOT NULL,
-    receiver_id TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    timestamp INTEGER NOT NULL
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_records_col_ts ON records(collection, timestamp);
-  CREATE INDEX IF NOT EXISTS idx_webrtc_target_ts ON webrtc_signals(target_uid, timestamp);
-  CREATE INDEX IF NOT EXISTS idx_rtc_receiver_ts ON rtc_signals(receiver_id, timestamp);
-`);
+// Initialize LibSQL SQLite database cleanly
+initSQLite().catch((e) => console.warn("[SQLite Init]", e));
 
 export const app = express();
 export const httpServer = http.createServer(app);
@@ -1231,18 +1187,21 @@ const PORT = 3000;
           const basePeer = peerId.split("_tab_")[0];
           if (basePeer) rtcClients.set(basePeer, ws);
 
-          // Deliver any recently saved signals from the database for this peer (last 25 seconds) using local synchronous voiceDb
+          // Deliver any recently saved signals from the database for this peer (last 25 seconds)
           try {
             const cutoff = Date.now() - 25000;
-            const rows = voiceDb.prepare(
-              "SELECT * FROM rtc_signals WHERE (receiver_id = ? OR receiver_id = ? OR receiver_id = 'all') AND timestamp > ? ORDER BY timestamp ASC"
-            ).all(peerId, basePeer, cutoff) as any[];
+            const cli = getLibSQLClient();
+            const res = await cli.execute({
+              sql: "SELECT * FROM rtc_signals WHERE (receiver_id = ? OR receiver_id = ? OR receiver_id = 'all') AND timestamp > ? ORDER BY timestamp ASC",
+              args: [peerId, basePeer, cutoff],
+            });
+            const rows = res.rows || [];
 
             if (rows && rows.length > 0) {
               for (const row of rows) {
                 if (row.sender_id === peerId) continue;
                 let parsedPayload: any;
-                try { parsedPayload = JSON.parse(row.payload); } catch { parsedPayload = row.payload; }
+                try { parsedPayload = JSON.parse(row.payload as string); } catch { parsedPayload = row.payload; }
 
                 ws.send(JSON.stringify({
                   type: "signal",
@@ -1402,22 +1361,22 @@ const PORT = 3000;
             timestamp,
           };
 
-          // Step 1: Explicitly write WebRTC data to database for persistence using local voiceDb
+          // Step 1: Explicitly write WebRTC data to database for persistence
           try {
-            // 1. Save to rtc_signals table
-            voiceDb.prepare(
-              "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)"
-            ).run(roomId, senderId, targetId, payloadJson, timestamp);
+            const cli = getLibSQLClient();
+            await cli.execute({
+              sql: "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
+              args: [roomId, senderId, targetId, payloadJson, timestamp],
+            });
+            await cli.execute({
+              sql: "INSERT OR REPLACE INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
+              args: [sigId, targetId, senderId, payloadJson, timestamp],
+            });
 
-            // 2. Save to webrtc_signals table
-            voiceDb.prepare(
-              "INSERT OR REPLACE INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)"
-            ).run(sigId, targetId, senderId, payloadJson, timestamp);
-
-            // 3. Prune signals older than 45 seconds to keep database fast
+            // Prune signals older than 45 seconds to keep database fast
             const pruneCutoff = Date.now() - 45000;
-            voiceDb.prepare("DELETE FROM rtc_signals WHERE timestamp < ?").run(pruneCutoff);
-            voiceDb.prepare("DELETE FROM webrtc_signals WHERE timestamp < ?").run(pruneCutoff);
+            await cli.execute({ sql: "DELETE FROM rtc_signals WHERE timestamp < ?", args: [pruneCutoff] });
+            await cli.execute({ sql: "DELETE FROM webrtc_signals WHERE timestamp < ?", args: [pruneCutoff] });
           } catch (dbErr) {
             console.warn("[VoiceDb Signal Persistence Error]", dbErr);
           }
@@ -1672,18 +1631,21 @@ const PORT = 3000;
       // 2. Respond immediately
       res.json({ success: true, id: sigObj.id });
 
-      // 3. Persist synchronously to local voiceDb
+      // 3. Persist asynchronously to local SQLite database
       const payloadJson = JSON.stringify(sigObj);
       try {
-        voiceDb.prepare(
-          "INSERT OR REPLACE INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)"
-        ).run(sigObj.id, targetUid, uid, payloadJson, sigObj.timestamp);
-        voiceDb.prepare(
-          "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)"
-        ).run(body.roomId || "general", uid, targetUid, payloadJson, sigObj.timestamp);
+        const cli = getLibSQLClient();
+        await cli.execute({
+          sql: "INSERT OR REPLACE INTO webrtc_signals (id, target_uid, uid, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
+          args: [sigObj.id, targetUid, uid, payloadJson, sigObj.timestamp],
+        });
+        await cli.execute({
+          sql: "INSERT INTO rtc_signals (room_id, sender_id, receiver_id, payload, timestamp) VALUES (?, ?, ?, ?, ?)",
+          args: [body.roomId || "general", uid, targetUid, payloadJson, sigObj.timestamp],
+        });
         const cutoff = Date.now() - 45000;
-        voiceDb.prepare("DELETE FROM webrtc_signals WHERE timestamp < ?").run(cutoff);
-        voiceDb.prepare("DELETE FROM rtc_signals WHERE timestamp < ?").run(cutoff);
+        await cli.execute({ sql: "DELETE FROM webrtc_signals WHERE timestamp < ?", args: [cutoff] });
+        await cli.execute({ sql: "DELETE FROM rtc_signals WHERE timestamp < ?", args: [cutoff] });
       } catch (dbErr) {
         console.warn("[VoiceDb POST Signal Error]", dbErr);
       }
@@ -1701,14 +1663,17 @@ const PORT = 3000;
       }
 
       const baseUid = targetUid.split("_tab_")[0];
+      const cli = getLibSQLClient();
 
-      const rows = voiceDb.prepare(
-        "SELECT payload FROM webrtc_signals WHERE (target_uid = ? OR target_uid = 'all' OR target_uid LIKE ? OR target_uid LIKE ?) AND timestamp > ?"
-      ).all(targetUid, `${baseUid}%`, `%${baseUid}`, since) as any[];
-      
+      const resDb = await cli.execute({
+        sql: "SELECT payload FROM webrtc_signals WHERE (target_uid = ? OR target_uid = 'all' OR target_uid LIKE ? OR target_uid LIKE ?) AND timestamp > ?",
+        args: [targetUid, `${baseUid}%`, `%${baseUid}`, since],
+      });
+      const rows = resDb.rows || [];
+
       const signals = rows.map((r: any) => {
         try {
-          return JSON.parse(r.payload);
+          return JSON.parse(r.payload as string);
         } catch {
           return null;
         }
@@ -1716,12 +1681,14 @@ const PORT = 3000;
 
       // Also fetch from rtc_signals table
       try {
-        const rtcRows = voiceDb.prepare(
-          "SELECT payload, sender_id, receiver_id, timestamp FROM rtc_signals WHERE (receiver_id = ? OR receiver_id = 'all' OR receiver_id LIKE ? OR receiver_id LIKE ?) AND timestamp > ?"
-        ).all(targetUid, `${baseUid}%`, `%${baseUid}`, since) as any[];
+        const resRtc = await cli.execute({
+          sql: "SELECT payload, sender_id, receiver_id, timestamp FROM rtc_signals WHERE (receiver_id = ? OR receiver_id = 'all' OR receiver_id LIKE ? OR receiver_id LIKE ?) AND timestamp > ?",
+          args: [targetUid, `${baseUid}%`, `%${baseUid}`, since],
+        });
+        const rtcRows = resRtc.rows || [];
         rtcRows.forEach((r: any) => {
           try {
-            const p = JSON.parse(r.payload);
+            const p = JSON.parse(r.payload as string);
             if (!signals.some((s: any) => s.id === p.id)) {
               signals.push(p);
             }

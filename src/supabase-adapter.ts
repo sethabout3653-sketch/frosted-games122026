@@ -1,16 +1,4 @@
-// ============================================================================
-// Unlimited Zero-Quota Database Adapter (Universal Vercel & Node Engine)
-// Seamless Drop-In Replacement for Supabase with 0 Quotas & Forever Free Tier
-// ============================================================================
-
 import {
-  universalDB,
-  storageEngine,
-  db as universalDbRef,
-  OperationType,
-  handleFirestoreError,
-  toTimestampMs,
-  compareMessagesChronological,
   collection,
   doc,
   query,
@@ -25,22 +13,54 @@ import {
   deleteDoc,
   addDoc,
   writeBatch,
+} from "firebase/firestore";
+import { db } from "./lib/firebase";
+import {
+  storageEngine,
   sendBroadcastSignal,
   subscribeBroadcastSignals,
+  universalDB,
 } from "./lib/database";
 
-// Re-export storage engine as cassandra / storage for legacy component bindings
+export enum OperationType {
+  CREATE = "create",
+  READ = "read",
+  UPDATE = "update",
+  DELETE = "delete",
+  LIST = "list",
+  QUERY = "query",
+  WRITE = "write",
+}
+
+export function handleFirestoreError(error: any, op: string, path: string) {
+  console.warn(`[Firestore] Operation ${op} on ${path}:`, error);
+}
+
+export function toTimestampMs(val: any): number {
+  if (!val) return Date.now();
+  if (typeof val === "number") return val;
+  if (typeof val.toMillis === "function") return val.toMillis();
+  if (typeof val.toDate === "function") return val.toDate().getTime();
+  if (val instanceof Date) return val.getTime();
+  if (typeof val === "string") {
+    const parsed = new Date(val).getTime();
+    if (!isNaN(parsed)) return parsed;
+  }
+  return Date.now();
+}
+
+export function compareMessagesChronological(a: any, b: any): number {
+  const timeA = toTimestampMs(a?.timestamp || a?.createdAt);
+  const timeB = toTimestampMs(b?.timestamp || b?.createdAt);
+  return timeA - timeB;
+}
+
 export const cassandra = {
   storage: storageEngine,
 };
 
-export const db = universalDbRef;
-
 export {
-  OperationType,
-  handleFirestoreError,
-  toTimestampMs,
-  compareMessagesChronological,
+  db,
   collection,
   doc,
   query,

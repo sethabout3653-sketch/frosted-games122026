@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "Message": {
+      "title": "Message",
+      "description": "Chat message entity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "content": { "type": "string", "maxLength": 5000 },
+        "author": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "channelId": { "type": "string" }
+      },
+      "required": ["content", "author", "timestamp"]
+    },
+    "GameReaction": {
+      "title": "GameReaction",
+      "description": "Reactions for games",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "gameId": { "type": "string" },
+        "emoji": { "type": "string" },
+        "count": { "type": "number" }
+      },
+      "required": ["gameId", "emoji", "count"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "avatar": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["username"]
+    }
+  },
+  "firestore": {
+    "/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Global and channel chat messages"
+    },
+    "/game_reactions/{reactionId}": {
+      "schema": "GameReaction",
+      "description": "Reactions on games"
+    },
+    "/profiles/{profileId}": {
+      "schema": "UserProfile",
+      "description": "User profiles"
+    }
+  }
+}
